@@ -1,0 +1,19 @@
+pinyon-shift-fh1-render-test-v1
+# Run at 1x with gpu_record_thread=false and fh1_frame_dump_path set.
+# Arm both tools at the same swap to compare a complete live/replayed frame.
+# clock-hz 60
+wait 1 30000 file pressstart.wmv
+input 0 0000 0 0 0 0 0 0
+input 360 1000 0 0 0 0 0 0
+input 366 0000 0 0 0 0 0 0
+input 480 1000 0 0 0 0 0 0
+input 486 0000 0 0 0 0 0 0
+input 600 1000 0 0 0 0 0 0
+input 606 0000 0 0 0 0 0 0
+input 720 1000 0 0 0 0 0 0
+input 726 0000 0 0 0 0 0 0
+capture 1200 before
+cvar 1260 fh1_frame_dump_frame -1
+cvar 1260 fh1_inspector_capture true
+capture 1380 after
+stop 1440

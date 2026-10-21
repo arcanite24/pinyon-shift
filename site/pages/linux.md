@@ -41,6 +41,15 @@ python3 tools/pinyon.py launch
 python3 tools/pinyon.py shortcuts add
 ```
 
+The game and its FidelityFX library (FSR 2 and FSR 3) build with the pinned
+LLVM compiler and Steam Runtime SDK; SteamOS needs no system GCC. The
+FidelityFX build inherits the game's toolchain and flags, including when an
+existing build is updated. If 0.6.0 stopped there with `crtbeginS.o` or
+`-lgcc` missing, update to source containing the fix for #681 and retry
+`python3 tools/pinyon.py setup --build-only`. A clean FidelityFX build and
+retry passed on the Steam Deck LCD with SteamOS 3.7.19, LLVM 20.1.8 and Steam
+Runtime SDK 3.0.20260805.254768. See [Linux troubleshooting](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/LINUX.md#troubleshooting).
+
 ## DLC, title update and saves
 
 The launcher's **DLC** panel imports your own DLC packages and the title update, as on Windows ([DLC and title update](dlc.md)); **Import a save** brings a save from another install or from Xenia. On a Steam Deck the 21 packages give the same 84 DLC cars as on Windows, and the v4 build runs the offline 1000 Club and reaches the Rally stage intro. The launcher also builds the Android app and shares it over Wi-Fi when the Android SDK command-line tools and a JDK 17 are installed.

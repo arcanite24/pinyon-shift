@@ -1,0 +1,39 @@
+pinyon-shift-fh1-render-test-v1
+# clock-hz 60
+# Paint-shop entry from a private native purchase fixture at Gauntlet.
+# Run the retained variant or a stock control with only hidden_cars enabled.
+# Review the target and car identity. This stops at Design Creator before
+# editing or saving paint. Intro 1565 logged Vulkan resolve/backend failures
+# here on the base Windows build; this is a diagnostic route, not a clean
+# paint qualification. Never use a live profile as the state root.
+input 0 0000 0 0 0 0 0 0
+input 360 1000 0 0 0 0 0 0
+input 366 0000 0 0 0 0 0 0
+input 480 1000 0 0 0 0 0 0
+input 486 0000 0 0 0 0 0 0
+input 600 1000 0 0 0 0 0 0
+input 606 0000 0 0 0 0 0 0
+input 720 1000 0 0 0 0 0 0
+input 726 0000 0 0 0 0 0 0
+input 780 0000 0 0 0 0 0 0
+input 930 0000 0 0 0 0 0 0
+wait 1400 3000 vehicle
+input 1680 0020 0 0 0 0 0 0
+input 1686 0000 0 0 0 0 0 0
+capture 1860 map
+input 1900 0000 0 0 -32767 -17600 0 0
+input 1943 0000 0 0 0 0 0 0
+capture 2100 paint-target
+input 2200 4000 0 0 0 0 0 0
+input 2206 0000 0 0 0 0 0 0
+capture 2300 travel-prompt
+input 2400 1000 0 0 0 0 0 0
+input 2406 0000 0 0 0 0 0 0
+capture 3300 destination
+input 3400 4000 0 0 0 0 0 0
+input 3406 0000 0 0 0 0 0 0
+capture 3900 paint-shop-menu
+input 4100 1000 0 0 0 0 0 0
+input 4106 0000 0 0 0 0 0 0
+capture 4500 design-creator
+stop 4600

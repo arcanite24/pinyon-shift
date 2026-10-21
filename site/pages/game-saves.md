@@ -31,6 +31,24 @@ A mod changes a save while it loads, through `PINYON_HOOK_SAVE_AFTER_DECRYPT`, e
 
 ## Save files
 
+On the pinned base-disc bus profile, the decrypted `PlayerDatabase` body
+starts with three big-endian 32-bit words: uncompressed size, compressed
+size, uncompressed size. Raw DEFLATE starts at byte 12; decoding it with
+`zlib.decompress(body[12:], -15)` yields SQLite. Comparing its
+`Career_Garage` and `Career_PurchasedParts` rows before and after recovery
+checks that the title kept the existing cars, tunes and parts, beyond
+merely reaching free roam. The selection itself is the profile body's
+`Main/CareerCar` garage instance ID. The [recovery tool](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/HIDDEN_CARS.md)
+backs up the complete encrypted profile and lets the title perform that
+change through its existing load hook. This exact recovery request selects
+the isolated profile without enabling the trainer or dormant cheat settings.
+
+The four newly purchased hidden player variants' `cxds` thumbnails inflate
+from byte 20 with raw DEFLATE. The word at byte 16 repeats the uncompressed
+size, 884,788 bytes. Decoding that result as `.xds` with the existing host UI
+texture decoder gives a 768x288 image; reviewing the pixels establishes
+that the intended model rendered, beyond merely checking file creation.
+
 {{findings:saves/Save files}}
 
 ## Encryption and loading

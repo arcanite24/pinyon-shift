@@ -6,16 +6,28 @@
 
 #include "native_renderer/d3d_census.h"
 
+#if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 #include "fh1_guest_address.h"
 #include "pinyon_shift_diagnostics.h"
 
 #include <algorithm>
 #include <atomic>
 #include <cstdint>
+#include <cstring>
 #include <iterator>
 #include <mutex>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -26,6 +38,7 @@
 #include <rex/logging/macros.h>
 #include <rex/perf/counter.h>
 #include <rex/ppc/context.h>
+#include <rex/ppc/func.h>
 #include <rex/system/d3d_census.h>
 #include <rex/system/kernel_state.h>
 #include <rex/system/xmemory.h>
@@ -375,6 +388,105 @@ struct ListInfo {
 };
 std::mutex g_lists_mutex;
 std::unordered_map<uint32_t, ListInfo> g_lists;
+
+// NA-2.2 pass census: list runs by their owner, the guest functions that
+// called the executor. The guest stack does not hold them (the generated
+// code keeps LR in host locals), so they are read from the host stack: each
+// return address there is mapped to the generated function containing it.
+// The key is the executor's return address and its first two guest callers.
+struct OwnerInfo {
+  uint32_t lr = 0, owner = 0, owner_caller = 0, owner_caller2 = 0;
+  uint64_t runs = 0, dwords = 0, fixups[16] = {};
+  uint64_t states[census::kListStateCount] = {};
+  uint32_t origins = 0;
+  std::unordered_set<uint32_t> lists;
+  census::ListDecoded decoded;
+  // The order of the lists it runs: a hash of each frame's sequence, and how
+  // many frames repeated the previous frame's sequence.
+  uint32_t frame = 0;
+  uint64_t sequence = 0, previous = 0, runs_this_frame = 0;
+  uint64_t frames = 0, same_order = 0, run_count_changes = 0, previous_runs = 0;
+};
+std::unordered_map<uint64_t, OwnerInfo> g_owners;
+std::unordered_map<uint32_t, uint64_t> g_list_owner;
+
+#if defined(_WIN32)
+// A generated function's body: the mapping's host pointer, or the target of
+// the jump thunk it points to (as in hitch_sampler_win.cpp).
+uintptr_t BodyStart(uintptr_t host) {
+  const auto* code = reinterpret_cast<const uint8_t*>(host);
+  for (int hops = 0; hops < 4; ++hops) {
+    if (code[0] == 0xE9) {
+      int32_t rel;
+      std::memcpy(&rel, code + 1, 4);
+      code = code + 5 + rel;
+    } else if (code[0] == 0xFF && code[1] == 0x25) {
+      int32_t rel;
+      std::memcpy(&rel, code + 2, 4);
+      code = *reinterpret_cast<const uint8_t* const*>(code + 6 + rel);
+    } else {
+      break;
+    }
+  }
+  return reinterpret_cast<uintptr_t>(code);
+}
+
+// The guest function whose generated body contains `pc`, or 0.
+uint32_t GuestFunctionAt(uintptr_t pc) {
+  static const std::unordered_map<uintptr_t, uint32_t> bodies = [] {
+    std::unordered_map<uintptr_t, uint32_t> out;
+    for (size_t i = 0; PPCFuncMappings[i].guest != 0; ++i) {
+      if (!PPCFuncMappings[i].host) continue;
+      out.emplace(BodyStart(reinterpret_cast<uintptr_t>(PPCFuncMappings[i].host)),
+                  uint32_t(PPCFuncMappings[i].guest));
+    }
+    return out;
+  }();
+  DWORD64 image_base = 0;
+  const RUNTIME_FUNCTION* function = RtlLookupFunctionEntry(pc, &image_base, nullptr);
+  if (!function) return 0;
+  while (function->UnwindData & RUNTIME_FUNCTION_INDIRECT) {
+    function = reinterpret_cast<const RUNTIME_FUNCTION*>(
+        image_base + (function->UnwindData & ~RUNTIME_FUNCTION_INDIRECT));
+  }
+  const auto it = bodies.find(uintptr_t(image_base + function->BeginAddress));
+  return it == bodies.end() ? 0 : it->second;
+}
+#endif
+
+// The first `count` guest functions on the host stack above the executor
+// (0x82416A00), innermost first; zeros where there are fewer.
+void GuestCallers(uint32_t* out, int count) {
+  for (int i = 0; i < count; ++i) out[i] = 0;
+#if defined(_WIN32)
+  void* pcs[32];
+  const USHORT depth = RtlCaptureStackBackTrace(1, 32, pcs, nullptr);
+  bool above = false;
+  int found = 0;
+  for (USHORT i = 0; i < depth && found < count; ++i) {
+    const uint32_t guest = GuestFunctionAt(reinterpret_cast<uintptr_t>(pcs[i]));
+    if (!guest) continue;
+    if (!above) {
+      above = guest == 0x82416A00u;
+      if (above) continue;
+      // The hook may run from a caller's frame if the executor was inlined.
+      above = true;
+    }
+    out[found++] = guest;
+  }
+#endif
+}
+
+void CloseOwnerFrame(OwnerInfo& owner) {
+  if (!owner.runs_this_frame) return;
+  ++owner.frames;
+  if (owner.sequence == owner.previous) ++owner.same_order;
+  if (owner.runs_this_frame != owner.previous_runs) ++owner.run_count_changes;
+  owner.previous = owner.sequence;
+  owner.previous_runs = owner.runs_this_frame;
+  owner.sequence = 0;
+  owner.runs_this_frame = 0;
+}
 std::unordered_map<uint32_t, uint64_t> g_fixup_callers;
 std::unordered_map<uint64_t, uint64_t> g_callbacks;  // callback << 32 | lr
 uint64_t g_new_lists = 0;
@@ -472,6 +584,28 @@ void OnRun(uint32_t r1, uint32_t device, uint32_t list, uint32_t lr) {
         }
       }
     }
+    uint32_t callers[3];
+    GuestCallers(callers, 3);
+    const uint64_t owner_key =
+        (uint64_t(callers[0]) << 32 | callers[1]) * 0x9E3779B97F4A7C15ull ^ callers[2];
+    OwnerInfo& owner = g_owners[owner_key];
+    owner.lr = lr;
+    owner.owner = callers[0];
+    owner.owner_caller = callers[1];
+    owner.owner_caller2 = callers[2];
+    if (owner.frame != frame) {
+      CloseOwnerFrame(owner);
+      owner.frame = frame;
+    }
+    owner.sequence = (owner.sequence ^ list) * 0x100000001B3ull;
+    ++owner.runs_this_frame;
+    ++owner.runs;
+    owner.dwords += dwords;
+    owner.lists.insert(list);
+    g_list_owner[list] = owner_key;
+    for (uint32_t type = 0; type < 16; ++type) {
+      owner.fixups[type] += info.fixups_pending[type];
+    }
     for (uint32_t& pending : info.fixups_pending) {
       fixups += pending;
       pending = 0;
@@ -499,6 +633,8 @@ void OnRun(uint32_t r1, uint32_t device, uint32_t list, uint32_t lr) {
     info.entries = count;
     info.flags = Load32(list + kListFlags);
     origin = info.origin;
+    owner.origins |= origin;
+    ++owner.states[state];
   }
   counters.run_states[state].fetch_add(1, std::memory_order_relaxed);
   counters.run_fixups[FixupBucket(fixups)].fetch_add(1, std::memory_order_relaxed);
@@ -682,6 +818,63 @@ void Start() {
               REXCVAR_GET(pinyon_shift_d3d_census_window));
 }
 
+// With g_lists_mutex held: the owners of the window's list runs, most runs
+// first, with what the decoder saw of their lists.
+void LogOwners(double frames) {
+  std::vector<std::pair<uint32_t, census::ListDecoded>> decoded;
+  census::TakeListDecoded(&decoded);
+  for (const auto& [list, counts] : decoded) {
+    const auto it = g_list_owner.find(list);
+    if (it == g_list_owner.end()) continue;
+    census::ListDecoded& sum = g_owners[it->second].decoded;
+    sum.draws += counts.draws;
+    sum.copies += counts.copies;
+    sum.events += counts.events;
+    sum.memory_writes += counts.memory_writes;
+    sum.waits += counts.waits;
+    sum.constants += counts.constants;
+    sum.shader_loads += counts.shader_loads;
+  }
+  std::vector<OwnerInfo*> owners;
+  for (auto& [key, owner] : g_owners) {
+    CloseOwnerFrame(owner);
+    if (owner.runs) owners.push_back(&owner);
+  }
+  std::sort(owners.begin(), owners.end(),
+            [](const OwnerInfo* a, const OwnerInfo* b) { return a->runs > b->runs; });
+  auto per_frame = [&](uint64_t value) { return fmt::format("{:.1f}", double(value) / frames); };
+  for (size_t i = 0; i < owners.size() && i < 24; ++i) {
+    const OwnerInfo& o = *owners[i];
+    std::string fixups, states;
+    for (uint32_t type = 0; type < 16; ++type) {
+      if (o.fixups[type]) fixups += fmt::format(" t{}={}", type, per_frame(o.fixups[type]));
+    }
+    for (uint32_t s = 0; s < census::kListStateCount; ++s) {
+      if (o.states[s]) states += fmt::format(" {}={}", kStateName[s], o.states[s]);
+    }
+    REXLOG_INFO(
+        "D3D census owner lr {:08X} callers {:08X} < {:08X} < {:08X}: {} lists, {} runs/frame, {:.0f} "
+        "dwords/run, origin {}, fixups/frame{}, states{}; decoded/frame draws {} copies {} events "
+        "{} memory writes {} waits {} constants {} shader loads {}; order same {} of {} frames, "
+        "run count changed {}",
+        o.lr, o.owner, o.owner_caller, o.owner_caller2, o.lists.size(), per_frame(o.runs),
+        double(o.dwords) / double(std::max<uint64_t>(o.runs, 1)), Origin(uint8_t(o.origins)),
+        fixups.empty() ? " none" : fixups, states, per_frame(o.decoded.draws),
+        per_frame(o.decoded.copies), per_frame(o.decoded.events),
+        per_frame(o.decoded.memory_writes), per_frame(o.decoded.waits),
+        per_frame(o.decoded.constants), per_frame(o.decoded.shader_loads), o.same_order,
+        o.frames, o.run_count_changes);
+  }
+  for (auto& [key, owner] : g_owners) {
+    const uint32_t frame = owner.frame;
+    const uint64_t previous = owner.previous, previous_runs = owner.previous_runs;
+    owner = OwnerInfo{};
+    owner.frame = frame;
+    owner.previous = previous;
+    owner.previous_runs = previous_runs;
+  }
+}
+
 void LogWindow(uint32_t frame) {
   const double frames = std::max<uint32_t>(g_window_frames, 1);
   auto per_frame = [&](uint64_t value) { return fmt::format("{:.1f}", double(value) / frames); };
@@ -840,6 +1033,7 @@ void LogWindow(uint32_t frame) {
       ++it;
     }
     g_new_lists = 0;
+    LogOwners(frames);
     std::vector<std::pair<uint32_t, uint64_t>> callers(g_fixup_callers.begin(),
                                                        g_fixup_callers.end());
     std::sort(callers.begin(), callers.end(),
@@ -1120,10 +1314,16 @@ PINYON_D3D_CENSUS_SLOT(65, 16)
 PINYON_D3D_CENSUS_SLOT(66, 17)
 #undef PINYON_D3D_CENSUS_SLOT
 
+namespace pinyon_shift::native_renderer {
+void D3dProgramOnRun(uint32_t list);  // d3d_program.cpp
+}
+
 // 0x82416A00, D3DDevice_RunCommandBuffer: r3 the device, r4 the command buffer.
+// Also the NA-2.4 pilot's list marking (d3d_program.cpp).
 void PinyonShiftD3dCensusRunCommandBuffer(PPCRegister& r1, PPCRegister& r3, PPCRegister& r4,
                                           uint64_t& lr) {
   if (census_impl::On()) census_impl::OnRun(r1.u32, r3.u32, r4.u32, uint32_t(lr));
+  pinyon_shift::native_renderer::D3dProgramOnRun(r4.u32);
 }
 
 // 0x829EC928, the asynchronous command-buffer call run: r3 the device, r4 the call.

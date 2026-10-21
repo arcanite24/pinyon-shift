@@ -76,14 +76,15 @@ public partial class MainWindow
 
     private void GraphicsChoice_Changed(object? sender, SelectionChangedEventArgs e) => UpdateResolutionLine();
 
-    // The resolution line's verb for an output scaling tag. FSR 2 and 3 need
-    // AMD's FidelityFX runtime beside the game; without it they run as FSR 1.
+    // The resolution line's verb for an output scaling tag. Linux and macOS
+    // builds compile AMD's FidelityFX library for FSR 2 and 3; DLSS is built
+    // only on Windows, so here it runs as FSR 1, as the in-game line says.
     private static string UpscalerVerb(string? scaling) => scaling switch
     {
         "fsr" => "FSR 1 upscales",
         "fsr2" => "FSR 2 upscales",
         "fsr3" => "FSR 3 upscales",
-        "dlss" => "DLSS upscales",
+        "dlss" => "FSR 1 (DLSS is Windows only) upscales",
         _ => "stretched",
     };
 

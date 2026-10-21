@@ -45,6 +45,21 @@ After changing host or ShiftGlue code:
 .\tools\build-preview.ps1
 ```
 
+Base and v4 builds regenerate changed translations and refresh their source
+lists before compiling. Ordinary updates do not need `-CleanGenerated`.
+If an older build failed to link a facade DLL with undefined
+`PPCFoldedRanges` or `PPCFoldedHash`, update the source and rerun the build.
+See [Building](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/BUILDING.md)
+for the build and update procedure.
+
+Within an existing packaged source directory, setup keeps the managed SDK
+checkout and unchanged dependency objects when its exact pin changes. CMake
+still rebuilds changed inputs and flags. A new launcher `source/<version>`
+directory does not reuse the previous version's objects. The small Windows
+and SteamOS fixture checks are described in
+[Local build cost](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/LOCAL_BUILD_COST.md);
+first-install time and disk requirements remain unchanged.
+
 ## The pinyon.py command line
 
 `tools/pinyon.py` works without PowerShell and is the launcher for Linux builds.

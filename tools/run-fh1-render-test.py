@@ -23,7 +23,7 @@ from pathlib import Path
 SCHEMA = "pinyon-shift.fh1-render-test-result.v1"
 HEADER = "pinyon-shift-fh1-render-test-v1"
 # Keys a `hostkey` step may press (src/fh1_render_test.cpp ParseHostKey).
-HOST_KEYS = {"f6", "f7", "f8", "f9", "f10", "enter", "escape", "up", "down", "left", "right", "space"}
+HOST_KEYS = {"f3", "f6", "f7", "f8", "f9", "f10", "enter", "escape", "up", "down", "left", "right", "space"}
 PASS_FAMILY = re.compile(
     r"FH1 V5 pass family (?P<family>[0-9A-F]{16}): attachment "
     r"(?P<attachment>[0-9A-F]{16}), first family (?P<first_family>[0-9A-F]{16}), "
@@ -54,6 +54,46 @@ def git_revision(path: Path) -> str | None:
     except (OSError, subprocess.CalledProcessError):
         return None
     return head + ("-dirty" if dirty.strip() else "")
+
+
+def build_provenance(build_directory: Path | None, configuration: str | None) -> dict:
+    """The executable a run launches and the record its build wrote (#746).
+
+    The record (pinyon_shift_build.json, from build-preview.ps1 or
+    build-v4.ps1) names the commits, CPU flags and analysis files; the hash
+    taken here shows whether the executable is still the one it describes.
+    """
+    import hashlib
+    root = Path(__file__).resolve().parents[1]
+    if build_directory is None:
+        preset = "win-amd64-" + (configuration or "Release").lower()
+        build_directory = root / "out/build" / preset
+    executable = build_directory / ("pinyon_shift.exe" if sys.platform == "win32" else "pinyon_shift")
+    result: dict = {"directory": str(build_directory)}
+    if executable.is_file():
+        digest = hashlib.sha256()
+        with executable.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1 << 20), b""):
+                digest.update(chunk)
+        result["executable_sha256"] = digest.hexdigest().upper()
+    record = build_directory / "pinyon_shift_build.json"
+    if record.is_file():
+        try:
+            result["record"] = json.loads(record.read_text(encoding="utf-8-sig"))
+        except ValueError:
+            result["record"] = None
+        recorded = (result.get("record") or {}).get("executable_sha256", "")
+        result["record_matches_executable"] = recorded.upper() == result.get("executable_sha256")
+    return result
+
+
+def run_config(state_root: Path) -> dict | None:
+    """The settings the run's game read, after its own migrations."""
+    path = state_root / "config/pinyon_shift.toml"
+    try:
+        return tomllib.loads(path.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError):
+        return None
 
 
 def parse_cpu_list(text: str) -> list[int]:
@@ -216,17 +256,16 @@ def seed_fh1_shader_storage(source: Path, destination: Path) -> list[str]:
 
 
 def seed_vulkan_shader_storage(source: Path, destination: Path) -> list[str]:
-    """Copy the seed's Vulkan shader (.xsh) and pipeline (.fbo.vk.xpso) storage.
+    """Copy Vulkan shader/pipeline storage and the persisted driver cache.
 
     The Vulkan backend translates at run time and recreates the stored
-    pipelines at start, so a route seeded with the storage of an earlier run
-    renders the race without compiling shaders on the way, which is what a
-    performance measurement needs.
+    pipelines at start. Warm comparisons need the specialized descriptions
+    and device-specific cache too; omitting them can compile pipelines again.
     """
     source_directory = source / "cache" / "shaders" / "shareable"
     names = sorted(
         path.name
-        for pattern in ("*.xsh", "*.fbo.vk.xpso")
+        for pattern in ("*.xsh", "*.fbo.vk.xpso", "*.fbo.vk.signs.xpso")
         for path in source_directory.glob(pattern)
         if path.is_file()
     )
@@ -236,6 +275,10 @@ def seed_vulkan_shader_storage(source: Path, destination: Path) -> list[str]:
     destination_directory.mkdir(parents=True, exist_ok=True)
     for name in names:
         shutil.copy2(source_directory / name, destination_directory / name)
+    for path in sorted(source_directory.parent.glob("*.vkpipelinecache.*.bin")):
+        if path.is_file():
+            shutil.copy2(path, destination_directory.parent / path.name)
+            names.append(path.name)
     return names
 
 
@@ -431,7 +474,9 @@ def parse_scenario(
             # cvar <frame> <name> <value>: a settings change at run time;
             # audiocapture <frame>: eight seconds of the native mix to
             # rally-audio-probe.wav.
-            if int(fields[1]) <= previous_hostkey:
+            if int(fields[1]) < previous_hostkey or (
+                fields[0] != "cvar" and int(fields[1]) == previous_hostkey
+            ):
                 raise ValueError(f"line {number}: host keys must be in increasing frame order")
             previous_hostkey = int(fields[1])
         elif (fields[0] == "mark" and len(fields) == 2) or (
@@ -1565,9 +1610,41 @@ def rally_pace_retry_summary(events: list[dict], state: Path, initial_progress: 
                 completed_retry_qualified=False)
 
 
+def facade_transition_summary(runtime: str, events: list[dict], cycles: int) -> dict:
+    """Require real facade teardown/reload and settings changes, not just survival."""
+    modules = {name: dict(loads=0, unloads=0) for name in
+               ("speechfacade_default.xex", "xmediafacade_default.xex")}
+    loaded = set()
+    for action, name in re.findall(
+            r"\b(Registering|Unregistering) module: (speechfacade_default\.xex|xmediafacade_default\.xex)\b",
+            runtime, re.IGNORECASE):
+        name = name.lower()
+        if action.lower() == "registering":
+            if name in loaded:
+                raise RuntimeError(f"facade registered twice without unloading: {name}")
+            loaded.add(name)
+            modules[name]["loads"] += 1
+        else:
+            if name not in loaded:
+                raise RuntimeError(f"facade unloaded without loading: {name}")
+            loaded.remove(name)
+            modules[name]["unloads"] += 1
+    changes = sum(event.get("event") == "settings.changed" and event.get("row") == "LANGUAGE"
+                  for event in events)
+    if changes < 5:
+        raise RuntimeError("facade transition route requires five LANGUAGE settings changes")
+    if any(count["loads"] < cycles or count["unloads"] < cycles for count in modules.values()):
+        raise RuntimeError(f"facade transition route did not complete {cycles} load/unload cycles")
+    return dict(modules=modules, language_changes=changes)
+
+
 def run(args: argparse.Namespace) -> dict[str, object]:
     scenario = args.scenario.resolve()
     scenario_lines = scenario.read_text(encoding="utf-8").splitlines()
+    facade_cycles = [int(line.split()[2]) for line in scenario_lines
+                     if line.startswith("# expect-facade-transitions ")]
+    if len(facade_cycles) > 1 or any(count < 1 for count in facade_cycles):
+        raise ValueError("expect-facade-transitions requires one positive cycle count")
     audio_languages = [line.split()[2] for line in scenario_lines if line.startswith("# expect-rally-audio ")]
     if len(audio_languages) > 1 or any(language not in {"EN", "MX"} for language in audio_languages):
         raise ValueError("expect-rally-audio requires one language: EN or MX")
@@ -1842,6 +1919,8 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         environment["PINYON_SHIFT_RALLY_TRACE"] = "1"
     if expect_rally_progress or retirements or hub_retirements or resumes or reloads or stage_reloads or audio_languages or pace_languages:
         environment["PINYON_SHIFT_RALLY_PROGRESS"] = "1"
+    if facade_cycles:
+        environment["PINYON_SHIFT_FACADE_LIFETIME_TRACE"] = "1"
     if audio_languages:
         environment["PINYON_SHIFT_RALLY_AUDIO_PROBE"] = audio_languages[0]
     if pace_languages:
@@ -1855,6 +1934,8 @@ def run(args: argparse.Namespace) -> dict[str, object]:
     source_revision = {name: git_revision(path) for name, path in (
         ("commit", Path(__file__).resolve().parents[1]),
         ("sdk", Path(__file__).resolve().parents[1] / "thirdparty/shiftglue-sdk"))}
+    build = build_provenance(args.build_directory and args.build_directory.resolve(),
+                             args.configuration)
     with LowSpecSimulation(args) as simulation:
         process = subprocess.run(
             command, capture_output=True, text=True, timeout=timeout + 30, check=False,
@@ -1939,6 +2020,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
             stream.seek(runtime_offset)
             runtime_slice = stream.read().decode("utf-8", errors="replace")
     lowered = runtime_slice.lower()
+    facade_transitions = facade_transition_summary(runtime_slice, events, facade_cycles[0]) if facade_cycles else None
     forbidden = (
         "device_removed",
         "device_hung",
@@ -2144,6 +2226,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         "event_log": str(event_log),
         "performance_log": str(perf_csv),
         "captures": image_results,
+        "facade_transitions": facade_transitions,
         "fh1_pass_families": pass_families,
         "pass_inventory_enabled": args.collect_pass_inventory,
         "shader_capture_dir": (
@@ -2163,6 +2246,8 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         "low_spec_simulation": simulation.summary(),
         "game_arguments": game_arguments,
         "source_revision": source_revision,
+        "build": build,
+        "config": run_config(run_state_root),
         "comparisons": comparisons,
         "vehicle_pose_comparisons": pose_comparisons,
         "capture_mae": capture_mae,
@@ -2230,7 +2315,7 @@ def main() -> int:
     parser.add_argument("--seed-pipeline-prewarm", action="store_true")
     parser.add_argument(
         "--seed-vulkan-shader-storage", action="store_true",
-        help="copy the seed's Vulkan shader and pipeline storage into the run",
+        help="copy the seed's Vulkan shader/pipeline storage and persisted driver cache into the run",
     )
     parser.add_argument("--require-zero-shader-misses", action="store_true")
     parser.add_argument("--include-opening-movies", action="store_true")

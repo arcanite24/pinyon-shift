@@ -98,6 +98,18 @@ The two globals are written as base-game addresses because the symbol table name
 
 {{findings:objects/Session and game mode}}
 
+## Audio child dispatch
+
+A counted child list can contain empty slots during construction and teardown.
+The base audio dispatch now skips those slots as v4 already does, preserving
+the previous result and the normal unlock. This addresses the null read seen
+in the traffic/event reports; the vehicle disappearance and the transition
+that exposes the empty slot still need route qualification. The
+[investigation](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/research/TRAFFIC_EVENT_NULL_DISPATCH.md) records the
+Windows/Linux evidence and the separate stock/XE acceptance requirements.
+
+{{findings:objects/Audio child dispatch}}
+
 ## Time of day
 
 {{findings:objects/Time of day}}

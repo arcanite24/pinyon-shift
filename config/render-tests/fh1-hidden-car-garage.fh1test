@@ -1,0 +1,37 @@
+pinyon-shift-fh1-render-test-v1
+# clock-hz 60
+# Base-disc garage entry from the private native purchase fixture at Gauntlet.
+# Requires a retained hidden variant selected as garage instance 8, with only
+# the shipping hidden_cars database patch enabled. Never use a live profile.
+# Review target/travel/garage captures and the native saved model ID. A runner
+# pass alone does not qualify actual garage entry, car changes or painting.
+input 0 0000 0 0 0 0 0 0
+input 360 1000 0 0 0 0 0 0
+input 366 0000 0 0 0 0 0 0
+input 480 1000 0 0 0 0 0 0
+input 486 0000 0 0 0 0 0 0
+input 600 1000 0 0 0 0 0 0
+input 606 0000 0 0 0 0 0 0
+input 720 1000 0 0 0 0 0 0
+input 726 0000 0 0 0 0 0 0
+input 780 0000 0 0 0 0 0 0
+input 930 0000 0 0 0 0 0 0
+wait 1400 3000 vehicle
+input 1680 0020 0 0 0 0 0 0
+input 1686 0000 0 0 0 0 0 0
+capture 1860 map
+input 1900 0000 0 0 -32767 -16384 0 0
+input 1942 0000 0 0 0 0 0 0
+capture 2100 target
+input 2200 4000 0 0 0 0 0 0
+input 2206 0000 0 0 0 0 0 0
+capture 2300 travel-prompt
+input 2400 1000 0 0 0 0 0 0
+input 2406 0000 0 0 0 0 0 0
+capture 3300 destination
+input 3400 4000 0 0 0 0 0 0
+input 3406 0000 0 0 0 0 0 0
+capture 3900 garage
+stop 4000
+
+

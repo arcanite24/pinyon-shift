@@ -33,24 +33,8 @@ $logs = Resolve-PinyonLocalPath -RelativePath '.local/logs'
 $env:SOURCE_DATE_EPOCH = '1784764800'
 $previewPreset = 'win-amd64-' + $Configuration.ToLowerInvariant()
 if ($Parallel -eq 0) { $Parallel = Get-PinyonBuildJobCount }
-function Test-PinyonCpuFma {
-    # Windows reports AVX2 only when it also saves the AVX register state, and
-    # every CPU with AVX2 has FMA3.
-    if (-not ('PinyonShift.CpuFeatures' -as [type])) {
-        Add-Type -Namespace PinyonShift -Name CpuFeatures -MemberDefinition @'
-[System.Runtime.InteropServices.DllImport("kernel32.dll")]
-public static extern bool IsProcessorFeaturePresent(uint feature);
-'@
-    }
-    return [PinyonShift.CpuFeatures]::IsProcessorFeaturePresent(40)
-}
-$cpuBaseline = if ($CpuBaseline -ne 'auto') { $CpuBaseline }
-    elseif (Test-PinyonCpuFma) { 'fma' } else { 'sse4.1' }
-$cpuFlags = switch ($cpuBaseline) {
-    'v3' { '-msse4.1 -mfma -ffp-contract=off -march=x86-64-v3' }
-    'fma' { '-msse4.1 -mfma -ffp-contract=off' }
-    default { '-msse4.1' }
-}
+$cpu = Select-PinyonCpuBaseline -CpuBaseline $CpuBaseline
+$cpuBaseline = $cpu.Baseline
 
 $supportedDumps = Get-Content -LiteralPath (Join-Path $root 'config/supported-dumps.json') -Raw |
     ConvertFrom-Json
@@ -161,9 +145,8 @@ try {
     Write-PinyonEvent build 83 "CPU baseline: $cpuBaseline." -JsonEvents:$JsonEvents
     # The presets build the Vulkan backend, whose glslang reads its version
     # through Python: the pinned runtime, since a pyenv shim breaks that.
-    Invoke-PinyonBuildCommand $environment.CMake @('--preset', $previewPreset, "-DREXSDK_DIR=$sdkRoot",
-        "-DPINYON_SHIFT_CPU_BASELINE=$cpuBaseline", "-DCMAKE_C_FLAGS=$cpuFlags",
-        "-DCMAKE_CXX_FLAGS=$cpuFlags", "-DPYTHON_EXECUTABLE=$(Get-PinyonPython)") `
+    Invoke-PinyonBuildCommand $environment.CMake (@('--preset', $previewPreset, "-DREXSDK_DIR=$sdkRoot") +
+        $cpu.CMakeArguments + @("-DPYTHON_EXECUTABLE=$(Get-PinyonPython)")) `
         (Join-Path $logs 'preview-configure.log') 'Preview configuration failed.' -Step 'Configure the game build'
     Invoke-PinyonBuildCommand $environment.CMake @('--build', '--preset', $previewPreset, '--parallel', "$Parallel") `
         (Join-Path $logs 'preview-build.log') 'Preview compilation failed.' -Step 'Compile the game'
@@ -209,8 +192,15 @@ $result = [ordered]@{
     guest_executable_sha256 = $gameXexSha256
     guest_codegen_patch_profile = 'fh1-retail-base-post-processing-v1'
     guest_codegen_patch_set_sha256 = $guestPatchSetSha256
+    variant = 'base'
+    cpu_flags = $cpu.Flags
+    analysis_sha256 = [ordered]@{}
 }
-$resultJson = ($result | ConvertTo-Json) + [Environment]::NewLine
+foreach ($file in Get-ChildItem -LiteralPath (Join-Path $root 'config/rexglue/analysis') -Filter '*.toml' |
+        Sort-Object Name) {
+    $result.analysis_sha256[$file.Name] = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash
+}
+$resultJson = ($result | ConvertTo-Json -Depth 4) + [Environment]::NewLine
 [IO.File]::WriteAllText($manifestPath, $resultJson,
     [Text.UTF8Encoding]::new($false))
 $runtimeManifestPath = Join-Path (Split-Path $executable -Parent) 'pinyon_shift_build.json'

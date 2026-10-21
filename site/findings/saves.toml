@@ -8,7 +8,7 @@ group = """Save files"""
 base = """ForzaProfile, PlayerDatabase, VersionFlags"""
 v4 = """same"""
 name = """profile directory files"""
-what = """A profile directory holds `ForzaProfile` plus companion `PlayerDatabase`, `VersionFlags`, livery and thumbnail files (12 files in the reference save). `PlayerDatabase` is an encrypted, deflated SQLite database: each car is a `Career_Garage` row naming its livery file and holding its tune in 36 `Tuning_*` columns, and purchased parts are separate rows (122 in the reference save). Without the companions the title loads a fallback Corrado instead of the saved car and does not offer the expected Gauntlet activity."""
+what = """A profile directory holds `ForzaProfile` plus companion `PlayerDatabase`, `VersionFlags`, livery and thumbnail files (12 files in the reference save). `PlayerDatabase` is an encrypted, deflated SQLite database: on the pinned base bus profile its decrypted body has a 12-byte prefix followed by raw DEFLATE (window bits -15), and the three big-endian words are uncompressed size, compressed size, uncompressed size (83,968, 8,202, 83,968). Each car is a `Career_Garage` row naming its livery file and holding its tune in 36 `Tuning_*` columns, and purchased parts are separate rows (122 in the reference save). Without the companions the title loads a fallback Corrado instead of the saved car and does not offer the expected Gauntlet activity."""
 how = """Experiment: a profile-only fixture against a complete profile copy; save audits; reading a seed save."""
 confidence = """confirmed"""
 source = """docs/DLC_BACKLOG.md Complete saved garage fixture; Selected Rally car disable, save and restoration; docs/REVERSE_ENGINEERING.md@a72a92a5f215 Custom content"""
@@ -18,7 +18,7 @@ group = """Save files"""
 base = """sub_82555C88, sub_82546460, sub_82546168"""
 name = """car card thumbnails"""
 what = """Each car-select card is the profile's `Thumbnails/Thumbnail_N.xdc`: a big-endian `cxds` header (version 2, uncompressed size 884,788, compressed size) over a deflated 768x288 tiled 8888 Xenos texture. When a car is bought, a car-save task (`sub_82555C88`: car at +76, render flag +84, save flag +85) calls `sub_82546460(&job, car, 1, 0)`, which loads the `uithumbig` and `uithumbnail` studio tracks, renders the car, resolves it and compresses the result on the CPU (to 3-4 %); `sub_82546168` builds the file name from the car ID at +652. The screen opens only cards that exist and shows an empty card for a missing one."""
-how = """Reading the code path and saves; the buy-car route decoding the saved card; file-open logging; captures of car select with and without cards."""
+how = """Reading the code path and saves; the buy-car route decoding the saved card; file-open logging; captures of car select with and without cards. All four hidden player variants purchased on the base build have a repeated uncompressed-size word at cxds byte 16, followed by raw DEFLATE at byte 20 (window bits -15); inflating to 884,788 bytes and using hostui::DecodeXds yields 768x288 images visibly containing the expected cars without stripes (docs/HIDDEN_CARS.md)."""
 confidence = """confirmed"""
 note = """A purchase re-saves a card (confirmed); paint and upgrades probably do. How the CPU reads the resolved image is not settled: a later trace saw no guest read of the resolved ranges."""
 source = """docs/NATIVE_PORT_BACKLOG.md NP-0.6; src/save/car_cards.h; docs/native-renderer/XENOS_RETIREMENT_BACKLOG.md XR-04, XR-00"""
@@ -51,6 +51,15 @@ how = """Experiment: disable Rally after a Mustang Rally tyre purchase; crash re
 confidence = """confirmed"""
 negative = true
 source = """docs/DLC_BACKLOG.md Missing saved Rally tyre recovery"""
+
+[[finding]]
+group = "Save files"
+base = "ForzaProfile Main/CareerCar; 0x82C66594"
+name = "invalid selected garage ID invokes starter-car recovery"
+what = """Main/CareerCar is a garage instance ID, not a Data_Car model ID: it was 7 on the pinned seven-car bus profile. Setting it to zero after decryption through the existing cheat_set_profile_fields hook invokes the title's missing-car path. On that base profile it supplied a starter Corrado as garage ID 8, wrote ordinary saves and returned to free roam. Decrypted snapshots preserved all seven original garage rows, all 122 original purchased-part rows and 67,700 credits; the fallback added 20 part rows. This is selection recovery, not removal of the unsupported purchased car. The integrated Windows base and v4 builds both passed recovery and reload on separate private copies of this base fixture, with the v4 copy upgraded by the title. Every individual hidden model's garage/paint path still requires separate qualification."""
+how = """Pinned i484-bus-owned seed copied by run-fh1-render-test.py; Main/CareerCar=0 on load, cheat.applied and save.upgrade_views.initialized diagnostics, normal save events and decrypted profile/database comparison. A fresh reload without a pending edit on the private Windows Release build reached free roam and car select with garage ID 8; the unmodded tree's 19 hashes matched the seed. Repeated with the trainer disabled and dormant credit, time-scale, free-camera and event flags preserved; credits remained 67,700. The recovery tool backs up the selected modded profile before queuing the existing load hook. Integration repeated the trainer-off recovery/save/reload on base and v4, checked all 20 backup-manifest entries and retained all 19 unmodded file hashes, the original seven cars, 122 parts and credits in each run."""
+confidence = "confirmed"
+source = "tools/fh1-profile.py recover-car; docs/HIDDEN_CARS.md"
 
 # --- Encryption and loading -----------------------------------------------
 

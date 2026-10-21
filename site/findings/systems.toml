@@ -187,6 +187,28 @@ source = """docs/REVERSE_ENGINEERING.md@a72a92a5f215 Developer options and lefto
 
 [[finding]]
 group = """Debug and developer features"""
+base = """0x834B35E4, vtables 0x82249498, 0x822493EC, 0x8222C55C and 0x8222B5AC, sub_82E42F50, sub_82E42E20, sub_82632368, sub_8262C048, sub_82E3D3B0, sub_82E41288, sub_82E41358, sub_82E3BF20, sub_82E3B598, sub_82E3B5F8; immutable vtable first entries 0x82E42F00 and 0x82E3DED8"""
+v4 = """Candidate mappings only: manager pointer 0x835A8FF4, manager vtable 0x8225C6E8, stream vtable 0x8225C63C, constructor 0x82F048D8. No live v4 qualification."""
+name = """gameplay replay stream registry and lifetime"""
+what = """The manager owns a registry of stream IDs, not a single replay byte buffer. `CRecordReplayComponent` creates a `Replay` root from `replay_stream` (kind 0) and an attached child from `replaydata` (kind 2); its +8/+12 fields hold their IDs. On cleanup it stops and unregisters both streams and clears those IDs. A private base-disc race-retire run observed root/child IDs 3/4, separate `FullRaceGhost` ID 5, windowed backing during the race and replacement IDs 6/7 with circular backing on return to free roam. Stream +8 is a start-time anchor, not a playback clock. Capturing object pointers or one stream is not evidence of a persistent replay; packet framing, initialization, wrapping and reload equivalence remain unqualified."""
+how = """Base generated-code call/field analysis at root fe0dcf1d / SDK 3bb29938; RTTI vtable identification; 133 valid read-only process samples on multivac during the null-GPU race-retire route with existing preview SHA-256 FC46C811D0970C419FD34EF9151216BDD50CDC6E3584E66AF001F4F85A551704 (stale sidecar, host build provenance unqualified). No post-race playback or images were tested. Candidate v4 pairs from tools/map-fh1-v4-addresses.py (data references and an exact constructor match), not a live replay test."""
+confidence = """probable"""
+note = """Registry observations and backing types confirmed on this base route; the full replay persistence contract remains probable and incomplete."""
+issue = """#492"""
+source = """docs/GAMEPLAY_REPLAYS.md; tools/inspect-fh1-gameplay-replay.py"""
+
+[[finding]]
+group = """Debug and developer features"""
+base = """sub_825A2D40, sub_825A56E0, sub_825563B8, sub_8260E8E8, sub_82C82A58, sub_82C83AC0; launch-options +3208 and +4877"""
+name = """gameplay replay initialization and native packaging"""
+what = """The replay-loading path reads initialization as well as stream data: `ReplayInitData` is handled by `sub_825A2D40` and `sub_825A56E0`, and the replay loader passes initialization and stream data to `sub_8260E8E8`. The native combine/extract pair joins two IOSys streams with two length words and can reconstruct views of them; it is not a qualified private host format. `savereplaytodevkit` (+3208) influences recording backing selection, and `savewmvtodevkit` (+4877) belongs to the old WMV path. These strings do not establish persistence or fixed-cadence FFmpeg export. Full restart equivalence and exact output cadence are still open gates."""
+how = """String xrefs, launch-option visitor, generated-code callers and stream ownership analysis; no restored replay or offline video has been qualified."""
+confidence = """probable"""
+issue = """#492"""
+source = """docs/GAMEPLAY_REPLAYS.md"""
+
+[[finding]]
+group = """Debug and developer features"""
 base = """CTelemetryHud, IDS_Telemetry, 968_TELEMETRY, 827AC92C, 827ACC7C, 827B892C"""
 name = """telemetry pages"""
 what = """Forza's car telemetry screens survive as a HUD class, a string and a scene. Their data sources should lead to RPM, gear, slip and suspension values."""
@@ -353,11 +375,11 @@ group = """Leftover modes and hardware"""
 base = """Data_Car IsSelectable=0, IsDrivable=1 (23 rows)"""
 v4 = """same"""
 name = """hidden drivable cars"""
-what = """23 cars are marked drivable but not selectable: traffic cars (tour bus, Kenworth T440, Leaf, Prius and others) and the showcase Mini, 500 Abarth and 205 T16, each with its media archive, upgrade rows and name; id 1215 is the placeholder `NUL_Car_00`. With `IsSelectable = 1` the Autoshow lists them under their make, and they are bought, saved and driven like any car. Seven have `BaseCost = 0`. Only the three showcase cars have an Autoshow thumbnail (another car's), so the others show a black tile; the garage thumbnail the game renders after a purchase works. The game rates a bought car from its physics: the tour bus arrives as E 198."""
-how = """`gamedb` query; the hidden_cars mod with fh1-buy-car and fh1-hidden-car-drive on a seed: the tour bus bought, saved and driven about 1 km in free roam, the Kenworth T440 bought and raced in the Gauntlet. With the mod off, a modded profile that owns the bus still loads and drives it."""
+what = """23 cars are marked drivable but not selectable; 1215 is the placeholder `NUL_Car_00`. The old hidden_cars patch listed the other 22. IsDrivable includes traffic assets and does not establish showroom, garage or paint compatibility (#669). The tour bus has model-named LOD0/cockpit members of only 11,226/17,539 bytes; Explorer and Focus lack the expected names, and F-350 lacks the cockpit member. All 18 traffic entries are now excluded from the built-in sales patch. Only the intro Corrado and three showcase variants have full-size LOD0 and cockpit payloads (3.0–7.7 MB for LOD0, 1.8–2.4 MB for cockpit). The explicit sales list contains these four IDs; it never automatically exposes another drivable row. Existing purchases are preserved. A car's owned rating comes from its physics: the tour bus arrived as E 198."""
+how = """Read-only database and archive-directory audit of all 22 entries on the supported base disc, 2026-10-18; CarAttribs extraction. The four retained variants were bought natively as the expected garage rows, then reloaded and driven with only the shipping hidden_cars patch; the three showcase cockpits and other views rendered. The intro Corrado also rendered at Dak's Garage and opened its native car selector through the calibrated pinned-fixture route. Native Get In Car switched its garage ID 8 to the owned Mustang at ID 2 while preserving credits, confirmed by decrypted snapshots. The intro model rendered at the paint shop and Design Creator. The isolated batch first failed the graphics gate with Vulkan resolve/backend draw errors (EDRAM mode 6); after livery resolve integration, the same pinned entry route passed on Windows/RTX 4080 with its body and Design Creator menu visible. This does not isolate which correction removed the errors. Paint editing, saving and reload remain unqualified. The other three garage entries, all change-away/back and paint checks, and v4 remain pending; docs/HIDDEN_CARS.md records the intro purchase run's GPU packet error and separate successful reload. Earlier pinned-seed tests bought and drove the bus about 1 km and raced the T440, but did not qualify garage or paint support. The crash in #669 has no diagnostic attachment or title version. The pinned bus save opened event car select and entered Dak's Garage on this base Windows build, rendering a bus that clipped the garage camera; those entry paths did not reproduce the reported loading block. Native garage changes away from bus ID 7 to Lancer ID 3 and Audi ID 5 preserved credits. The attempted return-selection route chose different cars, so it did not qualify bus re-selection. Garage re-selection, paint and the reporter's GPU remain unqualified."""
 confidence = """confirmed"""
 note = """Tested on the base build. Not every one of the 22 was driven."""
-source = """mods_src/builtin/hidden_cars; config/render-tests/fh1-hidden-car-drive.fh1test; docs/MODDING.md Built-in mods"""
+source = """mods_src/builtin/hidden_cars; docs/HIDDEN_CARS.md; config/render-tests/fh1-hidden-car-drive.fh1test"""
 
 # -------------------------------------------------------------- Gameplay systems
 
@@ -401,21 +423,25 @@ source = """docs/TITLE_UPDATE_V4_BACKLOG.md TU-4, TU-5, TU-6"""
 
 [[finding]]
 group = """Gameplay systems"""
-base = """CTeleportCarToFastTravelDestination, gamemodes.zip fast_travel.xml, map.xml"""
+base = """0x827FB088, 0x827FB0E8, 0x82802580, 0x82803344, 0x827FADE8, 0x82613E28, 0x829887E0, 0x82988948, 0x82981CD0, 0x832FF06C, 0x832FF094"""
+v4 = """0x828AF468, 0x828AF4C8, 0x828B6998, 0x828B787C, 0x82D9D070, 0x82D9BA38, 0x828AF1B8, 0x833EDC44, 0x826BAAC8, 0x82A3C6D8, 0x82A3C848, 0x82A35888"""
 name = """fast-travel teleport"""
-what = """Moves the car through the game's fade-and-stream path; `map.xml` gates it with `is_fast_travel_enabled`. A candidate for a teleport that does not fight the physics body."""
-how = """Strings; archive listing."""
-confidence = """probable"""
-source = """docs/REVERSE_ENGINEERING.md@a72a92a5f215 Developer options and leftover systems"""
+what = """The map predicate combines the title's travel permission with destination eligibility at map +440. Its nearest road point is at +564 (v4 +576), with x/y/z floats at point +4/+8/+12. The native lookup takes a float4 pointer in r4 and returns a road point. The map consumes travel input at +426 and quotes cost at +444. At the travel-input test, r21 is a hovered marker whose transform otherwise takes precedence over the road fallback: after the map update's predicate passes, a nonzero r21 supplies its object's transform (vtable +84) as the destination, and a zero r21 or an identity transform leaves the nearest road point. The trainer clears r21 for a queued request, and at the predicate's return in the map update (base 0x82803360, v4 0x828B7898) only when the title refused the marker and FAST TRAVEL ANYWHERE admitted it; the predicate also serves the button hints, so its gate cannot clear r21. The fast-travel manager has enable byte +16, a destination matrix at +32, quoted cost +96 and action-active byte +100. The teleport action has enter, update and exit methods; the native graph separately acquires control, manages traffic and audio, waits for streaming and restores the camera. The active byte clears before the streaming wait, so it does not prove a completed landing. The trainer hooks retain the title's travel lock and use the native map flow."""
+how = """Factory/vtable and call tracing in locally translated base/v4 code; native state-graph inspection; exact normalized match for the predicate. Windows base/v4 each passed twenty successive native-map landings with post-travel driving; qualification is recorded separately. r21 at the input hook: a v4 hook probe and landing poses (2026-10-19). Clearing it on every press moved a Horizon Outpost landing to the road outside; Race Central landed identically either way. A queued request was handed off once per target, on the press that starts travel, with no repeat."""
+note = """The nearest-road wrapper keeps its r4 position-pointer contract in v4, but its implementation changes: base filters by road_type through component index 0x832FF094, while v4 queries the GPS position manager (index 0x833EDC44). Guard the manager the actual executable uses; an address match alone does not establish unchanged internal dependencies. The map update tests travel input +426 before calling its predicate, then clears the latch on exit. Setting the latch only inside that predicate, or in a queued write outside the updater, left idle-map probes waiting; a physical X press entered the native flow and landed on the resolved road. The input hook arms a prepared request immediately before consumption. Base forms the road heading from its first path attachment: road count +16, attachment pointer +20, attachment path +0 and signed index +4, path count +0 and point array +4; it chooses the previous point, otherwise the next, with +Z as the no-neighbour default. Coincident or vertical adjacent positions cannot form its car basis. v4 instead fetches a placement transform through 0x82D9D070 and 0x82D9BA38 in map update 0x828B6998; these base topology offsets are not a v4 contract."""
+confidence = """confirmed"""
+source = """docs/research/TRAVEL_DESTINATIONS.md; src/cheats_map.cpp AllowMapTravel"""
 
 [[finding]]
 group = """Gameplay systems"""
-base = """CSetSatNavDestinationPos, CSatNavDestinationManager, CLockSatNavDestination, 0x8207BC58"""
+base = """0x825F6FB0, 0x829423B0, 0x82CDC5A0, 0x8299FB40, 0x82999820, 0x832FF090, 0x832FF054, 0x8207BC58"""
+v4 = """0x8269B4F8, 0x829F5278, 0x82D9E548, 0x82A54068, 0x82A4DDA0"""
 name = """GPS destination"""
-what = """Classes that set and lock the sat-nav route target, and the `satnav_arrows_enabled` name at `0x8207BC58`."""
-how = """Strings."""
-confidence = """probable"""
-source = """docs/REVERSE_ENGINEERING.md@a72a92a5f215 Developer options and leftover systems"""
+what = """The no-argument component getter returns the current component-list header in r3. `CSetSatNavDestinationPos` executes from a 16-byte-aligned descriptor with the current component-list header at +28 and a float4 world position at +32. It resolves a road destination through the position manager, then requests it on `CSatNavDestinationManager`; with both managers present its r3 low byte carries the setter's acceptance. The manager's byte +764 locks the target in both executables; its setter rejects a request while locked. Its current-target getter returns the last pointer from the array at +52 with count +60, or zero when empty. The host queues the action on the title thread and frees its temporary descriptor after the synchronous call. Acceptance does not alone establish visible route guidance."""
+how = """String to factory to action-vtable tracing; static base/v4 register and field comparison. The action is an exact normalized match. Windows base/v4 pinned-seed probes both showed the custom route on the map, road arrows and HUD."""
+confidence = """confirmed"""
+source = """docs/research/TRAVEL_DESTINATIONS.md; src/cheats_map.cpp SetGpsDestination"""
+note = """The action's initial generic entry callback is a no-op in both versions (base 0x830B2320, v4 0x82D9C8A8). Its execute path reads only the descriptor fields described above; a synthetic GPS descriptor does not require the state-instance bookkeeping the teleport action uses."""
 
 [[finding]]
 group = """Gameplay systems"""
@@ -549,6 +575,17 @@ confidence = """probable"""
 source = """docs/REVERSE_ENGINEERING.md@a72a92a5f215 Developer options and leftover systems"""
 
 # ------------------------------------------------------ Crash guards and helpers
+
+[[finding]]
+group = "Crash guards and helpers"
+base = "0x82CC1B10, 0x82CC1B58, 0x82CC1B60, 0x82CBC390, 0x82CBC348, 0x8349F978, 0x8349FDB4, 0x82CBD4F0, 0x82CBD598, 0x834B49F8, 0x82E5B7C8, 0x825576A8, 0x82441690"
+v4 = "0x82D83590, 0x82D835D8, 0x82D835E0, 0x82D7DE88, 0x82D7DE40, 0x835950C8, 0x83595504, 0x82D7EF70, 0x82D7F018, 0x835AA444, 0x82F1D3F0, 0x825CB038, 0x82471798"
+name = "thread-specific allocation override at facade transition crash"
+what = "0x82CC1B10 obtains an allocation override for the current guest thread through 0x82CBC390 and calls its first virtual method; 0x82CC1B60 is the return address of that call. 0x82CBC348 searches ID/object pairs beginning at 0x8349F978; 0x8349FDB4 counts active override scopes. Scope entry 0x82CBD4F0 saves the current thread's previous allocator to its first argument and installs the second; 0x82CBD598 restores that saved allocator. The registry uses the current guest thread ID helper 0x82441690 (v4 0x82471798), reading KTHREAD from PCR +0x100 and thread ID from KTHREAD +0x14C, consistent with the SDK layout. Both modify the thread registry under its critical section and increment/decrement the active-scope count. The reported CTR 0x825576A8 is a tail alias of the allocation entry, not the selected virtual method; its v4 context match at 0x825CB038 has the corresponding tail target. Issue #674 reports this LR after facade unload/reload, but does not identify the object's lifetime or the faulting instruction. LANGUAGE changes in the host PROFILE menu are saved for process restart and do not reload assets live, so their presence in the log does not prove a speech-job cancellation fault."
+how = "Allocation call and thread-ID registry analysis; base/v4 normalized function/context matches and paired data loads; inspection of SettingsPages::Setting and the 0.6.0 crash report; rebuilt base/v4 transition routes, a 12-cycle base soak and the rebuilt APK on the Odin."
+confidence = "confirmed"
+note = "The allocation path and mappings are confirmed. The rebuilt two-cycle base route recorded 38 traced calls, all using global object 0x834B49F8 and target 0x82E5B7C8; it completed without reproducing the fault. That does not identify the allocator selected in the reported crash. The crash's ownership cause remains unproven; no null-write suppression is applied."
+source = "docs/FACADE_LIFETIME_FAULTS.md; config/render-tests/fh1-facade-transitions.fh1test; issue #674"
 
 [[finding]]
 group = """Crash guards and helpers"""

@@ -1,5 +1,6 @@
 pinyon-shift-fh1-render-test-v1
-# #484 gate: drive a car the hidden_cars mod lists. Run on a seed whose
+# Historical #484 drive-only test, not a garage/paint qualification (#669).
+# Traffic cars are no longer sold by hidden_cars. Run on a seed whose
 # modded profile owns the car and has it selected (bought there with
 # fh1-buy-car). The fh1-race inputs open the Gauntlet with the current car;
 # A at the start menu starts the race (the Kenworth T440) or returns the

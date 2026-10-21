@@ -1,0 +1,78 @@
+pinyon-shift-fh1-render-test-v1
+# Sustained Gauntlet route from appdata-2026-09-27, with one final capture.
+# Qualify the race and movement waits; exclude the final capture from timings.
+# Use identical seed, settings and driver-cache policy for cold/warm pairs.
+input 0 0000 0 0 0 0 0 0
+input 360 1000 0 0 0 0 0 0
+input 366 0000 0 0 0 0 0 0
+input 480 1000 0 0 0 0 0 0
+input 486 0000 0 0 0 0 0 0
+input 600 1000 0 0 0 0 0 0
+input 606 0000 0 0 0 0 0 0
+input 720 1000 0 0 0 0 0 0
+input 726 0000 0 0 0 0 0 0
+wait 1400 3000 vehicle
+input 1680 4000 0 0 0 0 0 0
+input 1686 0000 0 0 0 0 0 0
+input 2040 1000 0 0 0 0 0 0
+input 2046 0000 0 0 0 0 0 0
+wait 2050 1200 file thumbnail_
+input 2400 1000 0 0 0 0 0 0
+input 2406 0000 0 0 0 0 0 0
+wait 2410 3000 file replay_stream
+input 2530 1000 0 0 0 0 0 0
+input 2536 0000 0 0 0 0 0 0
+input 2650 1000 0 0 0 0 0 0
+input 2656 0000 0 0 0 0 0 0
+input 2770 1000 0 0 0 0 0 0
+input 2776 0000 0 0 0 0 0 0
+input 2890 1000 0 0 0 0 0 0
+input 2896 0000 0 0 0 0 0 0
+input 3010 1000 0 0 0 0 0 0
+input 3016 0000 0 0 0 0 0 0
+input 3130 1000 0 0 0 0 0 0
+input 3136 0000 0 0 0 0 0 0
+input 3250 1000 0 0 0 0 0 0
+input 3256 0000 0 0 0 0 0 0
+input 3370 1000 0 0 0 0 0 0
+input 3376 0000 0 0 0 0 0 0
+input 3490 1000 0 0 0 0 0 0
+input 3496 0000 0 0 0 0 0 0
+input 3610 1000 0 0 0 0 0 0
+input 3616 0000 0 0 0 0 0 0
+input 3730 1000 0 0 0 0 0 0
+input 3736 0000 0 0 0 0 0 0
+wait 3910 2400 vehicle-moved 30
+input 3900 0000 0 255 0 0 0 0
+input 4000 0000 0 255 -6000 0 0 0
+input 4300 0000 0 255 6000 0 0 0
+input 4600 0000 0 255 -6000 0 0 0
+input 4900 0000 0 255 6000 0 0 0
+input 5200 0000 0 255 0 0 0 0
+input 5500 0000 0 255 6000 0 0 0
+input 5800 0000 0 255 -6000 0 0 0
+input 6000 0000 200 0 0 0 0 0
+input 6060 0000 0 255 0 0 0 0
+input 6100 0000 0 255 6000 0 0 0
+input 6400 0000 0 255 -6000 0 0 0
+input 6700 0000 0 255 0 0 0 0
+input 7000 0000 0 255 -6000 0 0 0
+input 7300 0000 0 255 6000 0 0 0
+input 7600 0000 0 255 -6000 0 0 0
+input 7900 0000 0 255 6000 0 0 0
+input 8100 0000 200 0 0 0 0 0
+input 8160 0000 0 255 0 0 0 0
+input 8200 0000 0 255 0 0 0 0
+input 8500 0000 0 255 6000 0 0 0
+input 8800 0000 0 255 -6000 0 0 0
+input 9100 0000 0 255 6000 0 0 0
+input 9400 0000 0 255 -6000 0 0 0
+input 9700 0000 0 255 0 0 0 0
+input 10000 0000 0 255 -6000 0 0 0
+input 10200 0000 200 0 0 0 0 0
+input 10260 0000 0 255 0 0 0 0
+input 10300 0000 0 255 6000 0 0 0
+input 10600 0000 0 255 -6000 0 0 0
+input 10900 0000 0 255 6000 0 0 0
+capture 11100 drive-end
+stop 11150

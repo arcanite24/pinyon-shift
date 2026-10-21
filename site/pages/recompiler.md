@@ -119,6 +119,77 @@ Every optimization above changes what the generated C++ looks like without chang
 
 On the race route with every call verified, 192 sampled functions were run 31,105,675 times with no mismatch, with the folded constants, the stack fast paths, the CR, CTR and XER locals and the direct calls all on. The check is off unless the cvar is set, and the reference copies cost nothing when it is off beyond their size in the binary.
 
+### Region oracle
+
+The lockstep verifier compares the generator with itself, one call-free function at a time. The region oracle (#749) checks whole call trees against an implementation that shares no code with the generator: a slow PowerPC interpreter (`rex/ppc/interpreter.h`). The interpreter reads the guest's own instruction words. On the instruction corpus, the hand-written cases plus the 167,636 recorded on hardware, it passes all 63,714 cases it can run. It refuses the others as outside its scope, and a region that reaches such an instruction is reported, not compared. The one difference it keeps on purpose: like the generator, it returns exact values for the reciprocal estimates.
+
+`oracle_regions` names root functions. The generator follows each root's direct calls and tail calls and emits every function it reaches twice more, with every store logged:
+
+- `orr_sub_X` with the reference settings;
+- `orc_sub_X` with the build's own settings and specialisations, the candidate that a hand-written native version would replace.
+
+Calls between region functions stay inside the copies. Any other call is an opaque boundary: the copy records the callee, the call site and the whole context there, and stops. That covers an import, an indirect call, a function outside the region or a host replacement. The host CRT's `memcpy`, `memmove` and `memset` are the exception: they only move bytes and change no register, so the copies call logged versions and the interpreter does the same. Without that, the first physics root stopped at its first `memcpy` on every call.
+
+`src/guest_native/region_oracle.cpp` takes over the root. With `pinyon_shift_region_oracle=N`, every Nth call runs the interpreter, the reference copy and the candidate copy from the same registers and memory, rolls back each one's stores, then runs the root for real. It compares:
+
+- the interpreter with the reference copy, strictly: every register, every store outside the root's stack frame in order (address, size, value), and the exit, either a return or a stop at the same boundary with the same context;
+- the candidate with the reference copy in the same way, except the registers the generator keeps in locals and never publishes because nothing reads them across a call or a return: CTR, XER, the volatile CR fields and LR (`host_local_lr`). Those are counted as dead volatiles;
+- the candidate's stores with memory after the real run, so the logged copy is shown to be the code that runs.
+
+Differences are logged as `oracle.mismatch` events with the inputs. Route summaries add an `oracle.region` event per root.
+
+On multivac, the v4 race route with every call checked gave no difference at 0 ulps:
+
+| Root | Calls checked | How each check ended | Compared | Interpreter vs reference | Candidate vs reference |
+| --- | ---: | --- | --- | --- | --- |
+| `sub_82DE3058` (specialised physics function, 7 functions with copies) | 567,488 | Returned | 10.5 million visible stores | No difference | No difference |
+| `sub_82DFC570` (parent of six specialised physics functions, 77 functions with copies) | 117,480 | Stopped at a boundary after one visible store | Context at the boundary | No difference | No difference |
+
+On the x86 default, which is not fixed-FP mode, the candidate runs its IEEE versions.
+
+`pinyon_shift_region_oracle_fault` seeds a fault into the candidate's run to prove the check works. On `sub_82DE3058` it caught every one:
+
+| Fault | Caught |
+| --- | --- |
+| Dropped store | 548,452 of 548,452 |
+| Two stores swapped | 600,224 of 600,224 |
+| A volatile register (r10) changed after the return | 542,080 of 542,080 |
+
+On `sub_82DFC570` it caught every dropped store and changed register. A swap needs two visible stores, so the oracle counted those runs as not applicable rather than as passes. The check is off unless the cvar is set. It catches a wrong result, not a slow one; the speed of a native replacement is measured separately.
+
+### Native regions
+
+A native region (#750) compiles one oracle root and the functions it calls into a single host function, `nr_sub_X`, with the guest registers in host values instead of `PPCContext` fields. `native_regions` in the analysis TOML names the root; it must already be an oracle root, must not recurse and must not reach `setjmp`/`longjmp`. The generator emits each member as an always-inline copy on a host-local context. Calls between members stay inline. Any other call publishes the local registers to the real context, calls the generated function and reloads; indirect calls run the same way, with no devirtualisation. The generic `PPCContext` entry and the generated body stay: `pinyon_shift_native_region` picks the generated root (0, the default), the native region (1), or alternates the two call by call and times each side (2).
+
+What the local context costs decides the result:
+
+- Copying the whole `PPCContext` in and out, and around every outside call, made the region 36 % slower on the Odin (about 1 KB each way, the vector file included), while the desktop was 6-8 % faster.
+- The generator now copies in only the fields the region names, about 60 of them, and publishes only the fields it writes. The host `memcpy`, `memmove` and `memset` calls publish r3-r5 and reload r3.
+- FPR loads, stores and folded constants go through `std::bit_cast` on the double view, so the compiler keeps the FPRs as doubles. This did not change the arm64 code measurably: most of its `fmov`s are the big-endian single-precision loads and stores the generated code has too.
+- Guest memory accesses inside the region are not `volatile`. The region is one host function, so the compiler may keep an inlined member's register saves and spills in host registers and drop a load another member repeats; outside calls take `base` and still see memory. With only the stack accesses plain the Odin gained 1.6-2.1 %; with every access plain it gained 4-6 %.
+
+The oracle checks the region's logged copy against the reference and, with the region selected, its real run: 520,256 calls on the v4 race with no difference. Per call, measured with the in-run A/B on the v4 race route (calls alternate between the two sides, timed with the TSC or the arm64 virtual counter, mean ± standard error):
+
+| Device | Generated | Native region | Change |
+| --- | ---: | ---: | ---: |
+| multivac (x86-64), plain memory | 645.5 ± 1.5 ns | 429.1 ± 1.4 ns | -33.5 % |
+| Odin 2 (arm64), plain memory, run 1 | 687.7 ± 3.9 ns | 646.7 ± 3.4 ns | -6.0 % |
+| Odin 2, plain memory, run 2 | 595.6 ± 2.9 ns | 569.7 ± 3.1 ns | -4.3 % |
+| Odin 2, volatile memory, four runs | 675-730 ns | 659-732 ns | +0.2 to -2.4 % |
+
+With plain memory the oracle checked 463,167 calls on the desktop with no difference. On arm64 the generated members already keep their registers in locals, so the region saves the calls between them and the memory traffic it can now merge, not the register file. The region inlines its callees at every call site: `nr_sub_82DE3058` was 40,788 bytes of x86-64 code (8,789 instructions) and is 33,732 bytes on arm64, against 9,440 bytes for the seven generated functions on arm64. That growth is local to one root, unlike the global register localisation below (`.text` 66 % larger, guest code 20-27 % slower). The root runs about 100 times a frame, so even the desktop gain is about 20 µs a frame. It stays off by default.
+
+A second root was chosen from a call-graph profile of the Odin drive (`simpleperf --call-graph fp`, 30 s): `82DE3058` itself is under 0.3 % of process cycles there, while `sub_82DFC570`, the parent of six specialised physics functions, holds about 2.1 % inclusive, on the main thread and a job worker (#756). Its region inlines 77 functions at every call site, 2.5 MB of generated C++. It needed one generator fix: an indirect call binds its own `PPCContext& __restrict ctx = real;`, which the copy-back rewrite had matched. The oracle checked 129,232 of its calls with no difference, but every check stopped at the root's first visible store (see the table above), so it covers only that prefix. Per call:
+
+| Device | Generated | Native region | Change |
+| --- | ---: | ---: | ---: |
+| multivac, three runs | 19,107 / 16,374 / 16,347 ns | 18,603 / 14,962 / 14,855 ns | -2.6 / -8.6 / -9.1 % |
+| Odin 2 | 20,134 ± 95 ns | 22,647 ± 96 ns | +12.5 % |
+
+On arm64 the inlined subtree is slower, most likely from its code size. The root runs about 46 times a frame (about 0.9 ms of main-thread and worker time on the Odin), and an in-run frame A/B on the Odin (region off and on every 150 frames, two runs of five blocks) moved neither the frame (+0.08 ± 0.08 ms both, at the 60 Hz cap) nor process CPU repeatably (-1.5 ± 0.9 and -0.3 ± 0.9 ms). Two of five runs that alternated the two sides call by call also left the car short of the route's 30 m drive-start check (13.6 and 16.3 m), which no run with the first root alone had done; it was not investigated further. The root was rejected and is not in `native_regions`.
+
+Owning the subtree's data in native structures, with an import/export bridge, and per-operation floating-point rules were not built. The region already matches the reference bit for bit, so there is no floating-point difference to fix; and removing all of the subtree's context and memory traffic, before any bridge, is bounded by its 0.9 ms of off-frame-path thread time, while the step that only removed context traffic made the Odin slower.
+
 ## Building the output
 
 The clean-slate observable-state census fails its 15% gate under conservative
@@ -142,7 +213,7 @@ Output is split into files of at most 1 MiB, with the function-to-file assignmen
 | Optimization | `-O3`, `-ffp-contract=off`, `-fno-strict-aliasing` (measured to change nothing in the output), `-gline-tables-only`. `-ffp-model=strict` is an option: it costs 1–2 % host instructions for a risk never observed. No asynchronous exceptions: no generated unit has an SEH scope |
 | x86-64 baseline | SSE4.1; an FMA3 variant when the CPU has it, guarded at start. On Windows the x86-64-v3 variant (`-CpuBaseline v3`) is opt-in: MOVBE replaced a fifth of the byte swaps in the audio routines, under 1 % of their instructions. Linux builds x86-64-v3 when the CPU has it, and the Deck build is v3 ([Platforms](platforms.md#linux-and-the-steam-deck)) |
 | Linux x86-64 | The small code model with linker relaxation: the executable's code is 53 MB, far under the model's 2 GB. The large model (`-mcmodel=large -Wl,--no-relax`, still selectable with `REXGLUE_X86_64_CODE_MODEL=large`) made every call a `movabs` and a register-indirect call |
-| Android | ARMv8.2-A for every library (inline LSE atomics, no outline-atomic calls; the app refuses an older CPU with a message). `-Wl,-Bsymbolic-functions`: PLT stubs fell from 1.6 % to 0.1 % of cycles; on the runtime libraries it cut jump slots by 70-92 %, but their PLT share stays about 1.3 % of the GPU commands thread, from calls between the libraries. A symbol ordering file from a race's call counts packs the hot generated functions together: `libmain`'s resident pages fell from 52 to 34-36 MB |
+| Android | ARMv8.2-A for every library (inline LSE atomics, no outline-atomic calls; the app refuses an older CPU with a message). `-Wl,-Bsymbolic-functions`: PLT stubs fell from 1.6 % to 0.1 % of cycles; on the runtime libraries it cut jump slots by 70-92 %, but their PLT share stays about 1.3 % of the GPU commands thread, from calls between the libraries. A symbol ordering file from a race's call counts packs the hot generated functions together: `libmain`'s resident pages fell from 52 to 34-36 MB. The v4 build has its own list from a v4 probe build's open-world route (37,638 entered functions, `PINYON_SHIFT_RECOMP_PROBE` with `PINYON_SHIFT_TITLE_UPDATE_V4`): in the Odin's v4 open world `libmain`'s PSS fell from 54.8-54.9 to 34.3-36.2 MB (two interleaved runs each). The base list translated to v4 addresses did not help ([lessons](lessons.md#what-didnt-pay-off-here)) |
 | LTO, PGO | wired up, off. ThinLTO is neutral on guest-thread instructions. PGO trained on one route and measured on another cut 1–6 % per guest thread on the Odin in one pair of runs; trained on four routes with the profile kept in step with the generated code, it cut the race's process instructions by only 0.1–0.7 % after allowing for the draw count (NN-1.4), so it stays off |
 | First build | 20 to 60 minutes and about 25 GB on a PC; about 20 minutes on an M4 Pro; about 35 on the Deck |
 
@@ -151,7 +222,9 @@ Output is split into files of at most 1 MiB, with the function-to-file assignmen
 Title update v4 is a second executable. The v4 patches were made for a later disc revision, but applied to the USA disc they reproduce the v4 images exactly: every page verifies against v4's own SHA-1 page chain. The v4 build has its own manifest, analysis and generated tree, and a translated address map:
 
 1. `tools/map-fh1-v4-addresses.py` matches functions by their normalized bodies (branch and absolute immediates masked, unique in both images), then by call-graph anchoring, then by unique context windows, then `lis`/`addi` data pairs. 27,556 of 57,127 functions match by body alone. Unmapped addresses are reported, never guessed.
-2. `tools/port-fh1-v4-analysis.py` rewrites the analysis: all hooks, declared functions, `setjmp`/`longjmp` and CRT routes mapped, with four hand overrides. A rule declaring virtual-call thunks outside `.pdata` found 253 in v4, and recovers 66 of the base image's 70 hand-listed thunks.
+2. `tools/port-fh1-v4-analysis.py` rewrites the analysis: all hooks, declared functions, `setjmp`/`longjmp` and CRT routes mapped, with 18 reviewed hand overrides (`config/rexglue/analysis-v4/overrides.toml`). It knows every address field of the analysis schema, the code generation lists above included, and fails when a field is unclassified, an entry is unmapped, or a host replacement (`PINYON_GUEST_NATIVE`) names a v4 address that disagrees with the mapped one; `--check` writes nothing on failure. Entries kept on purpose for the base image only are marked `# v4-port: base-only`. A rule declaring virtual-call thunks outside `.pdata` found 253 in v4, and recovers 66 of the base image's 70 hand-listed thunks.
 3. Host code writes guest addresses as `FH1_ADDR(base address)`, translated at compile time from a verified table; an unmapped address fails the compile. Structure offsets that moved are listed in `config/mod/fh1-offsets-v4.toml`, each with a matching site in both images.
+
+Until October 2026 the port copied hooks and declarations but not the code generation lists, so the v4 build, the one players use for Rally and the 1000 Club, ran without the register, link-register and physics optimizations above, and `tools/build-v4.ps1` built without FMA. Both now match the base build: register saves in host locals in 23,263 of 24,182 v4 functions (base 22,030 of 22,968), the LR slot in 58,816 of 60,572 (base 55,031 of 56,799), and the same 19 specialised physics functions with 177 flush-mode toggles and 27 single-precision FMAs. Three of the 19 have edited bodies in v4; their pairs were checked through callers, callees and tables ([title update findings](game-title-update.md)). Every desktop build, v4 included, writes `pinyon_shift_build.json` beside the executable (variant, CPU flags, executable and analysis hashes, source and ShiftGlue commits), and each scripted render test records it with its result. In 90 seconds of open world with a player's settings, the two changes together cut the title thread's CPU time from 5.91 to 4.57 ms a frame and the process's from 36.3 to 33.1 ms (four interleaved runs each, [performance](performance.md#the-title-update-build)), and the lockstep verifier ran 245 functions 56,043,375 times on the same route with no mismatch.
 
 Details: [TITLE_UPDATE_V4_BACKLOG.md](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/TITLE_UPDATE_V4_BACKLOG.md).

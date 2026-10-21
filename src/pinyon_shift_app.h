@@ -18,6 +18,9 @@ class SaveBackups;
 namespace pinyon_shift::hostui {
 class HostUi;
 }
+namespace pinyon_shift::ui {
+class FrameInspector;
+}
 namespace rex::ui::vulkan {
 class VulkanDevice;
 }
@@ -66,6 +69,10 @@ class PinyonShiftApp final : public rex::ReXApp {
   // Creates the host UI and installs its XAM dialogs once presentation is
   // ready; UI thread.
   bool EnsureHostUi();
+#if !defined(__ANDROID__)
+  void ToggleFrameInspector();
+  std::unique_ptr<pinyon_shift::ui::FrameInspector> frame_inspector_;
+#endif
   // NP-4.4 Hor+: the title's aspect for the window's (pinyon_shift_hor_plus).
   void UpdateHorPlus();
   // Under Hor+, present frames without the gameplay view 16:9 letterboxed.

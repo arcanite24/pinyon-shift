@@ -200,6 +200,13 @@ losing profile data. Package mounting alone does not count as DLC support.
 
 Depends on DLC-0 and DLC-1.
 
+Open-world Rally travel is tracked separately in #490. The owned database
+contains a route-zero `DirtFreeRoam` track, but there is no qualified
+destination/return or world-aware save/resume path. The private
+[initial-placement probe](RALLY_FREEROAM.md) verifies owned inputs and keeps
+its own test profile; it is not a released free-roam feature or a substitute
+for the 20-minute base/v4 acceptance gate.
+
 The base build has enumerated the verified Rally package and successfully
 opened `DLCRoot0`. This establishes mounting, not playable Rally.
 The package's database supplies the `ColoradoDirt` environment and 34 track

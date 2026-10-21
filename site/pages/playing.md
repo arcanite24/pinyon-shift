@@ -23,6 +23,11 @@ Most settings live in the game, on <kbd>F6</kbd>, and apply at once. MSAA and th
 
 On a Mac, where the F-keys are media keys, use <kbd>Cmd</kbd>+<kbd>,</kbd> for the settings, <kbd>Ctrl</kbd>+<kbd>Cmd</kbd>+<kbd>F</kbd> for fullscreen, <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd> for a photo, <kbd>Cmd</kbd>+<kbd>T</kbd> for the trainer and <kbd>Cmd</kbd>+<kbd>Q</kbd> to quit.
 
+Mac fullscreen uses a borderless window on the current desktop. If an older
+build turns black when changing fullscreen, rebuild; the presenter now keeps
+the Metal drawable at the window's swapchain size. The visible result still
+needs checking on other Macs ([macOS qualification](platforms.md#macos-on-apple-silicon)).
+
 On a controller, hold **Back + Start** together (View + Menu on a Steam Deck) to open the settings, and **LS + RS** for the performance panel; both chords can be changed in **F6 > CONTROLS > CONTROLLER**.
 
 ### Driving on a keyboard
@@ -52,9 +57,14 @@ Keys can be rebound in **F6 > CONTROLS**, and **RESET KEYS** returns to this lay
 | Performance 120 | 1x | Off | FSR 1 | 120 | The default on a discrete GPU with 6 GB or more, 6 or more CPU threads and a 120 Hz display |
 | Quality 60 | 2x | 4x | Bilinear | 60 | |
 
-Where the sun's shadows are off (Ultra Low 30, and the Android presets that turn them off), the game still draws them from 18:50 to 08:02 game time: the same passes light the road in front of the headlights.
+On the M4 Pro Mac mini, the current free-roam qualification averages about
+60 fps at 1x, but 40 fps with QUALITY 60. Start with LOW-SPEC 60 and raise
+scale or MSAA separately; [the measured matrix](platforms.md#macos-on-apple-silicon) gives
+the limits of that test.
 
-1x is the console's 1280 × 720; up to 4x is available. Output scaling is bilinear, CAS or FSR 1, plus FSR 2 and FSR 3 (built into Linux, macOS and Android builds; on Windows when the FidelityFX runtime is installed beside the game; they use the game's depth, motion and a jittered scene; [Renderer](renderer.md)); DLSS appears on an NVIDIA RTX GPU in a build with DLSS and with `nvngx_dlss.dll` in `upscalers/dlss/<version>/`; an upscaler that is set but cannot load shows "(UNAVAILABLE)" and the game uses FSR 1. **SHARPENING** sets how much FSR sharpens. Ultrawide displays get a wider field of view with the HUD kept at 16:9. Bloom, motion blur and depth of field are optional. **TEXTURE GAMMA > FAST** makes terrain and foliage a little darker and saves about 8 % of the GPU's frame on a Mac; it makes no difference on a desktop GPU. On Linux, **SCENE SHADING > COARSE** shades the scene once per 2 × 2 pixels: a little softer, and about 8 % of the GPU's frame saved on a Steam Deck.
+Where the sun's shadows are off (**SHADOWS > OFF BY DAY**, Ultra Low 30, and the Android presets that turn them off), the game still draws them from 18:50 to 08:02 game time: the same passes light the road in front of the headlights.
+
+1x is the console's 1280 × 720; up to 4x is available. Output scaling is bilinear, CAS or FSR 1, plus FSR 2 and FSR 3 (they use the game's depth, motion and a jittered scene; [Renderer](renderer.md)), and NVIDIA DLSS on Windows with an RTX GPU. Setup provides them all: it downloads AMD's FidelityFX runtime and NVIDIA's DLSS runtime on Windows into `upscalers/` beside the game, and builds the FidelityFX library on Linux, macOS and Android. A newer `nvngx_dlss.dll` in its own `upscalers/dlss/<version>/` folder is used first. An upscaler that is set but cannot run (DLSS without an RTX GPU, or on Linux and macOS) shows "(UNAVAILABLE)" and the game uses FSR 1, as the resolution line under the settings says. **SHARPENING** sets how much FSR sharpens. Ultrawide displays get a wider field of view with the HUD kept at 16:9. Bloom, motion blur and depth of field are optional. **TEXTURE GAMMA > FAST** makes terrain and foliage a little darker and saves about 8 % of the GPU's frame on a Mac; it makes no difference on a desktop GPU. On Linux, **SCENE SHADING > COARSE** shades the scene once per 2 × 2 pixels: a little softer, and about 8 % of the GPU's frame saved on a Steam Deck.
 
 **POST-PROCESS AA** (FXAA) smooths the game world only, so HUD text stays sharp; **AA ON THE HUD** smooths everything, as before. **ANISOTROPIC FILTERING** and **TEXTURE DETAIL** apply to the world's textures. **TEXTURE SIZE** (1024, 512 or 256) loads large textures from a smaller level for graphics cards with little memory: the world is softer up close. It applies at the next start; the sun's shadows and the HUD keep the game's own filtering. **COLOUR LUT** gives the world a different look from a `.cube` colour table (17 or 33 points, as photo and video editors export) put in a `luts` folder you create in the state folder (`%LOCALAPPDATA%\PinyonShift\source\<version>\.local\preview\luts`); **LUT STRENGTH** blends it with the game's colours. The HUD keeps its colours, though translucent HUD panels show the game's colours behind them. These apply at once on the Vulkan renderer.
 
@@ -74,11 +84,24 @@ The generated frames include the HUD, so its text can smear when the camera move
 
 ## HDR
 
-On an HDR display, turn on HDR in the system first (on Windows, **Settings > Display > Use HDR**), then **F6 > DISPLAY > HDR**. **HDR PAPER WHITE** sets the brightness of white menus and the HUD, **HDR HIGHLIGHTS** how far bright highlights reach, and **HDR CALIBRATION** sets both from test patterns. **HDR COMPARE** shows SDR and HDR side by side. Every HDR setting applies at once. HDR is tested on Windows and on Android (AYN Odin 2 Portal); on Linux and macOS it's offered when the driver provides an HDR output. On Android, HDR appears only on displays that report HDR10, and the brightness slider doesn't change the HDR image: set **HDR PAPER WHITE** to match the menus to your usual brightness. Run **HDR CALIBRATION** once: the display reports about 420 nits on the Odin 2 Portal, and the peak square shows where it really clips.
+On an HDR display, turn on HDR in the system first (on Windows, **Settings > Display > Use HDR**), then **F6 > DISPLAY > HDR**. On Windows, **F6 > DISPLAY > WINDOWS HDR** does both for you: it turns on the game's HDR and switches the game's display to HDR while the game runs, then back to SDR when the game closes. A display that was already in HDR stays in HDR. If the game crashes or is ended from Task Manager while it has HDR on, the next launch switches that display back. **HDR PAPER WHITE** sets the brightness of white menus and the HUD, **HDR HIGHLIGHTS** how far bright highlights reach, and **HDR CALIBRATION** provides paper-white and peak test patterns; HIGHLIGHTS controls how strongly scene highlights expand toward that peak. **HDR COMPARE** shows SDR and HDR side by side. Every HDR setting applies at once. HDR is tested on Windows and on Android (AYN Odin 2 Portal); on Linux and macOS it's offered when the driver provides an HDR output. On Android, keep brightness and the display mode fixed while calibrating. The Odin 2 Portal advertises about 420 nits; that is not a measurement of the current output. A tone-mapped path can keep the peak square visible at every setting: in that case keep the existing peak pending measurement. Astra calibration is still unqualified; see [Android HDR calibration](android.md#hdr-calibration). HDR COMPARE pauses while calibration patterns are shown and resumes afterwards.
+
+## Camera editor
+
+**F6 > DISPLAY > CAMERA EDITOR** adjusts both chase views while playing.
+Height and distance are offsets in metres from the current car's camera
+data. Field of view and stiffness are percentages; higher stiffness makes
+the yaw and height springs react faster. DEFAULT keeps the loaded camera
+values; RESET CAMERA EDITOR restores them and the normal driving view.
+The separate FIELD OF VIEW row continues to affect all cameras.
+DRIVING VIEW also offers the game's WHEEL and car-relative REPLAY cameras;
+NORMAL returns to your previous player view. These controls are qualified
+on the Windows disc and v4 builds with pinned saves; see the
+[camera editor notes](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/MODDING.md#camera-editor).
 
 ## Immersive camera
 
-**F6 > DISPLAY > IMMERSIVE CAMERA** makes the camera react to the car: it is pushed back under acceleration and thrown forward under braking, jolts when the throttle or brake goes on, leans into corners, shakes a little at speed and under hard braking, and moves with slow breathing and head sway in the cockpit. The cockpit view gets the full effect, the hood view a little less, and the chase and bumper views only the G-forces. Choose OFF, SUBTLE, DEFAULT or STRONG, or set G-force, lean, speed shake and head motion on their own rows (CUSTOM). Changes apply at once and keep your own save. On Android it comes with the mods the PC shares over Wi-Fi (not yet tried in a race there). It isn't available with the v4 title update yet.
+**F6 > DISPLAY > IMMERSIVE CAMERA** makes the camera react to the car: it is pushed back under acceleration and thrown forward under braking, jolts when the throttle or brake goes on, leans into corners, shakes a little at speed and under hard braking, and moves with slow breathing and head sway in the cockpit. The cockpit view gets the full effect, the hood view a little less, and the chase and bumper views only the G-forces. Choose OFF, SUBTLE, DEFAULT or STRONG, or set G-force, lean, speed shake and head motion on their own rows (CUSTOM). Changes apply at once and keep your own save. Disc and v4 use separate camera-data merges, qualified on Windows with pinned saves. On Android it comes with the mods the PC shares over Wi-Fi (not yet tried in a race there).
 
 ## Sound mix
 
@@ -141,11 +164,18 @@ The setting changes how the AI drives, not the game's files, so it plays your ow
 
 ## Traffic and showcase cars
 
-Turn on **F6 > MODS > HIDDEN_CARS** and restart to buy 22 cars the game drives but never sells: traffic cars such as the tour bus, the Kenworth T440 truck, the Nissan Leaf and the Toyota Prius, and the showcase Mini Cooper S, 500 Abarth and Peugeot 205 T16. They are in the Autoshow under their make. Most of them have no Autoshow picture, so their tile stays black; the garage shows the car once you own it. Like any mod it plays a separate profile, so your own save is not changed. The tour bus and the Kenworth were bought and driven on the base game; not every car has been tried.
+Turn on **F6 > MODS > HIDDEN_CARS** and restart to list the intro Corrado and showcase Mini Cooper S, 500 Abarth and Peugeot 205 T16 in the Autoshow. The traffic cars previously listed by this mod, including the tour bus, are excluded because they lack qualified player models. It plays a separate profile, so your own save is not changed. Existing traffic-car purchases remain there. If one blocks your garage, close the game and follow the [backed-up selection recovery](modding.md#enabling); it requests a starter Corrado without deleting the purchased car.
+
+The four variants were bought, saved, reloaded and driven on the base Windows build. Full garage and paint-shop checks, and v4 qualification, are still pending; see the [audit and test limits](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/HIDDEN_CARS.md).
 
 ## Saves
 
 Saves are in the install's state folder, `%LOCALAPPDATA%\PinyonShift\source\<version>\.local\preview\user` (under `data` for a portable install).
+
+Post-race gameplay replays cannot yet be saved and reopened after quitting,
+or exported to video. F8 saves a single PNG. The replay persistence work and
+its verification gates are described in the
+[gameplay replay research](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/GAMEPLAY_REPLAYS.md).
 
 - **Backups.** After each save, the save files are copied to `backups\saves`. The last 10 are kept. Restore one from **SETTINGS > PROFILE > SAVE BACKUPS**.
 - **Photos.** <kbd>F8</kbd> writes PNGs to the `photos` folder in the state folder. Press <kbd>F2</kbd> first for a photo without the HUD.
@@ -167,6 +197,29 @@ Turn cheats on in **SETTINGS > CHEATS** and restart. The game then plays a separ
 - **PLAYER**: set or add credits, set the wristband level.
 - **WORLD**: game speed, time of day, **DAY LENGTH** (how many real minutes 24 game hours take, from 12 minutes to 24 hours, or this PC's clock; events that set their own time still do), free camera, collectibles on the map, and **ANY CAR IN ANY EVENT**. With it on, events drop their class, make, year and other car limits, so the car you drive is eligible as it is. Turn it on before you drive up to the event.
 - **GRAPHICS** and **DEBUG**: bloom, motion blur, depth of field, filtering, a file-open log.
+
+**VEHICLE** has an experimental **FAST TRAVEL ANYWHERE** option, off by default.
+Open the game's map, choose a road and press <kbd>X</kbd> to use the game's
+normal travel confirmation, loading screen and streaming wait. A marker the
+game can already travel to, such as an outpost or the festival, keeps its
+normal arrival spot; any other marker takes you to its nearest road. Races and
+scripted travel locks still apply. This temporary trainer option is separate
+from v4's Fast Travel Anywhere ownership setting.
+
+After selecting a road on the map, **GPS TO LAST MAP ROAD** requests guidance
+there. **SAVE LAST MAP ROAD** remembers that road in the settings file;
+**GPS TO SAVED ROAD** reuses it after a restart. Advanced users can request a
+custom target once with `cheat_gps_destination = "x,y,z"` (world metres).
+Launch requests wait for the first free roam; requests during races are rejected.
+The title's destination lock still applies. A saved
+point also has a separate **TELEPORT TO SAVED ROAD** action. Open the game's
+full map (A from the pause menu's MAP page) before opening the trainer for a teleport; the request expires after ten
+seconds if the map cannot accept it. Confirm the title's travel dialog with A.
+Explicit trainer travel
+snaps to a road, uses the title's heading and charges no credits. Centre the
+map on a collectible's marker to travel to a road nearby. Advanced users can request it once
+with `cheat_teleport_destination = "x,y,z"`. Twenty consecutive landings and custom route guidance were tested on Windows
+with both the base game and v4. Other platforms are not qualified; details are in [the research notes](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/research/TRAVEL_DESTINATIONS.md).
 
 ## Telemetry out
 

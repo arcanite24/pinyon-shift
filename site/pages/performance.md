@@ -33,6 +33,36 @@ The scripted race (`fh1-race-sync`) is the heaviest route. Measured over its bus
 
 At a 60 fps limit, 2x with MSAA holds a 16.66 ms median (p95 17.04 ms).
 
+## The title update build
+
+The v4 build players use for Rally and the 1000 Club, with a player's settings: 2x internal resolution, shadows, DLSS to a 3840 × 2160 window, no frame limit and no vsync. The route loads a pinned save into the open world and stands at the Gauntlet's start with traffic passing, for 90 seconds on a wall clock so it plays the same at any frame rate; the last 60 seconds are measured. The game paces its steps to the display's 120 Hz, so every build's median is 8.33 ms and the differences show in CPU time and the slow frames. Four interleaved runs a build (October 2026).
+
+| v4 build | p95 | p99 | Process CPU a frame | Title thread | GPU decoder | GPU recorder |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Before: SSE4.1, no code generation lists | 10.22 ms | 11.67 ms | 36.3 ms | 5.91 ms | 8.50 ms | 7.62 ms |
+| FMA3 | 9.46 ms | 10.85 ms | 34.8 ms | 5.43 ms | 8.36 ms | 7.13 ms |
+| FMA3 and the base build's code generation lists | **9.10 ms** | **10.19 ms** | **33.1 ms** | **4.57 ms** | 8.31 ms | 6.86 ms |
+
+One FMA3 run hitched (p99 42 ms) and is left out of its row. The last row is what `tools/build-v4.ps1` builds now ([recompiler](recompiler.md#the-title-update-build)); resident memory stayed at 2.06-2.08 GB in all three.
+
+## First visits and hitches
+
+Shader preparation covers a short route, so a new area or event can still
+request pipelines it has never reached. The desktop renderer requests a
+frame's new pipelines in parallel and waits at submission replay. A warm
+route and a first visit must be measured separately; a recurring night-race
+stutter is not established to be shader compilation merely because first
+visits also hitch.
+
+The `fh1-hitch-drive` and `fh1-hitch-race` test routes keep only one final
+capture, whose GPU readback is excluded from gameplay timings. Warm repeats
+keep the original seed's user and configuration and add the completed run's
+Vulkan shader storage, base and specialized pipeline descriptions, and
+persisted driver cache. The driver's own disk
+cache remains present in both runs, so an unseeded run is not a cold-driver
+measurement. The [qualification method](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/HITCH_QUALIFICATION.md)
+lists the diagnostics, cache policy and limits of the seeded routes.
+
 ## Fewer cores
 
 The Low-spec 60 preset on the heavy start of the race (about 6,200 draws a frame), with the same machine limited to fewer cores or less free VRAM. These show sensitivity to core count, not real older hardware: a real older CPU also has smaller caches and lower clocks, and the GPU is still an RTX 4080.

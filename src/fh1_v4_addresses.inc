@@ -39,9 +39,11 @@
     {0x8252A630u, 0x825979B8u},  // code: aligned
     {0x82551648u, 0x825C2730u},  // code: exact
     {0x825A86F8u, 0x826207B0u},  // code: exact
+    {0x825F6FB0u, 0x8269B4F8u},  // code: exact
     {0x8262B348u, 0x826D3068u},  // code: shape-context
     {0x8269BCF8u, 0x827464B8u},  // code: exact
     {0x826AA860u, 0x82755D60u},  // code: context
+    {0x827FADE8u, 0x828AF1B8u},  // code: override
     {0x8281BF4Cu, 0x828CFA4Cu},  // code: aligned
     {0x8282D1F8u, 0x828D3930u},  // code: exact
     {0x8282DEF0u, 0x828D3DD0u},  // code: exact
@@ -57,6 +59,7 @@
     {0x828E4F58u, 0x82996D18u},  // code: exact
     {0x8291DD80u, 0x829D0D90u},  // code: aligned
     {0x8291DF68u, 0x829D0F78u},  // code: vtable
+    {0x829423B0u, 0x829F5278u},  // code: exact
     {0x82983A90u, 0x82A37858u},  // code: aligned
     {0x82BB5918u, 0x82C74230u},  // code: context
     {0x82C66594u, 0x82D27174u},  // code: exact
@@ -85,6 +88,9 @@
     {0x832E5510u, 0x833D2FFCu},  // data: data
     {0x832E6364u, 0x833D3F34u},  // data: data
     {0x832FEE8Cu, 0x833EDA1Cu},  // data: data
+    {0x832FF054u, 0x833EDC08u},  // data: data
+    {0x832FF090u, 0x833EDC44u},  // data: data
+    {0x832FF094u, 0x833EDC48u},  // data: data
     {0x832FF1D8u, 0x833EDDA4u},  // data: data
     {0x833023C1u, 0x833F0F91u},  // data: data
     {0x83305CC4u, 0x833F4A80u},  // data: data

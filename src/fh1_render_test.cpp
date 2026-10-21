@@ -149,7 +149,8 @@ struct HostKeyStep {
 rex::ui::VirtualKey ParseHostKey(const std::string& name) {
   using rex::ui::VirtualKey;
   static const std::pair<const char*, VirtualKey> kNames[] = {
-      {"f6", VirtualKey::kF6},       {"f7", VirtualKey::kF7},
+      {"f3", VirtualKey::kF3},       {"f6", VirtualKey::kF6},
+      {"f7", VirtualKey::kF7},
       {"f8", VirtualKey::kF8},       {"f9", VirtualKey::kF9},
       {"f10", VirtualKey::kF10},
       {"enter", VirtualKey::kReturn},
@@ -429,7 +430,7 @@ void LoadScript(const std::filesystem::path& path) {
       HostKeyStep step{ParseUnsigned(frame, 10, "cvar_frame")};
       step.cvar_name = name;
       step.cvar_value = value;
-      if (!g_test.host_keys.empty() && step.frame <= g_test.host_keys.back().frame) {
+      if (!g_test.host_keys.empty() && step.frame < g_test.host_keys.back().frame) {
         Fail("script_hostkey_order");
       }
       g_test.host_keys.push_back(step);
@@ -1282,6 +1283,7 @@ bool ObserveOutput(
     g_test.stopping = true;
     guest_native::RecordSummary();
     guest_native::reference::RecordSummary();
+    guest_native::region_oracle::RecordSummary();
     // Probe build: the process hard-exits when the title ends, and the
     // runtime library has its own copy of the probe state, so write here.
     if (rex::ppc::ProbeActive()) {

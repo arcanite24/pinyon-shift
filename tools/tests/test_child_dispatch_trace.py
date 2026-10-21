@@ -65,6 +65,9 @@ class ChildDispatchTraceTests(unittest.TestCase):
         source = (ROOT / "src/pinyon_shift_runtime_hooks.cpp").read_text(encoding="utf-8")
         start = source.index("// Read-only ownership probe for the shared child dispatch")
         end = source.index("static std::string PinyonShiftReadGuestAscii(", start)
+        guard = source.index("// Recompiled game code and vtables", start)
+        after = source.index("void PinyonShiftTraceChildDispatchAfter(", guard)
+        probe = source[start:guard] + source[after:end]
         hooks = tomllib.loads((ROOT / "config/rexglue/analysis/main-xex.toml").read_text(encoding="utf-8"))["midasm_hook"]
         for name, address, registers in [("Before", 0x82C222EC, ["r3", "r11"]), ("After", 0x82C222F0, ["r3", "r30"])]:
             matches = [h for h in hooks if h["name"] == "PinyonShiftTraceChildDispatch" + name]
@@ -76,7 +79,7 @@ class ChildDispatchTraceTests(unittest.TestCase):
             directory = Path(directory)
             cpp = directory / "probe.cpp"
             exe = directory / ("probe.exe" if os.name == "nt" else "probe")
-            cpp.write_text(PRELUDE + source[start:end] + CHECK, encoding="utf-8")
+            cpp.write_text(PRELUDE + probe + CHECK, encoding="utf-8")
             compiled = subprocess.run([str(CXX), "-std=c++23", str(cpp), "-o", str(exe)], capture_output=True, text=True)
             self.assertEqual(compiled.returncode, 0, compiled.stderr)
             for args in ([], ["enabled"]):

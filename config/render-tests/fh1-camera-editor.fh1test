@@ -1,0 +1,87 @@
+pinyon-shift-fh1-render-test-v1
+# clock-hz 60
+# #487: i443-camera / i443-camera-v4 pinned seeds. Isolate each chase
+# control, restore defaults, then exercise replay driving views and motion.
+# Capture labels are evidence for visual review, not automatic image gates.
+# expect-freeroam-return default
+cvar 0 pinyon_shift_camera_gforce 0
+cvar 1 pinyon_shift_camera_lean 0
+cvar 2 pinyon_shift_camera_shake 0
+cvar 3 pinyon_shift_camera_head 0
+cvar 4 pinyon_shift_chase_height 0
+cvar 5 pinyon_shift_chase_distance 0
+cvar 6 pinyon_shift_chase_fov 1
+cvar 7 pinyon_shift_chase_stiffness 1
+cvar 8 pinyon_shift_drive_camera 0
+input 0 0000 0 0 0 0 0 0
+input 360 1000 0 0 0 0 0 0
+input 366 0000 0 0 0 0 0 0
+input 480 1000 0 0 0 0 0 0
+input 486 0000 0 0 0 0 0 0
+input 600 1000 0 0 0 0 0 0
+input 606 0000 0 0 0 0 0 0
+input 720 1000 0 0 0 0 0 0
+input 726 0000 0 0 0 0 0 0
+capture 1200 default
+cvar 1210 pinyon_shift_chase_height 1
+capture 1290 raised
+cvar 1300 pinyon_shift_chase_height 0
+capture 1380 height-reset
+cvar 1390 pinyon_shift_chase_distance 2
+capture 1470 farther
+cvar 1480 pinyon_shift_chase_distance 0
+capture 1560 distance-reset
+cvar 1570 pinyon_shift_chase_fov 1.25
+capture 1650 wider
+cvar 1660 pinyon_shift_chase_fov 1
+capture 1740 fov-reset
+cvar 1750 pinyon_shift_chase_stiffness 0.5
+input 1760 0000 0 255 10000 0 0 0
+capture 1840 soft
+cvar 1850 pinyon_shift_chase_stiffness 2
+input 1860 0000 0 255 -10000 0 0 0
+capture 1940 stiff
+cvar 1950 pinyon_shift_chase_stiffness 1
+input 1960 0000 0 255 0 0 0 0
+cvar 1970 pinyon_shift_drive_camera 10
+capture 2050 wheel
+cvar 2060 pinyon_shift_drive_camera 15
+capture 2140 replay
+cvar 2150 pinyon_shift_drive_camera 0
+capture 2230 normal
+cvar 2240 pinyon_shift_camera_gforce 1.5
+cvar 2241 pinyon_shift_camera_lean 1.5
+cvar 2242 pinyon_shift_camera_shake 1.5
+cvar 2243 pinyon_shift_camera_head 1.5
+capture 2340 immersive
+input 2360 0200 0 255 0 0 0 0
+input 2366 0000 0 255 0 0 0 0
+capture 2410 high-chase
+input 2420 0200 0 255 0 0 0 0
+input 2426 0000 0 255 0 0 0 0
+capture 2490 cockpit-immersive
+input 2500 0000 255 0 0 0 0 0
+# Open DISPLAY > CAMERA EDITOR through the real host settings page.
+hostkey 2600 f6
+hostkey 2610 down
+hostkey 2620 enter
+hostkey 2640 down
+hostkey 2650 down
+hostkey 2660 down
+hostkey 2670 down
+hostkey 2680 down
+hostkey 2690 down
+hostkey 2710 enter
+hostkey 2730 right
+hostkey 2760 down
+hostkey 2780 right
+hostkey 2800 down
+hostkey 2820 down
+hostkey 2840 down
+hostkey 2860 down
+hostkey 2880 enter
+hostkey 2900 escape
+hostkey 2920 escape
+hostkey 2940 escape
+capture 2980 editor-reset
+stop 3020

@@ -69,6 +69,12 @@ The game binary is built against the Steam Runtime 3 (sniper) SDK with a
 pinned LLVM, so builds are reproducible and do not depend on your
 distribution's compilers or libraries.
 
+The FidelityFX library for FSR 2 and FSR 3 uses the same toolchain, sysroot,
+compiler target and compile/link flags in its separate CMake build. Custom
+toolchain inputs follow CMake's `CMAKE_TRY_COMPILE_PLATFORM_VARIABLES` list.
+Its Vulkan shader permutations are already prepared, so this build does not
+need a separate shader compiler or Wine.
+
 ## From a terminal
 
 The launcher runs these commands. In an extracted source tree or a repository
@@ -185,6 +191,13 @@ included, stays in the `data` folder next to it.
 
 - **Setup failed.** The launcher names the step and the log. The same report
   is in `.local/logs/setup-error.json`; attach it when you file an issue.
+- **FidelityFX cannot find `crtbeginS.o` or `-lgcc`.** The 0.6.0 nested build
+  omitted the Steam Runtime toolchain and tried the host linker. Update to
+  source containing the fix for #681 and retry `setup --build-only` in the
+  source folder. Existing build directories are supported; installing system
+  GCC or deleting your save is unnecessary. The fix's clean build and retry
+  were checked on a Steam Deck LCD running SteamOS 3.7.19 with pinned LLVM
+  20.1.8 and Steam Runtime SDK 3.0.20260805.254768.
 - **Very low frame rate on the Deck.** Check Manual GPU Clock, above.
 - **The game does not appear in Game Mode.** Choose **Add to Steam** again
   while Steam is running; it rewrites the entry and restarts Steam. A backup

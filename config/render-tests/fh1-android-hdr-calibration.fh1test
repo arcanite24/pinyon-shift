@@ -1,0 +1,34 @@
+pinyon-shift-fh1-render-test-v1
+# clock-hz 30
+# Android HDR10 display, private pinned seed, SYSTEM and Turnip separately.
+# Inspect with a panel/meter and ADB host-UI screenshots: route captures omit
+# host UI and cannot establish panel nits. Compare must not cover the patterns.
+# Patterns must also replace guest HUD/menu pixels throughout the chart band.
+input 0 0000 0 0 0 0 0 0
+cvar 0 present_hdr true
+cvar 1 present_hdr_paper_white_nits 200
+cvar 2 present_hdr_peak_nits 1000
+cvar 3 present_hdr_highlights 0.5
+cvar 4 present_hdr_gamma 2.2
+cvar 5 present_hdr_compare true
+hostkey 240 f6
+hostkey 270 down
+hostkey 300 enter
+# From the first Display row, wrap past HUD and GAME FRAME RATE LIMIT.
+hostkey 330 up
+hostkey 360 up
+hostkey 390 up
+hostkey 420 enter
+# Black, paper white, peak: compare stays enabled for this whole cycle.
+hostkey 600 right
+hostkey 780 right
+# Repeat without compare at the same signal levels.
+cvar 960 present_hdr_compare false
+hostkey 990 right
+hostkey 1170 right
+hostkey 1350 right
+# Exit calibration and confirm compare resumes without a pattern.
+cvar 1530 present_hdr_compare true
+hostkey 1560 escape
+capture 1620 calibration-complete
+stop 1680

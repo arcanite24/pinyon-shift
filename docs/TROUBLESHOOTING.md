@@ -17,8 +17,37 @@ remain in user-writable folders.
 
 Preview launchers are not code-signed yet, so Microsoft Defender SmartScreen may
 show an unrecognized-app warning. Download only from this repository's Releases
-page and compare the ZIP's SHA-256 with the value published in the release notes
-before deciding whether to run it.
+page and compare the ZIP's SHA-256 with the release asset's `digest` in the
+[GitHub release API](https://api.github.com/repos/arcanite24/pinyon-shift/releases/latest)
+before deciding whether to run it. Use the API's `/releases/tags/<tag>` endpoint
+for an older release. A matching hash establishes which download you have;
+it does not establish that a malware detection is false.
+
+## Defender reports a Trojan or quarantines a file
+
+A named threat in **Windows Security > Protection history** needs investigation,
+even when the download matches the official release. Keep protection enabled;
+do not add an exclusion, allow the threat, or restore the file to get setup
+running. This also applies to an executable built by your own install.
+
+Record the release version, download URL, exact detection name, affected path,
+detection time and Defender security intelligence version. If the original ZIP
+is still accessible, record its hash without running or restoring anything:
+
+```powershell
+Get-FileHash .\PinyonShift-Launcher.zip -Algorithm SHA256
+```
+
+Compare hashes for the same file: the ZIP, EXE and bundled DLL have different
+hashes. A mismatch can mean an incomplete, changed or different download; it is
+not by itself proof of compromise. Stop using that copy and report the source.
+If the hashes match, report the detection with the same evidence so the
+maintainer can investigate and submit the exact sample to Microsoft.
+
+[#659](https://github.com/arcanite24/pinyon-shift/issues/659) was reproduced on
+the official 0.5.1 Windows ZIP; its reported hash is the ZIP's, and Defender
+names a DLL inside the launcher EXE. See the
+[investigation and maintainer submission draft](LAUNCHER_DEFENDER_659.md).
 
 ## A download fails
 
@@ -86,8 +115,9 @@ Update the GPU driver and confirm that the GPU supports Vulkan 1.3. Vulkan is
 the sole supported graphics API; Direct3D 12 is legacy and unsupported. Saved
 Direct3D 12 selections migrate to Vulkan on the next launch. Remove
 `.local/preview/config/pinyon_shift.toml` to reset runtime settings. Security
-software may also quarantine a newly compiled unsigned executable; restore it
-only after confirming it was produced by your local checkout.
+software may also quarantine a newly compiled unsigned executable; follow
+[the detection reporting steps](#defender-reports-a-trojan-or-quarantines-a-file)
+before trying to start it again.
 
 ## A controller is not recognized
 

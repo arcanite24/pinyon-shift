@@ -6,7 +6,10 @@ param(
     # The extracted USA disc; defaults to .local/game/base.
     [string]$GameRoot,
     # 0 picks a job count from the logical processors and installed memory.
-    [ValidateRange(0, 32)] [int]$Parallel = 0
+    [ValidateRange(0, 32)] [int]$Parallel = 0,
+    # As in build-preview.ps1: 'auto' adds FMA3 when this CPU has it (#744).
+    [ValidateSet('auto', 'sse4.1', 'fma', 'v3')]
+    [string]$CpuBaseline = 'auto'
 )
 
 # Builds the FH1 v4 title-update executable (docs/TITLE_UPDATE_V4_BACKLOG.md)
@@ -84,8 +87,11 @@ if ($requiresBootstrap) {
 }
 # A release install keeps the SDK in .local/rexglue, not in the submodule
 # path the preset names (#459).
-Invoke-PinyonBuildCommand $environment.CMake @('--preset', 'win-amd64-v4',
-    "-DREXSDK_DIR=$(Resolve-PinyonRexGlueRoot)", "-DPYTHON_EXECUTABLE=$(Get-PinyonPython)") `
+$cpu = Select-PinyonCpuBaseline -CpuBaseline $CpuBaseline
+Write-Host "CPU baseline: $($cpu.Baseline)."
+Invoke-PinyonBuildCommand $environment.CMake (@('--preset', 'win-amd64-v4',
+    "-DREXSDK_DIR=$(Resolve-PinyonRexGlueRoot)") + $cpu.CMakeArguments +
+    @("-DPYTHON_EXECUTABLE=$(Get-PinyonPython)")) `
     (Join-Path $logs 'v4-configure.log') 'v4 configuration failed.' -Step 'Configure the v4 build'
 Invoke-PinyonBuildCommand $environment.CMake @('--build', 'out/build/win-amd64-v4', '--parallel', "$Parallel",
     '--target', 'pinyon_shift', 'pinyon_shift_fh1_archive_extract') `
@@ -98,4 +104,6 @@ foreach ($library in Get-ChildItem -LiteralPath (Join-Path $built 'rexglue-artif
 & (Get-PinyonPython) (Join-Path $root 'tools/verify-codegen-log.py') (Join-Path $logs 'codegen-v4.log') `
     --allowlist (Join-Path $root 'config/rexglue/accepted-codegen-warnings-v4.json')
 if ($LASTEXITCODE -ne 0) { throw 'The v4 code generation log has unreviewed warnings.' }
+[void](Write-PinyonBuildInfo -BuildDirectory $built -Variant 'v4' -Cpu $cpu `
+    -AnalysisDirectory (Join-Path $root 'config/rexglue/analysis-v4'))
 Write-Host "v4 build ready: $built\pinyon_shift.exe"

@@ -36,7 +36,7 @@ A playable preview. Expect some rendering bugs and slowdowns. Vulkan is the only
 | Resolution | 1x to 4x internal resolution, FSR 1 output scaling, ultrawide with a 16:9 HUD |
 | In game | Settings on <kbd>F6</kbd>, trainer, photo export, achievements, save backups, 18 languages |
 | DLC | Your own Xbox 360 packages, verified and imported. Rally and 1000 Club run on the optional v4 build |
-| Mods | Asset, database, texture and native mods; see [Modding](modding.md) |
+| Mods | Asset, database, texture, Vulkan shader and native mods; see [Modding](modding.md) |
 | Android | Developer alpha. About 60 fps on Snapdragon 8 Gen 2 handhelds |
 
 ## What's in the repository

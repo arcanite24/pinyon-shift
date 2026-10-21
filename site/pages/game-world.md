@@ -52,6 +52,13 @@ Car LOD distances live in the render scenarios ([Rendering](game-rendering.md#re
 
 ## Collision and cameras
 
+The chase camera starts from a `CameraSettings.ini` tuning block, then applies
+per-car placement overrides. Live placement must adjust the instance's
+cached offsets as well as the ground-height limits; changing only the
+original INI-backed block does not update the cached placement. The
+[camera editor](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/MODDING.md#camera-editor) retains
+those loaded values so resetting preserves another mod's tuning too.
+
 {{findings:world/Collision and cameras}}
 
 ## Placements and routes

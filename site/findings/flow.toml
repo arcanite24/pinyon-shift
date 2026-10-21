@@ -63,6 +63,17 @@ source = """src/pinyon_shift_runtime_hooks.cpp RallySeriesLoader; docs/DLC_BACKL
 
 [[finding]]
 group = """Script actions"""
+base = """sub_825558A0, sub_82554598"""
+v4 = """sub_825D4500, sub_825D3548"""
+name = """ordinary free-roam parameter construction"""
+what = """The ordinary free-roam loader calls a parameter constructor (base sub_825558A0, v4 sub_825D4500) that selects track 317. Its setup call receives the parameter object in r3, track ID in r4 and 1 in r5 (base sub_82554598, v4 sub_825D3548). This is separate from v4's Rally menu-hub loader."""
+how = """Read-only generated-code call-site and argument inspection, starting at the already identified free-roam loader in both builds."""
+confidence = """confirmed"""
+note = """The meaning of r5 and safety of reinitializing live parameters are not established; no runtime wrapper is implemented."""
+source = """docs/RALLY_FREEROAM.md Owned data contract"""
+
+[[finding]]
+group = """Script actions"""
 base = """sub_82983A90"""
 v4 = """sub_82A37858"""
 name = """CStoreRestorePlayerCarPosition"""

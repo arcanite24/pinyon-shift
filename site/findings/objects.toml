@@ -1,5 +1,16 @@
 # Reverse-engineering records for the "Game objects" page.
 
+[[finding]]
+group = "Audio child dispatch"
+base = "sub_82FFD980, 0x82FFD9E0, 0x82FFD9C4, 0x8227E680, sub_82FFD460, sub_82FFCB20"
+v4 = "sub_830BEAF8, 0x830BEB68, 0x830BEB78, 0x822918A0, sub_830BE5D8, sub_830BDC68"
+name = "counted empty audio children"
+what = """The audio container has a count at +124 and child pointers from +128. Construction sets count one with an empty slot; teardown clears slots without reducing the count. Its +48 virtual method locks, dispatches to each child's +48 method, unlocks and returns the last result (zero if none). Base dereferences empty slots; v4 already skips them and preserves the previous result. #703 and #715 both show the base loop's first slot empty, not a proven freed traffic vehicle. The logged LR 0x82FFD9C4 is the preceding lock's return; the failing read is at 0x82FFD9E0. The base hook supplies v4's empty-slot behavior without changing ownership or accepting invalid nonzero pointers."""
+how = """Compared both loaded images, the corresponding vtable slot and neighbouring methods, constructor and teardown writes, and the Windows/Linux fault registers. The v4 null branch prevents a whole-function normalized match."""
+note = """The short base routes did not emit an empty-child event; the zero-slot comparison uses the actual generated methods with controlled memory. Native v4's initial sign-up timeouts were fixture-position failures, not guest faults. Holding the handbrake keeps the car at the event marker; holding the service brake selects reverse."""
+confidence = "confirmed"
+source = "docs/research/TRAFFIC_EVENT_NULL_DISPATCH.md; src/pinyon_shift_runtime_hooks.cpp PinyonShiftGuardEmptyAudioChild; issues #703 and #715"
+
 # ------------------------------------------------------------- Game and world
 
 [[finding]]
@@ -92,13 +103,13 @@ source = """docs/NATIVE_PORT_BACKLOG.md NP-8.1; docs/native-renderer/RESEARCH.md
 
 [[finding]]
 group = """Vehicles, camera and crowd"""
-base = """sub_82486C40, sub_82486C70, sub_82858638, sub_82486B40, sub_825A86F8"""
+base = """sub_82486C40, sub_82486C70, sub_82858638, sub_82486B40, sub_825A86F8; 0x8324BB08"""
 v4 = """sub_824B68E0, sub_824B6910, sub_82908AC0, sub_824B6758, sub_826207B0"""
 name = """camera controllers and free camera"""
-what = """The world has several camera controllers: `sub_82486C40(world)` counts them and `sub_82486C70(world, i)` returns one. `sub_82858638(controller, mode)` sets a controller's mode; mode 6 is the free camera. `sub_82486B40(world, i)` returns a player camera and `sub_825A86F8` resets it to the player. The script actions `CChangeToFreeCamera` (`sub_828F2DB0`) and `CResetCameraToPlayer` (`sub_82937158`) are built from these calls."""
-how = """Script functors are registered by name (`sub_828F7180` for `CChangeToFreeCamera`); following their vtables gave the calls, and calling them from a host task switches the camera."""
+what = """The world has several camera controllers: `sub_82486C40(world)` counts them and `sub_82486C70(world, i)` returns one. `sub_82858638(controller, mode)` sets a controller's mode; mode 6 is the free camera. `sub_82486B40(world, i)` returns a player camera and `sub_825A86F8` resets it to the player. The script actions `CChangeToFreeCamera` (`sub_828F2DB0`) and `CResetCameraToPlayer` (`sub_82937158`) are built from these calls. The 24-entry mode table at base 0x8324BB08 names 0 FollowCam, 1 FollowCam2, 2 DriverCam, 3 Hood, 4 BumperHigh, 10 WheelCam and 15 CarRelativeCams. The controller stores its mode at +8, its active camera at +20, and the mode-n camera pointer at +24+4n. Set-mode initializes that camera with the active camera's car (+16). Table names alone do not qualify a replay mode for driving; Windows disc/v4 pinned-seed routes also confirmed driving in modes 10 and 15 and restoring the player view."""
+how = """Script functors are registered by name (`sub_828F7180` for `CChangeToFreeCamera`); following their vtables gave the calls, and calling them from a host task switches the camera. Mode-table analysis and disc/v4 fh1-camera-editor pinned-seed captures establish the additional driving modes."""
 confidence = """confirmed"""
-source = """docs/NATIVE_PORT_BACKLOG.md NP-8.4; config/mod/fh1-symbols.toml camera.*"""
+source = """docs/NATIVE_PORT_BACKLOG.md NP-8.4; config/mod/fh1-symbols.toml camera.*; docs/MODDING.md Camera editor (#487)"""
 
 [[finding]]
 group = """Vehicles, camera and crowd"""

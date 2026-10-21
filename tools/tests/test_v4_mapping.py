@@ -175,6 +175,82 @@ class PortTests(unittest.TestCase):
         self.assertIn("address = 0x83000000", text)
         self.assertEqual(report["methods"].get("override"), 1)
 
+    def two_function_images(self):
+        f, g = LOAD + CODE, LOAD + CODE + 0x400
+        shift = 0x100
+        base, v4 = Builder(), Builder()
+        base.function(f, body(20, 0x100) + [BLR])
+        base.function(g, body(20, 0x500) + [BLR])
+        v4.function(f + shift, body(20, 0x100) + [BLR])
+        v4.function(g + shift, body(20, 0x900) + [BLR])  # unrelated in v4
+        return f, g, shift, V4MAP.Mapper(base.image(), v4.image())
+
+    def port(self, mapper, source, overrides=None):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "main-xex.toml"
+            path.write_text(source, encoding="utf-8")
+            report = {"methods": {}, "unmapped": [], "rejected": []}
+            text = PORT.port_file(path, mapper, overrides or {}, report)
+        return text, report
+
+    def test_address_lists_are_mapped_and_unmapped_entries_reported(self):
+        # #742: lists used to pass through with their base addresses and no
+        # report entry.
+        f, g, shift, mapper = self.two_function_images()
+        text, report = self.port(mapper, (
+            f"register_locals_functions = [0x{f:08X},\n"
+            f"    0x{g:08X}]\n"
+            f"host_local_lr_keep = [0x{f:08X}]  # one entry\n"))
+        self.assertIn(f"register_locals_functions = [0x{f + shift:08X},", text)
+        self.assertIn(f"# UNMAPPED register_locals_functions entry 0x{g:08X}", text)
+        self.assertNotIn(f"0x{g:08X}]", text)
+        self.assertIn(f"host_local_lr_keep = [0x{f + shift:08X}]  # one entry", text)
+        self.assertEqual([(u["kind"], u["address"]) for u in report["unmapped"]],
+                         [("register_locals_functions", f"{g:08X}")])
+        self.assertEqual(report["lists"]["host_local_lr_keep"], {f"{f:08X}": f"{f + shift:08X}"})
+
+    def test_every_key_of_an_address_table_is_mapped(self):
+        f, _, shift, mapper = self.two_function_images()
+        text, report = self.port(mapper, f"[rexcrt]\nSwitchToFiber = 0x{f:08X}\n")
+        self.assertIn(f"SwitchToFiber = 0x{f + shift:08X}", text)
+        self.assertEqual(report["unmapped"], [])
+
+    def test_an_address_under_an_unknown_key_is_unclassified(self):
+        f, _, _, mapper = self.two_function_images()
+        _, report = self.port(mapper, f"new_option_functions = [0x{f:08X}]\nsize = 0x10\n")
+        self.assertEqual(report["unclassified"], [f"main-xex.toml: new_option_functions = 0x{f:08X}"])
+
+    def test_base_only_lines_and_blocks_are_left_out(self):
+        f, g, _, mapper = self.two_function_images()
+        text, report = self.port(mapper, (
+            "[[midasm_hook]]\n"
+            f"address = 0x{f + 16:08X}\n"
+            "name = \"Kept\"\n"
+            "registers = [\"r3\"]  # v4-port: base-only\n\n"
+            "# v4-port: base-only begin\n"
+            "[[midasm_hook]]\n"
+            f"address = 0x{g + 16:08X}\n"
+            "name = \"BaseOnly\"\n"
+            "# v4-port: base-only end\n"))
+        self.assertIn("name = \"Kept\"", text)
+        self.assertNotIn("registers", text)
+        self.assertNotIn("BaseOnly", text)
+        self.assertEqual(report["unmapped"], [])
+
+    def test_overrides_must_match_the_native_declarations(self):
+        report = {"lists": {"host_overridden_functions": {"82000010": "82000110", "82000020": "82000120"}}}
+        PORT.check_overrides(report, {0x82000010: 0x82000110, 0x82000020: 0x82000124,
+                                      0x82000030: 0x82000130})
+        self.assertEqual(report["override_mismatch"], [
+            "82000020 maps to 82000120, src/guest_native names 82000124",
+            "82000030 is replaced in src/guest_native but not listed",
+        ])
+
+    def test_native_declarations_are_read_from_the_sources(self):
+        declared = PORT.native_declarations(ROOT)
+        self.assertEqual(declared[0x82438EA8], 0x82468E50)
+        self.assertGreaterEqual(len(declared), 16)
+
 
 if __name__ == "__main__":
     unittest.main()

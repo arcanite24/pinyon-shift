@@ -28,6 +28,7 @@
 #include <rex/ui/vulkan/presenter.h>
 
 #include "cheats.h"
+#include "cheats_travel.h"
 #include "config/default_keys.h"
 #include "mod/mod_host.h"
 #include "pinyon_shift_diagnostics.h"
@@ -119,6 +120,25 @@ std::string Upper(std::string text) {
   return text;
 }
 
+std::string Lower(std::string text) {
+  std::transform(text.begin(), text.end(), text.begin(),
+                 [](unsigned char c) { return char(std::tolower(c)); });
+  return text;
+}
+
+// present_effect values the presenter runs through a temporal upscaler
+// provider; it falls back to FSR 1 when the provider can't run.
+bool IsTemporalEffect(std::string_view effect) {
+  return SameValue(effect, "fsr2") || SameValue(effect, "fsr3") || SameValue(effect, "dlss");
+}
+
+std::string TemporalUpscalerLabel(std::string_view id) {
+  return SameValue(id, "fsr2")   ? "FSR 2"
+         : SameValue(id, "fsr3") ? "FSR 3"
+         : SameValue(id, "dlss") ? "DLSS"
+                                 : Upper(std::string(id));
+}
+
 // Screens of one opening of the menu. The root screen's rows own the pages
 // (every other screen sits above the root on the host UI's stack), so each
 // function here may capture `this`.
@@ -157,6 +177,14 @@ class SettingsPages : public std::enable_shared_from_this<SettingsPages> {
   // What the renderer draws and what reaches the window, for the display
   // and graphics pages' notes.
   std::string ResolutionLine() const;
+  // Whether the presenter lists this temporal upscaler as able to run.
+  bool TemporalUpscalerAvailable(std::string_view id) const {
+    if (!services_.upscalers) return false;
+    for (const rex::ui::UpscalerInfo& info : services_.upscalers()) {
+      if (SameValue(info.id, id)) return info.available;
+    }
+    return false;
+  }
   MenuRow Page(std::string label, std::unique_ptr<MenuScreen> (SettingsPages::*page)());
   std::function<std::string()> RestartNote(std::vector<MenuRow>& rows);
   void Save();
@@ -168,6 +196,7 @@ class SettingsPages : public std::enable_shared_from_this<SettingsPages> {
   bool BuiltinModInstalled(const std::string& name) const;
 
   std::unique_ptr<MenuScreen> Display();
+  std::unique_ptr<MenuScreen> CameraEditor();
   std::unique_ptr<MenuScreen> HdrCalibration();
   std::unique_ptr<MenuScreen> Graphics();
   std::unique_ptr<MenuScreen> Audio();
@@ -331,8 +360,15 @@ std::string SettingsPages::ResolutionLine() const {
                          : SameValue(effect, "fsr3") ? ", FSR 3 UPSCALES TO "
                          : SameValue(effect, "dlss") ? ", DLSS UPSCALES TO "
                                                      : ", STRETCHED TO ";
+  // A temporal upscaler the build lacks or whose runtime didn't load runs
+  // as FSR 1 (#762): say so instead of naming the one that was chosen.
+  std::string unavailable;
+  if (IsTemporalEffect(effect) && !TemporalUpscalerAvailable(effect)) {
+    upscaler = ", FSR 1 UPSCALES TO ";
+    unavailable = " (" + TemporalUpscalerLabel(effect) + " UNAVAILABLE)";
+  }
   if (output_width * output_height > render_width * render_height) {
-    return line + upscaler + size(output_width, output_height);
+    return line + upscaler + size(output_width, output_height) + unavailable;
   }
   return line + ", DOWNSCALED TO " + size(output_width, output_height);
 }
@@ -388,6 +424,7 @@ std::unique_ptr<MenuScreen> SettingsPages::Display() {
     }
     rows.push_back(Setting("FIELD OF VIEW", std::move(fov)));
   }
+  rows.push_back(Page("CAMERA EDITOR", &SettingsPages::CameraEditor));
   // G-forces, lean, speed shake and head motion layered on the game's own
   // camera physics (#419), from the built-in immersive_camera mod, which
   // always loads. Its effect groups scale while the game runs (#443): a
@@ -439,17 +476,22 @@ std::unique_ptr<MenuScreen> SettingsPages::Display() {
     // version order (FSR 2 before FSR 3).
     std::stable_sort(upscalers.begin(), upscalers.end(),
                      [](const auto& a, const auto& b) { return a.id < b.id; });
+    bool saved_listed = false;
     for (const rex::ui::UpscalerInfo& info : upscalers) {
       if (info.kind != rex::ui::UpscalerKind::kTemporal ||
           (!info.available && !SameValue(saved_effect, info.id))) {
         continue;
       }
-      std::string label = info.id == "fsr2"   ? "FSR 2"
-                          : info.id == "fsr3" ? "FSR 3"
-                          : info.id == "dlss" ? "DLSS"
-                                              : Upper(info.id);
+      saved_listed = saved_listed || SameValue(saved_effect, info.id);
+      std::string label = TemporalUpscalerLabel(info.id);
       if (!info.available) label += " (UNAVAILABLE)";
       scaling.push_back({label, {{"present_effect", "\"" + info.id + "\""}}});
+    }
+    // Set in the launcher or the config for a build without it (DLSS on
+    // Linux and macOS): still show the setting, as unavailable.
+    if (IsTemporalEffect(saved_effect) && !saved_listed) {
+      scaling.push_back({TemporalUpscalerLabel(saved_effect) + " (UNAVAILABLE)",
+                         {{"present_effect", "\"" + Lower(saved_effect) + "\""}}});
     }
     rows.push_back(Setting("OUTPUT SCALING", std::move(scaling)));
   }
@@ -465,6 +507,14 @@ std::unique_ptr<MenuScreen> SettingsPages::Display() {
   // scene's highlights (not the HUD or menus) expanded towards the display's
   // peak. All of it applies at once. Offered when the display has HDR on, or
   // while it is set.
+#if defined(_WIN32)
+  // Windows HDR on for the game's display while it runs and back off when it
+  // closes; ON also turns the game's HDR output on (a display already in HDR
+  // stays on).
+  rows.push_back(Setting("WINDOWS HDR", {{"OFF", {{"pinyon_shift_windows_hdr", "false"}}},
+                                         {"ON", {{"pinyon_shift_windows_hdr", "true"},
+                                                 {"present_hdr", "true"}}}}));
+#endif
   const rex::ui::vulkan::HdrOutputState hdr = rex::ui::vulkan::GetHdrOutputState();
   if (hdr.offered || hdr.active || SameValue(Unquote(Saved("present_hdr")), "true")) {
     rows.push_back(Toggle("HDR", "present_hdr"));
@@ -532,6 +582,55 @@ std::unique_ptr<MenuScreen> SettingsPages::Display() {
   return std::make_unique<MenuScreen>("DISPLAY", std::move(rows), std::move(note));
 }
 
+std::unique_ptr<MenuScreen> SettingsPages::CameraEditor() {
+  std::vector<MenuRow> rows;
+  for (const auto& [label, key, first, last] : {
+           std::tuple{"CHASE HEIGHT", "pinyon_shift_chase_height", -2, 6},
+           std::tuple{"CHASE DISTANCE", "pinyon_shift_chase_distance", -4, 12}}) {
+    std::vector<Choice> choices;
+    for (int step = first; step <= last; ++step) {
+      char value[16], text[24];
+      std::snprintf(value, sizeof(value), "%.2f", step * 0.25);
+      std::snprintf(text, sizeof(text), "%+.2f M", step * 0.25);
+      choices.push_back({step == 0 ? "DEFAULT" : text, {{key, value}}});
+    }
+    rows.push_back(Setting(label, std::move(choices)));
+  }
+  for (const auto& [label, key, first, last, increment] : {
+           std::tuple{"CHASE FIELD OF VIEW", "pinyon_shift_chase_fov", 80, 130, 5},
+           std::tuple{"CHASE STIFFNESS", "pinyon_shift_chase_stiffness", 50, 200, 25}}) {
+    std::vector<Choice> choices;
+    for (int percent = first; percent <= last; percent += increment) {
+      char value[16];
+      std::snprintf(value, sizeof(value), "%.2f", percent / 100.0);
+      choices.push_back({percent == 100 ? "DEFAULT" : std::to_string(percent) + "%", {{key, value}}});
+    }
+    rows.push_back(Setting(label, std::move(choices)));
+  }
+  rows.push_back(Setting("DRIVING VIEW",
+      {{"NORMAL", {{"pinyon_shift_drive_camera", "0"}}},
+       {"WHEEL", {{"pinyon_shift_drive_camera", "10"}}},
+       {"REPLAY", {{"pinyon_shift_drive_camera", "15"}}}}));
+  MenuRow reset;
+  reset.label = "RESET CAMERA EDITOR";
+  reset.activate = [this] {
+    for (const auto& [key, value] : {
+             std::pair{"pinyon_shift_chase_height", "0.0"},
+             std::pair{"pinyon_shift_chase_distance", "0.0"},
+             std::pair{"pinyon_shift_chase_fov", "1.0"},
+             std::pair{"pinyon_shift_chase_stiffness", "1.0"},
+             std::pair{"pinyon_shift_drive_camera", "0"}}) {
+      config_.Set(key, value);
+      rex::cvar::SetFlagByName(key, value);
+    }
+    Save();
+  };
+  rows.push_back(std::move(reset));
+  return std::make_unique<MenuScreen>("CAMERA EDITOR", std::move(rows), [] {
+    return std::string("APPLIES LIVE TO BOTH CHASE VIEWS. OFFSETS ARE RELATIVE TO CAMERA DATA.");
+  });
+}
+
 std::unique_ptr<MenuScreen> SettingsPages::HdrCalibration() {
   // Test patterns the HDR pass draws under the menu (#442), in three steps:
   // the TV's own brightness for the blacks, then the paper white, then the
@@ -583,7 +682,11 @@ std::unique_ptr<MenuScreen> SettingsPages::HdrCalibration() {
       case 2:
         return std::string("THE WHITE SQUARE SHOULD LOOK LIKE WHITE PAPER");
       default:
+#if defined(__ANDROID__)
+        return std::string("RAISE UNTIL SQUARE DISAPPEARS; IF IT STAYS VISIBLE, KEEP YOUR PEAK");
+#else
         return std::string("RAISE THE PEAK UNTIL THE SQUARE DISAPPEARS");
+#endif
     }
   };
   auto screen = std::make_unique<MenuScreen>("HDR CALIBRATION", std::move(rows), std::move(note));
@@ -854,8 +957,11 @@ std::unique_ptr<MenuScreen> SettingsPages::Graphics() {
                           {"FXAA EXTREME", {{"swap_post_effect", "\"fxaa_extreme\""}}}}));
   // The sun's shadows: off drops the shadow maps, a depth pre-pass and the
   // screen's shadow mask (about 6 ms a frame on the Odin 2 Portal) and
-  // lights everything. Applies on the next frame.
-  rows.push_back(Toggle("SHADOWS", "pinyon_shift_fh1_shadows"));
+  // lights everything. Applies on the next frame, and only by day: from
+  // 18:50 to 08:02 the same passes light the road for the headlights, so
+  // the choice says so (#733).
+  rows.push_back(Setting("SHADOWS", {{"OFF BY DAY", {{"pinyon_shift_fh1_shadows", "false"}}},
+                                     {"ON", {{"pinyon_shift_fh1_shadows", "true"}}}}));
   // How often the dynamic cubemap that cars reflect is redrawn.
   rows.push_back(Setting("REFLECTION UPDATES",
                          {{"FULL", {{"pinyon_shift_fh1_env_map_rate", "1"}}},
@@ -1642,17 +1748,62 @@ std::unique_ptr<MenuScreen> SettingsPages::TrainerWorld() {
 }
 
 std::unique_ptr<MenuScreen> SettingsPages::TrainerVehicle() {
-  // The pose the project hooks is the car's presentation transform; freezing
-  // or moving the car needs the physics body, which is still to be located.
-  std::vector<MenuRow> rows(2);
+  std::vector<MenuRow> rows(1);
   rows[0].label = "FREEZE POSITION";
   rows[0].value = [] { return std::string("NOT YET"); };
   rows[0].enabled = [] { return false; };
-  rows[1].label = "TELEPORT";
-  rows[1].value = [] { return std::string("NOT YET"); };
-  rows[1].enabled = [] { return false; };
+  rows.push_back(Toggle("FAST TRAVEL ANYWHERE", "cheat_fast_travel_anywhere"));
+  MenuRow teleport;
+  teleport.label = "TELEPORT TO LAST MAP ROAD";
+  teleport.enabled = [] { return cheats::MapDestination().has_value(); };
+  teleport.activate = [this] {
+    if (const auto point = cheats::MapDestination(); point && cheats::RequestTeleportDestination(*point))
+      host_ui_.Close();
+  };
+  rows.push_back(std::move(teleport));
+  MenuRow gps;
+  gps.label = "GPS TO LAST MAP ROAD";
+  gps.enabled = [] { return cheats::MapDestination().has_value(); };
+  gps.activate = [this] {
+    if (const auto point = cheats::MapDestination(); point && cheats::RequestGpsDestination(*point))
+      host_ui_.Close();
+  };
+  rows.push_back(std::move(gps));
+  MenuRow remember;
+  remember.label = "SAVE LAST MAP ROAD";
+  remember.enabled = [] { return cheats::MapDestination().has_value(); };
+  remember.activate = [this] {
+    if (const auto point = cheats::MapDestination()) {
+      const std::string text = std::to_string((*point)[0]) + "," +
+          std::to_string((*point)[1]) + "," + std::to_string((*point)[2]);
+      config_.Set("cheat_saved_destination", "\"" + text + "\"");
+      rex::cvar::SetFlagByName("cheat_saved_destination", text);
+      Save();
+    }
+  };
+  rows.push_back(std::move(remember));
+  MenuRow saved;
+  saved.label = "GPS TO SAVED ROAD";
+  saved.enabled = [] {
+    return cheats::ParseDestination(rex::cvar::GetFlagByName("cheat_saved_destination")).has_value();
+  };
+  saved.activate = [this] {
+    const auto point = cheats::ParseDestination(rex::cvar::GetFlagByName("cheat_saved_destination"));
+    if (point && cheats::RequestGpsDestination(*point)) host_ui_.Close();
+  };
+  rows.push_back(std::move(saved));
+  MenuRow saved_travel;
+  saved_travel.label = "TELEPORT TO SAVED ROAD";
+  saved_travel.enabled = [] {
+    return cheats::ParseDestination(rex::cvar::GetFlagByName("cheat_saved_destination")).has_value();
+  };
+  saved_travel.activate = [this] {
+    const auto point = cheats::ParseDestination(rex::cvar::GetFlagByName("cheat_saved_destination"));
+    if (point && cheats::RequestTeleportDestination(*point)) host_ui_.Close();
+  };
+  rows.push_back(std::move(saved_travel));
   return std::make_unique<MenuScreen>("VEHICLE", std::move(rows), [] {
-    return std::string("NEEDS THE CAR'S PHYSICS BODY, STILL TO BE FOUND");
+    return std::string("TELEPORT: OPEN THE GAME MAP FIRST; THE TITLE STREAMS THE ROAD");
   });
 }
 

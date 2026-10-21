@@ -61,6 +61,21 @@ To rebuild after changing host or ShiftGlue code:
 .\tools\build-preview.ps1
 ```
 
+Updates track the generator, manifest, analysis and disc inputs. When translation
+adds or removes source files, the build regenerates all three module source
+lists and reruns CMake before compiling or linking. This applies to both the
+base and v4 builds; ordinary updates do not require `-CleanGenerated`.
+If an older build stopped with undefined `PPCFoldedRanges` or `PPCFoldedHash`
+symbols in a facade DLL, update the source and rerun the build script.
+
+Packaged setup updates an existing managed `.local/rexglue` checkout to the
+exact SDK pin in place, keeping unchanged dependency sources and local build
+objects. Compiler or flag changes still invalidate those objects through
+CMake. This reuse applies within the same source directory; a launcher's new
+`source/<version>` directory does not reuse an older version's objects.
+See [local build cost](LOCAL_BUILD_COST.md) for the measured fixture and the
+remaining clean-install and version-update gates.
+
 To build the distributable launcher package:
 
 ```powershell

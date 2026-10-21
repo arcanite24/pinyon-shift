@@ -30,9 +30,13 @@ interior_resume = false
 
 # Direct calls name the strong `__imp__sub_` definitions so Clang can inline
 # guest functions; the functions src/guest_native replaces with a strong
-# `sub_` of its own keep going through the weak thunk (NL-1.5).
+# `sub_` of its own keep going through the weak thunk (NL-1.5). The list holds
+# every PINYON_GUEST_NATIVE replacement, including those reached only through
+# function pointers today; tools/port-fh1-v4-analysis.py checks it.
 direct_calls_bypass_thunk = true
-host_overridden_functions = [0x82438EA8, 0x830F2210, 0x82A6D7D8, 0x8245DBE0, 0x82F86498]
+host_overridden_functions = [0x82438EA8, 0x8245DBE0, 0x82A6D7D8, 0x82F86498,
+    0x82FC7A00, 0x830A86F8, 0x830A96A8, 0x830AF230, 0x830B0570, 0x830B06C8,
+    0x830B08B0, 0x830B0A38, 0x830B5260, 0x830B6500, 0x830B6510, 0x830F2210]
 
 # Loads from a constant .rdata address (lis/addi then lfs, lfd, lwz, ...) become
 # literals; the runtime refuses an image whose folded bytes differ (NL-1.10).
@@ -93,6 +97,12 @@ reference_functions = [0x82CB6308, 0x82CB7A88, 0x82CB9F98, 0x82CBA9F8,
     0x82D0FA28, 0x82D123D0, 0x82D1D4E8, 0x82D20A40, 0x82D21DB0, 0x82D230B8,
     0x82D2F070, 0x82D303D0, 0x82D37C70, 0x82D39140, 0x82D3A350, 0x82D48518,
     0x82E2D5A8]
+# Region oracle (#749): the root and every function it reaches are emitted
+# twice more as logged copies, compared with the PowerPC interpreter on
+oracle_regions = [0x82D210F8]
+# Native region pilot (#750): the root's region also as inline copies on
+# one local context, run with pinyon_shift_native_region.
+native_regions = [0x82D210F8]
 
 # Lockstep verify (NL-0.2): every 40th leaf function is also emitted as a
 # reference copy with every register in ctx and no folding; with
@@ -255,7 +265,7 @@ context = true
 [[midasm_hook]]
 address = 0x8240F4D8
 name = "PinyonShiftObserveTitleDrawEmitterBegin"
-registers = ["r1", "r3", "lr"]
+registers = ["r1", "r3", "lr"]  # v4-port: base-only (D3D census entry 5)
 
 [[midasm_hook]]
 address = 0x82410328
@@ -1500,6 +1510,30 @@ name = "PinyonShiftAnyCarEventClass"
 registers = ["r4"]
 jump_address_on_true = 0x825F6FA8
 
+# #485: preserve the title's travel lock (r31), but let the isolated trainer
+# admit the map's nearest road point. r30 is the map component; r11 is the
+# return value before clrlwi. The map still owns the fade/streaming flow.
+[[midasm_hook]]
+address = 0x827FB0E8
+name = "PinyonShiftMapTravelGate"
+registers = ["r11", "r30", "r31"]
+
+# Before the map reads its input latch: r21 is a hovered marker whose transform
+# normally wins over the road fallback. Arm a queued request at consumption,
+# after the title's earlier processing, with the native flow intact.
+[[midasm_hook]]
+address = 0x82803344
+name = "PinyonShiftMapTravelInput"
+registers = ["r21", "r31"]
+
+# The map update's predicate result (r3) before clrlwi. When FAST TRAVEL
+# ANYWHERE alone admitted a marker the title refused, drop r21 for the road
+# fallback; eligible markers (outposts, festival) keep their own placement.
+[[midasm_hook]]
+address = 0x82803360
+name = "PinyonShiftMapTravelMarker"
+registers = ["r3", "r21", "r31"]
+
 # #482 AI OPPONENTS (pinyon_shift_ai_opponents, src/pinyon_shift_runtime_hooks.cpp):
 # the event's opponent difficulty before sub_8249BCB8 picks the database
 # column suffix (r3); the car spawn's call to the AI config fill
@@ -1549,10 +1583,12 @@ address = 0x8261C3B8
 name = "PinyonShiftAiTraceDynamicUpdate"
 registers = ["r3"]
 
+# v4-port: base-only begin
 # DL-0.1 / DL-0.2 D3D source census (docs/D3D_RENDERER_RESEARCH.md,
 # src/native_renderer/d3d_census.cpp). Read-only observers at function
 # entries: each returns at once unless pinyon_shift_d3d_census is on. Base
-# disc only: not ported to analysis-v4 (the census stays off on v4).
+# disc only: tools/port-fh1-v4-analysis.py leaves out everything between the
+# v4-port markers (the census stays off on v4).
 #
 # Draw entry points (entry 5, 0x8240F4D8, shares the PERF-11 begin hook).
 # Entry 0 also carries the DL-1.2 D3D-level draw marker (d3d_draw.cpp).
@@ -1706,6 +1742,26 @@ address = 0x82416A00
 name = "PinyonShiftD3dCensusRunCommandBuffer"
 registers = ["r1", "r3", "r4", "lr"]
 
+# NA-2.4 pilot (issue #753): the procedural models (CD3D9GraphicsDevice slot
+# 41) call their list runner 0x82417060 from these two sites; the hooks
+# around the calls let the runner hook above mark the lists they run as
+# owned draw programs (src/native_renderer/d3d_program.cpp).
+[[midasm_hook]]
+address = 0x82418A24
+name = "PinyonShiftD3dProgramOwnerEnter0"
+
+[[midasm_hook]]
+address = 0x82418A28
+name = "PinyonShiftD3dProgramOwnerLeave0"
+
+[[midasm_hook]]
+address = 0x82418EC8
+name = "PinyonShiftD3dProgramOwnerEnter1"
+
+[[midasm_hook]]
+address = 0x82418ECC
+name = "PinyonShiftD3dProgramOwnerLeave1"
+
 [[midasm_hook]]
 address = 0x829EC928
 name = "PinyonShiftD3dCensusRunAsync"
@@ -1822,3 +1878,20 @@ registers = ["r26", "r27", "r30"]
 address = 0x824167EC
 name = "PinyonShiftD3dDrawExit"
 registers = ["r31"]
+# v4-port: base-only end
+
+# Diagnostic-only allocation override target, immediately before the virtual
+# call whose return address is reported in #674. See FACADE_LIFETIME_FAULTS.md.
+[[midasm_hook]]
+address = 0x82CC1B58
+name = "PinyonShiftTraceAllocationOverride"
+registers = ["r3", "r4", "r5", "r11"]
+
+# #703/#715: a counted audio child slot can be empty at construction or after
+# teardown. Match v4's skip, retaining the last result and the normal unlock.
+# See docs/research/TRAFFIC_EVENT_NULL_DISPATCH.md.
+[[midasm_hook]]
+address = 0x82FFD9E0
+name = "PinyonShiftGuardEmptyAudioChild"
+registers = ["r3", "r28", "r30", "r31"]
+jump_address_on_true = 0x82FFD9F0

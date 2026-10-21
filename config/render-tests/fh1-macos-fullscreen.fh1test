@@ -1,0 +1,30 @@
+pinyon-shift-fh1-render-test-v1
+# clock-hz 60
+# Run visibly, with present_capture_readable=true. Also capture the OS window:
+# guest/presented readbacks cannot detect a black or 1x1 Metal drawable.
+wait 1 30000 file pressstart.wmv
+input 0 0000 0 0 0 0 0 0
+input 360 1000 0 0 0 0 0 0
+input 366 0000 0 0 0 0 0 0
+input 480 1000 0 0 0 0 0 0
+input 486 0000 0 0 0 0 0 0
+input 600 1000 0 0 0 0 0 0
+input 606 0000 0 0 0 0 0 0
+input 720 1000 0 0 0 0 0 0
+input 726 0000 0 0 0 0 0 0
+capture 1200 before
+hostkey 1260 f6
+hostkey 1280 down
+hostkey 1300 enter
+capture 1320 menu-window
+hostkey 1380 enter
+capture 1440 menu-fullscreen
+hostkey 1500 enter
+capture 1560 menu-window-again
+hostkey 1620 escape
+hostkey 1640 escape
+cvar 1740 fullscreen true
+capture 1800 cvar-fullscreen
+cvar 1860 fullscreen false
+capture 1920 after
+stop 1980

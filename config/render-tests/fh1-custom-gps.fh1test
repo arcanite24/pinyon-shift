@@ -1,0 +1,25 @@
+pinyon-shift-fh1-render-test-v1
+# clock-hz 60
+# #485 probe: pinyon_shift_cheats=true. Inspect both the map route and HUD;
+# cheat.gps/accepted alone does not prove route guidance.
+input 0 0000 0 0 0 0 0 0
+input 360 1000 0 0 0 0 0 0
+input 366 0000 0 0 0 0 0 0
+input 480 1000 0 0 0 0 0 0
+input 486 0000 0 0 0 0 0 0
+input 600 1000 0 0 0 0 0 0
+input 606 0000 0 0 0 0 0 0
+input 720 1000 0 0 0 0 0 0
+input 726 0000 0 0 0 0 0 0
+wait 960 3600 freeroam
+capture 1200 before
+cvar 1260 cheat_gps_destination 0,0,0
+capture 1500 guidance
+input 1560 0020 0 0 0 0 0 0
+input 1590 0000 0 0 0 0 0 0
+capture 1680 route
+input 1740 0020 0 0 0 0 0 0
+input 1770 0000 0 0 0 0 0 0
+cvar 1800 cheat_gps_destination nan,0,0
+capture 1920 invalid-target
+stop 1980

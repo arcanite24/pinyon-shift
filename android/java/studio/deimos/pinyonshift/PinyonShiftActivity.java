@@ -6,9 +6,11 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.OpenableColumns;
+import android.provider.Settings;
 import android.system.ErrnoException;
 import android.system.Os;
 import android.util.Log;
+import android.view.Display;
 import android.view.WindowManager;
 import android.widget.Toast;
 
@@ -110,6 +112,7 @@ public class PinyonShiftActivity extends SDLActivity {
                 }
             }
         }
+        recordDisplayEnvironment();
         super.onCreate(savedInstanceState);
         // A race played on a controller touches nothing, and a screen that
         // times out sends the game to the background, where it pauses (a
@@ -122,6 +125,23 @@ public class PinyonShiftActivity extends SDLActivity {
             setShowWhenLocked(true);
             setTurnScreenOn(true);
         }
+    }
+
+    // Native logging survives ROMs which silence logcat. This is a launch
+    // snapshot, not a measurement of the panel's HDR output.
+    private void recordDisplayEnvironment() {
+        Display display = getDisplay();
+        if (display == null) return;
+        Display.Mode mode = display.getMode();
+        setEnvironment("REX_ANDROID_DISPLAY_DIAGNOSTICS", String.format(Locale.ROOT,
+                "%s / Android %s; display=%d mode=%d %dx%d@%.2f rotation=%d; "
+                        + "brightness=%d brightness_mode=%d window_brightness=%.3f color_mode=%d",
+                Build.MODEL, Build.VERSION.RELEASE, display.getDisplayId(), mode.getModeId(),
+                mode.getPhysicalWidth(), mode.getPhysicalHeight(), mode.getRefreshRate(),
+                display.getRotation(),
+                Settings.System.getInt(getContentResolver(), Settings.System.SCREEN_BRIGHTNESS, -1),
+                Settings.System.getInt(getContentResolver(), Settings.System.SCREEN_BRIGHTNESS_MODE, -1),
+                getWindow().getAttributes().screenBrightness, getWindow().getColorMode()));
     }
 
     // The C++ runtime first, then the ReXGlue runtime, which holds SDL and

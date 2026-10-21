@@ -1,0 +1,114 @@
+pinyon-shift-fh1-render-test-v1
+# clock-hz 60
+# Fixture: private stock MX5 at Race Central, design tips not dismissed.
+# Use the pinned-seed procedure in docs/native-renderer/LIVERY_TEXTURE_OWNERSHIP.md.
+# Run with the 30 fps cap; select a white shape, stamp three layers and save to the car.
+input 0 0000 0 0 0 0 0 0
+input 360 1000 0 0 0 0 0 0
+input 366 0000 0 0 0 0 0 0
+input 480 1000 0 0 0 0 0 0
+input 486 0000 0 0 0 0 0 0
+input 600 1000 0 0 0 0 0 0
+input 606 0000 0 0 0 0 0 0
+input 720 1000 0 0 0 0 0 0
+input 726 0000 0 0 0 0 0 0
+input 780 0000 0 0 0 0 0 0
+input 930 0000 0 0 0 0 0 0
+capture 1400 world
+input 1440 0020 0 0 0 0 0 0
+input 1446 0000 0 0 0 0 0 0
+capture 1580 map
+input 1660 0000 0 0 -32767 0 0 0
+input 1664 0000 0 0 0 0 0 0
+capture 1720 option-left-down
+input 1800 4000 0 0 0 0 0 0
+input 1806 0000 0 0 0 0 0 0
+capture 1860 travel-prompt
+input 1920 1000 0 0 0 0 0 0
+input 1926 0000 0 0 0 0 0 0
+capture 2640 at-paint
+input 2700 4000 0 0 0 0 0 0
+input 2706 0000 0 0 0 0 0 0
+capture 3180 paint-menu
+input 3300 1000 0 0 0 0 0 0
+input 3306 0000 0 0 0 0 0 0
+capture 3780 first-option
+input 3900 0002 0 0 0 0 0 0
+input 3906 0000 0 0 0 0 0 0
+input 4020 1000 0 0 0 0 0 0
+input 4026 0000 0 0 0 0 0 0
+capture 4500 add-decals
+input 4620 1000 0 0 0 0 0 0
+input 4626 0000 0 0 0 0 0 0
+capture 4860 decal-selection
+input 4980 1000 0 0 0 0 0 0
+input 4986 0000 0 0 0 0 0 0
+capture 5220 decal-placement
+input 5340 1000 0 0 0 0 0 0
+input 5346 0000 0 0 0 0 0 0
+capture 5580 decal-added
+input 5460 0008 0 0 0 0 0 0
+input 5466 0000 0 0 0 0 0 0
+input 5500 0008 0 0 0 0 0 0
+input 5506 0000 0 0 0 0 0 0
+input 5540 0008 0 0 0 0 0 0
+input 5546 0000 0 0 0 0 0 0
+input 5580 0008 0 0 0 0 0 0
+input 5586 0000 0 0 0 0 0 0
+input 5620 0008 0 0 0 0 0 0
+input 5626 0000 0 0 0 0 0 0
+input 5700 1000 0 0 0 0 0 0
+input 5706 0000 0 0 0 0 0 0
+capture 5940 shape-selected
+input 6060 1000 0 0 0 0 0 0
+input 6066 0000 0 0 0 0 0 0
+capture 6300 color-selected
+input 6180 8000 0 0 0 0 0 0
+input 6186 0000 0 0 0 0 0 0
+input 6300 8000 0 0 0 0 0 0
+input 6306 0000 0 0 0 0 0 0
+input 6420 1000 0 0 0 0 0 0
+input 6426 0000 0 0 0 0 0 0
+capture 6660 placed
+input 6780 0010 0 0 0 0 0 0
+input 6786 0000 0 0 0 0 0 0
+capture 7020 save-dialog
+input 7140 1000 0 0 0 0 0 0
+input 7146 0000 0 0 0 0 0 0
+capture 7380 save-design
+input 7620 1000 0 0 0 0 0 0
+input 7626 0000 0 0 0 0 0 0
+capture 7860 save-confirmed
+input 8100 2000 0 0 0 0 0 0
+input 8106 0000 0 0 0 0 0 0
+capture 8340 leave-layer
+input 8460 2000 0 0 0 0 0 0
+input 8466 0000 0 0 0 0 0 0
+capture 8700 leave-design
+input 8820 2000 0 0 0 0 0 0
+input 8826 0000 0 0 0 0 0 0
+capture 9060 leave-shop
+input 9180 2000 0 0 0 0 0 0
+input 9186 0000 0 0 0 0 0 0
+capture 9540 exit-prompt
+input 9660 1000 0 0 0 0 0 0
+input 9666 0000 0 0 0 0 0 0
+capture 10200 world-after
+input 10380 0000 0 128 0 0 0 0
+input 10800 0000 0 0 0 0 0 0
+capture 10980 world-road
+cvar 120 fh1_texture_reload_probe false
+cvar 1000 pinyon_shift_fh1_render_fps_limit 30
+cvar 1300 fh1_texture_reload_probe true
+cvar 1306 fh1_texture_reload_probe false
+cvar 6150 fh1_texture_reload_probe true
+cvar 6156 fh1_texture_reload_probe false
+cvar 6460 fh1_texture_reload_probe true
+cvar 6466 fh1_texture_reload_probe false
+cvar 7170 fh1_texture_reload_probe true
+cvar 7176 fh1_texture_reload_probe false
+cvar 9200 fh1_texture_reload_probe true
+cvar 9206 fh1_texture_reload_probe false
+cvar 10400 fh1_texture_reload_probe true
+cvar 10406 fh1_texture_reload_probe false
+stop 11040

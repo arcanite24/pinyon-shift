@@ -35,6 +35,15 @@ source = """docs/REVERSE_ENGINEERING.md@a72a92a5f215 World detail"""
 
 [[finding]]
 group = """Track data and scenery visibility"""
+name = """main-scene draws that pass no samples"""
+what = """After the game's own culling (PVS zones and its culling frustum), many of the main scene's draws contribute nothing. In a race drive 48 % of the depth-writing draws on multivac (1,400 a frame) and 60-70 % on the Odin (1,350 a frame) passed no samples, with 42 % and 40-67 % of their vertices; the shadow depth pass on multivac showed 38 %. With the depth test off, 17 % (multivac) and 15-31 % (Odin) still passed none: those are off screen, back-facing or discard every pixel, and the rest are occluded by geometry drawn earlier in the frame."""
+how = """Census probe `fh1_visibility_census`: a host occlusion query around every draw of one frame in eight or twenty, by rendering and depth mode; `fh1_visibility_census_no_depth` repeats it with the depth test off. Route frame-base (v4, seed i617), multivac with untiled rendering and the Odin, differences of cumulative census windows over the drive."""
+confidence = """confirmed"""
+note = """Queries count in draw order, so a draw covered only by later geometry counts as visible: the hidden share is a lower bound. Dropping every such draw (`fh1_visibility_oracle_skip`, renders wrong) saved 2.2-3.2 ms of the Odin's main-pass GPU time and 1.2-1.8 ms of process CPU a frame; dropping only the ones that pass no samples without the depth test saved 0.6-1.4 ms of GPU time (issue #784, see GPU optimizations)."""
+source = """docs/D3D_RENDERER_RESEARCH.md Progress (#784); issue #784"""
+
+[[finding]]
+group = """Track data and scenery visibility"""
 name = """static world draw routes"""
 what = """In the tested festival scene the track's world geometry came through indirect track scopes, while the direct unified-mesh route was dormant, and the `SimpleModel` static population carried null resources. Draw constants and transforms did not match the 24,025-entry authored spatial catalog under any bounded interpretation tried."""
 how = """Track and static-world draw traces joined to prepared draws; transform matching experiments."""
@@ -228,11 +237,22 @@ group = """Collision and cameras"""
 base = """media/camera.zip CameraPhysics.xml"""
 v4 = """media.zip camera/cameraphysics.xml"""
 name = """camera physics settings file"""
-what = """`CameraPhysics.xml` in `media/camera.zip` holds the camera physics layers. They have no key attribute and are matched by position; each has `SpringK` and `NoiseSeed` values and is updated every frame. The v4 title update carries its own copy in its `media.zip`, which the game reads instead of the disc's."""
-how = """Experiment: layers appended by a mod load on the base game and are ignored on v4."""
+what = """`CameraPhysics.xml` in `media/camera.zip` holds the camera physics layers. They have no key attribute and are matched by position; each has `SpringK` and `NoiseSeed` values and is updated every frame. The v4 title update carries its own copy in its `media.zip`, which the game reads instead of the disc's. The disc's FollowCam/FollowCam2 have 74/69 layers; v4 has 80/75. DriverCam, Hood and BumperHigh retain 51/47/46. An appended merge must use the matching build's counts."""
+how = """Archive extraction and XML element counts for the supported disc and verified v4 update; earlier experiment showed disc-only appended layers are ignored on v4."""
 confidence = """confirmed"""
-issue = """#419 #443"""
+issue = """#419 #443 #487"""
 source = """docs/MODDING.md Built-in mods; Settings merged by key"""
+
+[[finding]]
+group = """Collision and cameras"""
+base = """sub_8284DAE0; sub_8284E038; sub_8284E058; sub_8284E350; sub_8285AD98"""
+v4 = """sub_828FDD30; sub_828FE2F0"""
+name = """chase camera loaded tuning and per-car offsets"""
+what = """A chase camera's +192 pointer names the 56-byte CameraSettings.ini FollowLowCam/FollowHighCam tuning block. Float offsets are height 0, radius 4, target height 8, minimum/maximum ground height 12/16, near/far clip 20/24, FOV in degrees 28, yaw spring K/D 32/36, yaw damping scale/max speed 40/44 and height spring K/D 48/52. Initialization copies height/radius/target to camera +268/+276/+280; per-car overrides can replace these instance values, so editing only the tuning block's placement fields is insufficient for live placement. FOV is read from the tuning block by the getter."""
+how = """Setting registration, FOV getter, initialization, per-car writer and height-spring update analysis; Windows disc/v4 pinned-seed routes fh1-camera-editor confirm live placement, FOV, stiffness coefficients and restoration."""
+confidence = """confirmed"""
+issue = """#487"""
+source = """docs/MODDING.md Camera editor; src/camera_tuning.h"""
 
 [[finding]]
 group = """Collision and cameras"""
@@ -296,6 +316,25 @@ how = """Placing the car at the route start (`CPlaceCar`) on the base build with
 confidence = """confirmed"""
 note = """One starting area tested."""
 source = """docs/DLC_BACKLOG.md Base-disc Rally investigation"""
+
+[[finding]]
+group = """Placements and routes"""
+name = """Owned Rally route-zero descriptor"""
+what = """The accepted Rally database merge has one Tracks row with MediaName ColoradoDirt, DevName DirtFreeRoam and RouteId 0 (ID 1112). The ordinary base free-roam loader selects track 317. A private probe copies the entire owned descriptor into that slot, retaining its environment and route settings, and derives a valid initial spawn from route 001's start_location_00. The package also supplies ColoradoDirt.nav and TrackRoute000.xml. Its merge tables omit the primary-key constraints of the otherwise matching base columns."""
+how = """Read-only SQLite/archive inventory of the verified imported package; an independently authored private seed builder, tested with synthetic databases and immutable input/save checks."""
+confidence = """confirmed"""
+note = """Descriptor and asset presence do not qualify travel, traffic, minimap, collectibles or saving. The probe forces placement on every start, so cannot establish world-aware resume."""
+source = """docs/RALLY_FREEROAM.md; tools/create-rally-freeroam-seed.py"""
+
+[[finding]]
+group = """Placements and routes"""
+name = """Rally initial-placement probe retains the Colorado full map"""
+what = """The base-disc route-zero Rally probe renders textured terrain, traffic and a local-road minimap in native game mode 17, and permits short driving. Opening the full map still shows Colorado labels and base-event markers. A successful map-open/map-close script therefore does not establish a world-correct destination or collectibles implementation."""
+how = """Private pinned-save Vulkan drive/map route on multivac, with readiness and 30-metre movement waits, plus visual inspection of all four captures."""
+confidence = """confirmed"""
+negative = true
+note = """Traffic persistence, minimap alignment, collectible interaction, save/resume and the 20-minute base/v4 travel gate remain unqualified."""
+source = """docs/RALLY_FREEROAM.md Initial probe receipt, 2026-10-18; config/render-tests/fh1-rally-freeroam-probe.fh1test"""
 
 # --- Time and weather --------------------------------------------------------
 

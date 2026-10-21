@@ -233,6 +233,14 @@ if(PINYON_SHIFT_TITLE_UPDATE_V4)
     add_compile_definitions(PINYON_SHIFT_TITLE_UPDATE_V4=1)
     list(APPEND PINYON_SHIFT_CODEGEN_EXTRA_ARGS --xex_apply_patches=true)
     set(_pinyon_codegen_log_suffix "-v4")
+    # The v4 probe build: v4's call counts for its symbol ordering file (#745).
+    if(PINYON_SHIFT_RECOMP_PROBE)
+        set(_pinyon_default_manifest "config/rexglue/pinyon_shift_v4_probe_manifest.toml")
+        set(_pinyon_default_generated ".local/generated-v4-probe")
+        add_compile_definitions(PINYON_SHIFT_RECOMP_PROBE=1)
+        list(APPEND PINYON_SHIFT_CODEGEN_EXTRA_ARGS --probes)
+        set(_pinyon_codegen_log_suffix "-v4-probe")
+    endif()
 elseif(PINYON_SHIFT_RECOMP_ABI_POISON)
     set(_pinyon_default_manifest "config/rexglue/pinyon_shift_abipoison_manifest.toml")
     set(_pinyon_default_generated ".local/generated-abipoison")
@@ -366,6 +374,11 @@ add_custom_command(
     # it rewrote would otherwise leave the precompiled headers stale.
     BYPRODUCTS
         "${PINYON_SHIFT_GENERATED_DIR}/codegen.d"
+        # These included lists must be produced before Ninja reruns CMake,
+        # so this build sees added/removed units before compiling or linking.
+        "${PINYON_SHIFT_GENERATED_DIR}/sources.cmake"
+        "${PINYON_SHIFT_GENERATED_ROOT}/speech/sources.cmake"
+        "${PINYON_SHIFT_GENERATED_ROOT}/xmedia/sources.cmake"
         ${_all_generated_sources}
         ${_all_generated_headers}
     COMMAND ${CMAKE_COMMAND} -E make_directory

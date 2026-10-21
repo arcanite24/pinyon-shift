@@ -628,19 +628,24 @@ def prepare_shiftglue(progress: Progress, config: dict) -> Path:
             rexglue["submodule_path"])
         return sdk
     sdk = ROOT / rexglue["fallback_path"]
-    head = subprocess.run(["git", "-C", str(sdk), "rev-parse", "HEAD"],
-                          capture_output=True, text=True)
-    if head.returncode == 0 and head.stdout.strip() == rexglue["revision"]:
-        # --force restores a dependency that lost its files while its commit
-        # still matches, which a plain update skips (#580).
-        git("submodule", "update", "--init", "--recursive", "--force", "--jobs", "8", cwd=sdk)
-        return sdk
-    if sdk.exists():
-        shutil.rmtree(sdk)
-    git("clone", "--no-checkout", "--no-tags", rexglue["repository"], str(sdk))
-    git("fetch", "--depth", "1", "origin", rexglue["revision"], cwd=sdk)
-    git("checkout", "--detach", rexglue["revision"], cwd=sdk)
-    git("submodule", "update", "--init", "--recursive", "--jobs", "8", cwd=sdk)
+    head = git_output("rev-parse", "HEAD", cwd=sdk) if (sdk / ".git").exists() else ""
+    if head:
+        dirty = subprocess.run(["git", "-C", str(sdk), "status", "--porcelain",
+                                "--ignore-submodules=dirty"], capture_output=True, text=True)
+        if dirty.returncode or dirty.stdout.strip():
+            raise SetupError(f"The managed ShiftGlue checkout has local changes: {sdk}", "tools")
+    else:
+        if sdk.exists():
+            shutil.rmtree(sdk)
+        git("clone", "--no-checkout", "--no-tags", rexglue["repository"], str(sdk))
+    # Retain unchanged dependency sources, objects and CMake's toolchain/flag
+    # checks when updating a managed checkout to another exact revision.
+    if head != rexglue["revision"]:
+        git("fetch", "--depth", "1", "origin", rexglue["revision"], cwd=sdk)
+        git("checkout", "--detach", rexglue["revision"], cwd=sdk)
+    git("submodule", "sync", "--recursive", cwd=sdk)
+    # Repair missing dependency files too (#580), without discarding build trees.
+    git("submodule", "update", "--init", "--recursive", "--force", "--jobs", "8", cwd=sdk)
     return sdk
 
 
@@ -757,6 +762,56 @@ def run_game_build(command: list, log: Path, progress: Progress, start: float, m
                    start, 100, message, environment)
 
 
+def diagnose_macos_pch(directory: Path, build_log: Path, environment: dict) -> Path | None:
+    """Preprocess the failed PCH with its actual flags, without writing build outputs."""
+    failures = re.findall(r"(?m)^FAILED:.*$", build_log.read_text(encoding="utf-8"))
+    if not any("cmake_pch" in line for line in failures):
+        return None
+    log = build_log.with_name("rexglue-pch-diagnostics.log")
+    with log.open("w", encoding="utf-8") as stream:
+        try:
+            for key in ("CPATH", "CPLUS_INCLUDE_PATH", "CXXFLAGS", "CPPFLAGS", "SDKROOT",
+                        "DEVELOPER_DIR", "MACOSX_DEPLOYMENT_TARGET"):
+                stream.write(f"{key}={environment.get(key, '')}\n")
+            commands = json.loads((directory / "compile_commands.json").read_text(
+                encoding="utf-8"))
+            for entry in commands:
+                if not any(entry.get("output", "") and entry["output"] in line
+                           for line in failures):
+                    continue
+                if "cmake_pch" not in entry["file"]:
+                    continue
+                args = entry.get("arguments") or shlex.split(entry["command"])
+                # Remove code/PCH/dependency outputs; retain the exact includes,
+                # defines, compiler, language, architecture and SDK selection.
+                flags = []
+                index = 0
+                while index < len(args):
+                    arg = args[index]
+                    if arg in ("-o", "-MF", "-MT", "-MQ") or args[index:index + 2] == [
+                            "-Xclang", "-emit-pch"]:
+                        index += 2
+                        continue
+                    if arg not in ("-c", "-MD", "-MMD", "-MP"):
+                        flags.append(arg)
+                    index += 1
+                # -H omits forced includes; header-include-file records them too.
+                for command in ([args[0], "--version"], ["xcode-select", "-p"],
+                                ["xcrun", "--show-sdk-path"],
+                                flags + ["-E", "-H", "-v", "-Xclang", "-header-include-file",
+                                         "-Xclang", "-", "-o", os.devnull],
+                                flags + ["-E", "-dM"]):
+                    stream.write(f"\n$ {shlex.join(command)}\n")
+                    stream.flush()
+                    result = subprocess.run(command, cwd=entry["directory"], env=environment,
+                                            stdout=stream, stderr=subprocess.STDOUT, timeout=30)
+                    stream.write(f"\nexit: {result.returncode}\n")
+        except (OSError, ValueError, KeyError, subprocess.SubprocessError) as error:
+            # Diagnostics must never replace the build's original error.
+            stream.write(f"\nCould not finish PCH diagnostics: {error}\n")
+    return log
+
+
 def build(progress: Progress, tools: dict, sdk: Path, python: Path, name: str,
           jobs: int, configuration: str = "Release") -> Path:
     presets = PRESETS[name]
@@ -770,14 +825,28 @@ def build(progress: Progress, tools: dict, sdk: Path, python: Path, name: str,
         toolchain = [f"-DCMAKE_TOOLCHAIN_FILE={ROOT / 'cmake/toolchains/linux-x86_64-sniper.cmake'}",
                      f"-DCMAKE_C_COMPILER={llvm / 'clang'}",
                      f"-DCMAKE_CXX_COMPILER={llvm / 'clang++'}"]
+    elif name == "macos-arm64":
+        toolchain = ["-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"]
     generator = sdk / presets["generator"]
     discard_unfinished_configure(sdk / "out" / "build" / presets["sdk"])
     run_logged([cmake, "--preset", presets["sdk"], "-DREXGLUE_ENABLE_TRACY=OFF",
                 "-DSDL_HIDAPI_LIBUSB=OFF"] + toolchain, LOGS / "rexglue-configure.log",
                progress, "build", 0, 2, "Configuring ShiftGlue", environment, cwd=sdk)
-    run_logged([cmake, "--build", "--preset", f"{presets['sdk']}-release", "--target", "rexglue",
-                "--parallel", str(jobs)], LOGS / "rexglue-build.log", progress, "build", 2, 20,
-               "Building the translator", environment, cwd=sdk)
+    try:
+        run_logged([cmake, "--build", "--preset", f"{presets['sdk']}-release", "--target", "rexglue",
+                    "--parallel", str(jobs)], LOGS / "rexglue-build.log", progress, "build", 2, 20,
+                   "Building the translator", environment, cwd=sdk)
+    except SetupError as error:
+        if name == "macos-arm64":
+            try:
+                diagnostic = diagnose_macos_pch(sdk / "out/build" / presets["sdk"],
+                                                LOGS / "rexglue-build.log", environment)
+            except OSError:
+                diagnostic = None
+            if diagnostic:
+                raise SetupError(f"{error}\nAttach rexglue-configure.log, rexglue-build.log "
+                                 f"and {diagnostic} when reporting this failure.", "build") from error
+        raise
 
     generated = LOCAL / "generated"
     stamps = [generated / "default" / "codegen.build.stamp"] + [

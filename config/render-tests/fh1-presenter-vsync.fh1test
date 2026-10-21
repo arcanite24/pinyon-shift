@@ -1,0 +1,27 @@
+pinyon-shift-fh1-render-test-v1
+# clock-hz 60
+# VSYNC-only regression (#572 and the VSYNC-ON run in #680).
+# Repeat with --game-argument=--vsync=false for immediate-mode cold start.
+# No presets or output-scaling changes: keep their repros separate.
+input 0 0000 0 0 0 0 0 0
+input 360 1000 0 0 0 0 0 0
+input 366 0000 0 0 0 0 0 0
+input 480 1000 0 0 0 0 0 0
+input 486 0000 0 0 0 0 0 0
+input 600 1000 0 0 0 0 0 0
+input 606 0000 0 0 0 0 0 0
+input 720 1000 0 0 0 0 0 0
+input 726 0000 0 0 0 0 0 0
+cvar 900 vsync false
+cvar 930 vsync true
+cvar 960 vsync false
+cvar 990 vsync true
+cvar 1020 vsync false
+cvar 1050 vsync true
+cvar 1080 vsync false
+cvar 1110 vsync true
+cvar 1140 vsync false
+cvar 1170 vsync true
+capture 1200 after-vsync
+capture 5280 after-soak
+stop 5400

@@ -91,9 +91,38 @@ One trap: with Manual GPU Clock on in the Quick Access menu, Steam can pin the G
 
 **16 KB pages.** One host page holds four guest pages. The write-watch code took a host page's protection from its first guest page, so a committed page next to an uncommitted one faulted (SIGBUS in free roam, runs 2–4). Using the union of the four guest pages' access fixed it. The GPU's shared-memory tracking also used host pages, so a CPU write beside the 4 KB exposure resolve discarded it and free roam was overexposed and flashed (luma 171.5 against 114.7 on Windows); it now tracks 4 KB pages and keeps GPU-written pages a write did not touch (111.9).
 
+**Exposure and fullscreen.** Keeping that GPU copy valid does not put it in CPU guest RAM. A later M1 Max contributor trace found CPU reads of the float luminance resolve, so completed small float resolves are now read back too, a frame or two late without a GPU wait, after an unscaled copy when needed. The 4 KB tracking fix stays in place. Fullscreen defaults to a borderless window on the current desktop, and the presenter restores the Metal drawable to the swapchain extent before acquiring an image; surface recreation on resize alone did not cover a late SDL update to 1x1. The layer belongs to the connected paint context and is cleared on disconnect.
+
 **MoltenVK limits.** No geometry shaders and no wireframe fill, so the vertex-shader expansion paths are used. No fragment shading rate, so SCENE SHADING does nothing. The portability subset lacks separate stencil reference masks, and SPIRV-Cross rejects some decorations on function-local arrays, which the translator avoids.
 
-**Results.** Free roam at 1x holds a 120 Hz display on an M4 Pro Mac mini: a median of 8.35 ms a frame, with the GPU busy about 67 % of the time. The M4 Pro is shading-bound, as the Adreno GPUs are, so macOS takes their defaults: fast pixel math, texture signs as specialization constants and untiled predicated tiling. It also turns off MoltenVK's Metal argument buffers. Together these took the free-roam GPU frame from 12.3–12.7 to 5.6–5.7 ms ([measurements](gpu-optimizations.md#apple-silicon)). Two more switches pay off there that don't on the RTX 4080: texture gamma through sRGB views (−8 % at 1x, offered as TEXTURE GAMMA FAST) and quads as triangle lists (−5 % at 2x, now the default everywhere).
+**Results.** The earlier 40 s free-roam optimization route at 1x, MSAA off, measured a median 8.35 ms on an M4 Pro Mac mini, with the GPU busy about 67 % of the time. This is a historical result, not a guarantee that every current route holds 120 fps. The M4 Pro is shading-bound, as the Adreno GPUs are, so macOS takes their defaults: fast pixel math, texture signs as specialization constants and untiled predicated tiling. It also turns off MoltenVK's Metal argument buffers. Together these took that route's free-roam GPU frame from 12.3–12.7 to 5.6–5.7 ms ([measurements](gpu-optimizations.md#apple-silicon)). Two more switches pay off there that don't on the RTX 4080: texture gamma through sRGB views (−8 % at 1x, offered as TEXTURE GAMMA FAST) and quads as triangle lists (−5 % at 2x, now the default everywhere).
+
+Those measurements use MSAA off and untiled predicated tiling on. QUALITY 60 sets 2x scale, 4x MSAA and untiled predicated tiling off, so the 1x result is not a qualification of that preset. The [qualification procedure](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/MACOS.md#renderer-qualification) uses a pinned seed, all six scale/MSAA combinations and a 60 fps limit, and separates captures from the interval used for CPU, GPU and memory measurements. A successful scripted route alone does not establish a 60 fps budget or correct car geometry.
+
+The 2026-10-18 base-game qualification on that Mac (12 CPU cores, 24 GiB,
+macOS 26.3) measured these single-run means over 36.6–36.7 s of driving:
+
+| Scale | MSAA off | 2x MSAA | 4x MSAA |
+| --- | ---: | ---: | ---: |
+| 1x | 59.85 fps | 59.95 fps | 59.55 fps |
+| 2x | 59.84 fps | 53.65 fps | 39.55 fps |
+
+At 2x/4x the median/p95/p99 frame was 23.16/34.53/38.69 ms, mean guest GPU
+time 24.01 ms, process CPU 105% of one core and GPU busy 90%. Median Vulkan
+heap usage was 3671 MiB and peak native surfaces 467 MiB. These overlap;
+process RSS also omits much of Metal's memory. A separate quality drive's
+`vmmap` snapshot reported a 4.6G physical footprint and swapped regions;
+system-wide memory compression was substantial, so memory pressure is a
+possible contributor alongside GPU cost. The [full measurement and
+image gates](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/MACOS.md#m4-pro-results-2026-10-18)
+include all resource columns and variability. The captures show filled cars,
+but the original M1 Max failure did not reproduce and a persistent sky tint
+varied between restarts. A fixed 1x/MSAA-off packet frame replayed on Mac
+and Windows with RGB mean absolute errors 1.165/1.120/0.830 out of 255;
+larger local differences remain, so this is not a bit-exact or 2x/4x gate.
+QUALITY 60 still misses its performance budget.
+Fullscreen menu/cvar routes completed, but OS screen capture was denied,
+so visible fullscreen output and native Space behavior remain unqualified.
 
 **Startup.** MoltenVK passes every stored pipeline to the Metal compiler again at each start, so creating them before the title ran gave a black screen of about 20 s (732 pipelines in 21.6 s on 9 threads). The title now starts at once and the stored pipelines are created behind it.
 

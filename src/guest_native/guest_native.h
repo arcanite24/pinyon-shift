@@ -104,6 +104,10 @@ namespace reference {
 void RecordSummary();
 }
 
+namespace region_oracle {
+void RecordSummary();
+}
+
 // FNV-1a 64 over guest code bytes, as stored in Replacement.
 uint64_t HashGuestCode(const uint8_t* code, uint32_t size);
 

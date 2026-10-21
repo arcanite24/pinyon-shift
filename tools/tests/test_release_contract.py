@@ -1,4 +1,5 @@
 import getpass
+import importlib.util
 import json
 import os
 import pathlib
@@ -463,6 +464,27 @@ catch { [Console]::Error.Write($_.Exception.Message); exit 2 }
         for pin in (android["bootstrap"]["cmdline_tools"], android["bootstrap"]["jdk"]):
             self.assertTrue(pin["url"].startswith("https://"))
             self.assertRegex(pin["sha256"], r"^[0-9A-F]{64}$")
+
+    def test_source_zip_contains_android_build_inputs(self):
+        spec = importlib.util.spec_from_file_location("package_launcher", ROOT / "tools/package-launcher.py")
+        packager = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(packager)
+        with tempfile.TemporaryDirectory(prefix="pinyon-source-zip-") as directory:
+            payload = pathlib.Path(directory) / "pinyon-shift-source.zip"
+            packager.build_payload(payload)
+            with zipfile.ZipFile(payload) as archive:
+                # CMake configures this test target even when building only the game.
+                camera_test = "tests/camera_tuning_tests.cpp"
+                self.assertEqual(archive.read(camera_test), (ROOT / camera_test).read_bytes())
+                for variant in ("base", "v4"):
+                    relative = f"config/performance/symbol-order-{variant}.txt"
+                    metadata = archive.read(relative)
+                    self.assertEqual(metadata, (ROOT / relative).read_bytes())
+                    # Profiling-authored linker names only, never translated code or game data.
+                    self.assertRegex(metadata.decode("ascii"), r"\A(?:__imp__sub_[0-9A-F]{8}\r?\n)+\Z")
+                self.assertFalse(any(pathlib.Path(name).suffix.lower() in packager.FORBIDDEN
+                                     or name.startswith("config/rexglue/generated/")
+                                     for name in archive.namelist()))
 
     def test_native_tools_use_the_configured_sdk_and_ship_their_sources(self):
         cmake = (ROOT / "CMakeLists.txt").read_text(encoding="utf-8")

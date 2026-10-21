@@ -11,6 +11,14 @@ description: Fixes for rejected disc images, failed builds, startup problems, co
 
 Only the USA retail base disc (`MS-2505`) is supported. A bad dump, another region, a title update or a modified image won't match. The launcher doesn't accept near matches and can't download or repair an image.
 
+## Defender reports a Trojan or quarantines a file
+
+A named malware detection in **Windows Security > Protection history** needs investigation even when the ZIP matches the official release. Keep protection enabled. Do not add exclusions, allow the threat or restore the file to continue setup; this also applies to locally built executables.
+
+Record the release, download URL, exact threat name, affected path, detection time and Defender security intelligence version. If the ZIP is still accessible, use `Get-FileHash .\PinyonShift-Launcher.zip -Algorithm SHA256` and compare it with that asset's `digest` in the [release API](https://api.github.com/repos/arcanite24/pinyon-shift/releases/latest) (use `/releases/tags/<tag>` for older versions). Compare the same file: ZIP, EXE and bundled DLL hashes differ. A mismatch can mean a changed, incomplete or different download; stop using that copy and report its source. A match identifies the official artifact but does not establish that the alert is false.
+
+Report the evidence so the maintainer can investigate and submit the exact sample to Microsoft. The 0.5.1 report [#659](https://github.com/arcanite24/pinyon-shift/issues/659) reproduces on the official Windows ZIP; Defender identifies the DLL bundled inside its EXE. The official 0.6.0 ZIP scanned without threats with the tested intelligence version; this does not clear the older artifact. See the [investigation and submission draft](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/LAUNCHER_DEFENDER_659.md) for hashes and scan versions. An unsigned-app SmartScreen warning is a separate case; see [Verify the download](install.md#verify-the-download).
+
 ## A download fails
 
 Check the connection and run the launcher again. Network failures are retried, and every pinned download is verified by SHA-256 before use, so partial files are never trusted. If curl fails, the launcher retries without a strict certificate revocation check and then with Windows' own downloader, which follows the system proxy. If a file still won't download but your browser can fetch it (a proxy or antivirus web filtering is the usual cause), download it in the browser and save it under the name and folder the error gives; setup checks it and continues.
@@ -28,7 +36,7 @@ When the Visual Studio Installer stops, the error gives its exit code and, for t
 
 ## The game doesn't start
 
-Update the GPU driver and check that the GPU supports Vulkan 1.3. To reset the runtime settings, delete `.local/preview/config/pinyon_shift.toml`. Security software may quarantine the newly compiled, unsigned executable. Restore it only if it was built by your own install.
+Update the GPU driver and check that the GPU supports Vulkan 1.3. To reset the runtime settings, delete `.local/preview/config/pinyon_shift.toml`. If security software quarantines the executable, follow [the detection reporting steps](#defender-reports-a-trojan-or-quarantines-a-file).
 
 ## A white window after the first screen
 
@@ -36,7 +44,24 @@ Up to 0.5.1, a `pinyon_shift.toml` without a `gpu_backend` line started the game
 
 ## "Could not build the mods' archive members"
 
-Before each start the launcher rebuilds the enabled mods' archives in `.local/preview/mods/zz-archive-patches`. When the mods haven't changed it keeps the previous copy; otherwise it replaces it, and a file still open elsewhere stops it with "is in use by another program". Wait for a game that is still closing, or for antivirus to finish scanning the folder, and start again. If it keeps happening, add the install folder to the antivirus exclusions.
+Before each start the launcher rebuilds the enabled mods' archives in `.local/preview/mods/zz-archive-patches`. When the mods haven't changed it keeps the previous copy; otherwise it replaces it, and a file still open elsewhere stops it with "is in use by another program". Wait for a game that is still closing, or for antivirus to finish scanning the folder, and start again. If it keeps happening, report the exact error and check Protection history for [a detection](#defender-reports-a-trojan-or-quarantines-a-file).
+
+## A partial settings file on a fresh state
+
+When `pinyon_shift.toml` exists without its configuration schema line, startup
+backs it up as `pinyon_shift.toml.noschema.bak` and adds missing current defaults
+(including Vulkan). Explicit values, unknown keys, and comments stay in the
+file. Missing keyboard binds come back as the keys you had before the
+driving-first layout; a new state where the mod builders wrote only
+`enabled_mods` before the first game launch gets the current layout.
+Trainer settings that clear themselves after use (a GPS or teleport
+destination, a profile field edit) were written as `name = ` with no value
+in builds before 2026-10-19, which made the whole file unreadable; startup
+now backs such a file up as `pinyon_shift.toml.emptyvalue.bak` and gives
+those lines an empty value.
+The backup keeps the original bytes, including a UTF-8 BOM or Windows line endings.
+Invalid TOML is left for you to correct before retrying. A configuration from a
+newer build is accepted without changing its schema or dropping unknown settings.
 
 ## The game runs on the wrong GPU
 
@@ -53,6 +78,14 @@ With **F6 > DISPLAY > VSYNC** on, the game presents without tearing on both Vulk
 ## A resolution scale error at startup
 
 The renderer supports 1x, 2x, 3x and 4x, the same horizontally and vertically. Pick a supported scale in the launcher, or delete `pinyon_shift.toml` to reset.
+
+## A hang after changing display or graphics settings
+
+VSYNC and fullscreen changes rebuild the Vulkan swapchain. Retirement waits for drawing and drains the presentation queue before releasing its semaphores. Image acquisition uses a 50 ms timeout per attempt so an occluded window can keep processing events. These safeguards address unsafe lifetime handling; they do not establish that every reported hang has the same cause.
+
+If a change still hangs, attach the launcher's diagnostic ZIP and name the setting, its old and new values, and whether the window lost focus. For VSYNC, also compare a launch with it already off against switching it off during play. Leaving VSYNC on is a workaround for the reported RX 580 hang ([#572](https://github.com/arcanite24/pinyon-shift/issues/572)); the GTX 1660 Ti report also includes a hang switching it on ([#680](https://github.com/arcanite24/pinyon-shift/issues/680)). Intel [#606](https://github.com/arcanite24/pinyon-shift/issues/606) still needs its own diagnostic ZIP. Exit code `0xCFFFFFFF` alone does not identify a renderer fault.
+
+A `graphics.device_lost` event with a failed Vulkan command-buffer submit is a different failure. It can occur at 1x, as in the GTX 1050 Ti report ([#686](https://github.com/arcanite24/pinyon-shift/issues/686)); neither that event nor exit code `0x51D` identifies a particular driver defect. Submit errors now include their Vulkan result number, and a device loss during presenter submission follows the GPU-loss reporting path. Include the ZIP and the preceding output-scaling changes when reporting it.
 
 ## A controller isn't recognized
 

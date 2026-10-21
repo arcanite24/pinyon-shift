@@ -1,14 +1,11 @@
--- #484: 22 cars are drivable (IsDrivable = 1) but never listed
--- (IsSelectable = 0): traffic cars such as the tour bus, the Kenworth
--- truck, the Leaf and the Prius, and the showcase Mini, 500 Abarth and
--- 205 T16. Each has its model, physics and upgrade rows. Listing them
--- puts them in the Autoshow under their make. Id 1215 is the placeholder
--- NUL_Car_00 and stays hidden.
+-- #669: IsDrivable also covers traffic-only assets. Keep sales restricted
+-- to the four hidden variants with full showroom/cockpit model payloads.
+-- Never infer player-car compatibility from IsDrivable or expose future
+-- rows automatically. See docs/HIDDEN_CARS.md for the per-model audit.
 update Data_Car set IsSelectable = 1
-  where IsSelectable = 0 and IsDrivable = 1 and Id <> 1215;
+  where IsSelectable = 0 and IsDrivable = 1 and Id in (1565, 1566, 1567, 1568);
 
--- Seven of them cost nothing in the database; give them a price in line
--- with their class and the other traffic cars.
+-- Preserve v1.0's price metadata for cars already bought in modded garages.
 update Data_Car set BaseCost = 9000 where Id = 1530 and BaseCost = 0;   -- RAV4 Sport
 update Data_Car set BaseCost = 9000 where Id = 1531 and BaseCost = 0;   -- A4 Avant
 update Data_Car set BaseCost = 11000 where Id = 1532 and BaseCost = 0;  -- Camry

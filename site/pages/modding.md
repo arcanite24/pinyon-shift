@@ -2,12 +2,12 @@
 title: Modding
 section: Technical
 order: 4
-description: Asset, archive, database, texture and native mods for Pinyon Shift, and how they keep your save separate.
+description: Asset, archive, database, texture, Vulkan shader and native mods, and how they keep your save separate.
 ---
 
 # Modding
 
-Mods live in the state folder, never in the game files. They can replace files, patch single archive members, merge settings, patch the game database, replace textures, or run native code through a C API. This page is a summary; the full contract is [docs/MODDING.md](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/MODDING.md).
+Mods live in the state folder, never in the game files. They can replace files, patch single archive members, merge settings, patch the game database, replace textures or Vulkan shaders, or run native code through a C API. This page is a summary; the full contract is [docs/MODDING.md](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/MODDING.md).
 
 ## Layout
 
@@ -22,11 +22,29 @@ Mods live in the state folder, never in the game files. They can replace files, 
   strings/<lang>/*.toml  new or changed text in the string tables
   db/*.sql               database patches
   textures/<hash>.dds    texture replacements
+  shaders/shader_<guest>_<modification>_<translated>.spv  Vulkan replacements
 ```
 
 `<state>` for an installed preview is `%LOCALAPPDATA%\PinyonShift\source\<version>\.local\preview`.
 
 ## Enabling
+
+The built-in `hidden_cars` mod lists four hidden player-model variants.
+Traffic entries such as the tour bus are excluded because driving support
+does not establish garage or paint support. Existing purchases remain in
+the isolated modded profile. To recover a blocked current selection, close
+the game and run `python tools/fh1-profile.py recover-car --state-root "<state>"`.
+It backs up the selected modded profile and settings before requesting the
+title's starter-car fallback, preserving the trainer setting. Keep a
+save-isolating mod enabled after recovery. Use the same title version and let it save
+before restarting. Recovery/save/reload checks pass on private base and v4
+fixtures with the trainer disabled, preserving original cars, parts and
+credits. [Audit, limits and restore instructions](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/HIDDEN_CARS.md).
+
+The intro Corrado's Garage and Design Creator entry routes pass on Windows
+with the integrated livery resolve corrections. Paint editing, saving and
+reloading, the other variants' full garage checks and v4 qualification remain
+open; these entry checks do not establish complete model support.
 
 List mods, in load order, in `<state>/config/pinyon_shift.toml`:
 
@@ -69,6 +87,7 @@ A mod that only changes how the game looks or sounds, and never what it saves, c
 | New archive members (`add/<archive>/<member>`) | Appended to the rebuilt archive, for example a new colour grading map in `dynamicpost.zip`. A name the archive already has is refused, as is a `members/` name it lacks |
 | Strings (`strings/<language or ALL>/<Table>.toml`) | `IDS_` names with their text: existing names are changed, new ones added with their key, which the database refers to as `_&N` (`tools/fh1-strings.py`) |
 | Merged settings (`merge/`) | `.ini` keys and `.xml` elements are merged into the file, so several mods can change one settings file |
+| Title-update settings (`merge-update/`) | `.ini` and `.xml` member merges against the installed v4 update, such as `merge-update/media.zip/camera/cameraphysics.xml`. Built into the generated mod's `update/` overlay; inactive without the update. The verified update stays untouched |
 | Database (`db/*.sql`) | SQL scripts run in load order on a copy of `media/db/gamedb.slt`, or of the database an enabled mod replaces it with |
 | New cars (`tools/clone-fh1-car.py`) | A spec of cars that reuse an existing model with their own name, price, power and listed class becomes a `db/` script and `strings/` names. Once bought, the game rates a car from its physics, so a listed index should be the one the owned car shows. Clones upgrade and paint like any car; bought cars stay in the modded profile, which still loads if the mod is removed |
 | Textures (`textures/<hash>.dds`) | Find a texture's hash with `--texture_dump_dir`. A replacement keeps the format and may be 2, 4 or 8 times larger. **SETTINGS > MODS > RELOAD TEXTURES** reloads them in game. On a GPU without BC formats (most Android GPUs) only 8_8_8_8 replacements apply |
@@ -83,7 +102,76 @@ For example, a merge that removes free-roam traffic:
 
 Elements without a key attribute, such as the layers in `CameraPhysics.xml`, match by position; mark an element `pinyon-add="true"` to append it instead.
 
+The built-in immersive camera supplies separate disc and v4 merges because
+the update has more chase-camera layers. Regenerate both with
+`python tools/build-immersive-camera.py`. Live chase height, distance, FOV
+and spring stiffness are in [CAMERA EDITOR](playing.md#camera-editor);
+their defaults preserve the loaded tuning and per-car camera overrides.
+See [Camera editor](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/MODDING.md#camera-editor) for the
+data and runtime boundary.
+Update member merges also preserve the winning whole-archive override
+under a mod's `update/` directory.
+
 Nothing from the game disc may be distributed. A mod's install steps should build its files from the player's own copy, as `tools/install-sample-mod.py english_strings` does.
+
+## Shader mods
+
+Enabled mods can provide Vulkan SPIR-V in `shaders/`. The earlier loaded
+mod with a valid exact match wins; separate shaders compose, while two
+replacements of one shader do not merge. Names include the guest hash,
+specialization and XXH3 hash of the original translation, so changed
+translator output cannot silently select stale bytecode. Invalid files
+are logged and skipped. Changes require a restart.
+
+Capture one GPU frame with `vulkan_shader_discovery_dir` and
+`vulkan_shader_discovery_frame`, then run
+`python tools/discover-fh1-shaders.py <capture>`. It lists exact identities,
+draws, the HUD boundary and bound color/depth surfaces without disassembly.
+`--check-mod <mod>/shaders` compares a mod against that frame. Surfaces do
+not identify materials or objects. Keep capture files in `.local/`.
+
+Overrides can change existing inputs' use; preserve the renderer's bindings
+and stage interface. They cannot add game inputs. Rebuild and test after
+translator or graphics-setting changes, and test driver compilation cost
+on the target GPU. Only independently authored code may be distributed;
+translated guest bytecode stays local.
+[Authoring contract and capture commands](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/MODDING.md#shader-replacements).
+
+## Frame inspector
+
+On desktop Vulkan, **Ctrl+F8** opens a frame inspector. **Capture next frame**
+freezes surface sizes, formats, draw counts and previews, resolve source
+rectangles, and texture identities. Hover a texture row for its base-level
+XXH3 hash, which uses the texture replacement filename's byte domain.
+GPU-written or unavailable payloads have no CPU hash. The inspector is off
+by default and captures only on request; capturing waits for the GPU.
+
+To open a local `.fh1frame` dump, restart with
+`--fh1_frame_inspector_replay=true`, paste its path and choose **Open dump**.
+The title stays suspended in this workspace. **Color** reports the replay's
+front-buffer comparison; **Wireframe** needs `fillModeNonSolid`, and
+**Overdraw** adds red per fragment on blend-capable attachments while keeping
+render-pass clears. Diagnostic views are restricted to replay.
+
+Previews are at most 256 pixels along their longest side. Resolve previews
+show the source before destination packing and sample selection; depth is
+grayscale. The [inspector contract and limits](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/native-renderer/FRAME_INSPECTOR.md)
+describe image lifetimes and how to record and compare a dump. Dumps contain
+game data: keep them local.
+
+Windows verification on an RTX 4080 covered live capture, dump recovery and
+diagnostic views. Inspected Color output matched plain replay byte for byte;
+the tested recording still differed from its live frame. Disabled frame-time
+measurements varied too much to establish a no-regression result. The linked
+contract records the method, numbers and remaining qualification work.
+
+## Rally world probe
+
+For Rally-world experiments, `tools/create-rally-freeroam-seed.py` builds a
+private base-disc seed from verified owned Rally and a pinned save. It uses a
+separate test profile and always places the car at an owned stage start.
+It cannot qualify save/resume or travel back to Colorado, and is not installed
+as a built-in mod. See the [probe and remaining gates](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/RALLY_FREEROAM.md).
 
 ## Custom radio stations
 

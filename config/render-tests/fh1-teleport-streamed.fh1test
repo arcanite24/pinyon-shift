@@ -1,0 +1,238 @@
+pinyon-shift-fh1-render-test-v1
+# clock-hz 60
+# #485: run base and v4 with pinyon_shift_cheats=true from private pinned seeds.
+# Twenty synthetic grid targets resolve through the native road lookup. Confirm
+# every title dialog, then inspect each landing and driving capture for streamed
+# roads, traffic, collision and control. native_map_handoff alone is not success.
+input 0 0000 0 0 0 0 0 0
+input 360 1000 0 0 0 0 0 0
+input 366 0000 0 0 0 0 0 0
+input 480 1000 0 0 0 0 0 0
+input 486 0000 0 0 0 0 0 0
+input 600 1000 0 0 0 0 0 0
+input 606 0000 0 0 0 0 0 0
+input 720 1000 0 0 0 0 0 0
+input 726 0000 0 0 0 0 0 0
+wait 960 3600 freeroam
+capture 1200 initial
+input 1320 0020 0 0 0 0 0 0
+input 1350 0000 0 0 0 0 0 0
+capture 1440 map-01
+cvar 1500 cheat_teleport_destination -4000,0,-4000
+input 1680 1000 0 0 0 0 0 0
+input 1710 0000 0 0 0 0 0 0
+capture 1920 landing-01
+input 1980 0000 0 255 0 0 0 0
+wait 1981 1200 vehicle-moved 3
+capture 2161 drive-01
+input 2220 0000 0 0 0 0 0 0
+input 2520 0020 0 0 0 0 0 0
+input 2550 0000 0 0 0 0 0 0
+capture 2640 map-02
+cvar 2700 cheat_teleport_destination -2000,0,-4000
+input 2880 1000 0 0 0 0 0 0
+input 2910 0000 0 0 0 0 0 0
+capture 3120 landing-02
+input 3180 0000 0 255 0 0 0 0
+wait 3181 1200 vehicle-moved 3
+capture 3361 drive-02
+input 3420 0000 0 0 0 0 0 0
+input 3720 0020 0 0 0 0 0 0
+input 3750 0000 0 0 0 0 0 0
+capture 3840 map-03
+cvar 3900 cheat_teleport_destination 0,0,-4000
+input 4080 1000 0 0 0 0 0 0
+input 4110 0000 0 0 0 0 0 0
+capture 4320 landing-03
+input 4380 0000 0 255 0 0 0 0
+wait 4381 1200 vehicle-moved 3
+capture 4561 drive-03
+input 4620 0000 0 0 0 0 0 0
+input 4920 0020 0 0 0 0 0 0
+input 4950 0000 0 0 0 0 0 0
+capture 5040 map-04
+cvar 5100 cheat_teleport_destination 2000,0,-4000
+input 5280 1000 0 0 0 0 0 0
+input 5310 0000 0 0 0 0 0 0
+capture 5520 landing-04
+input 5580 0000 0 255 0 0 0 0
+wait 5581 1200 vehicle-moved 3
+capture 5761 drive-04
+input 5820 0000 0 0 0 0 0 0
+input 6120 0020 0 0 0 0 0 0
+input 6150 0000 0 0 0 0 0 0
+capture 6240 map-05
+cvar 6300 cheat_teleport_destination 4000,0,-4000
+input 6480 1000 0 0 0 0 0 0
+input 6510 0000 0 0 0 0 0 0
+capture 6720 landing-05
+input 6780 0000 0 255 0 0 0 0
+wait 6781 1200 vehicle-moved 3
+capture 6961 drive-05
+input 7020 0000 0 0 0 0 0 0
+input 7320 0020 0 0 0 0 0 0
+input 7350 0000 0 0 0 0 0 0
+capture 7440 map-06
+cvar 7500 cheat_teleport_destination 4000,0,-2000
+input 7680 1000 0 0 0 0 0 0
+input 7710 0000 0 0 0 0 0 0
+capture 7920 landing-06
+input 7980 0000 0 255 0 0 0 0
+wait 7981 1200 vehicle-moved 3
+capture 8161 drive-06
+input 8220 0000 0 0 0 0 0 0
+input 8520 0020 0 0 0 0 0 0
+input 8550 0000 0 0 0 0 0 0
+capture 8640 map-07
+cvar 8700 cheat_teleport_destination 2000,0,-2000
+input 8880 1000 0 0 0 0 0 0
+input 8910 0000 0 0 0 0 0 0
+capture 9120 landing-07
+input 9180 0000 0 255 0 0 0 0
+wait 9181 1200 vehicle-moved 3
+capture 9361 drive-07
+input 9420 0000 0 0 0 0 0 0
+input 9720 0020 0 0 0 0 0 0
+input 9750 0000 0 0 0 0 0 0
+capture 9840 map-08
+cvar 9900 cheat_teleport_destination 0,0,-2000
+input 10080 1000 0 0 0 0 0 0
+input 10110 0000 0 0 0 0 0 0
+capture 10320 landing-08
+input 10380 0000 0 255 0 0 0 0
+wait 10381 1200 vehicle-moved 3
+capture 10561 drive-08
+input 10620 0000 0 0 0 0 0 0
+input 10920 0020 0 0 0 0 0 0
+input 10950 0000 0 0 0 0 0 0
+capture 11040 map-09
+cvar 11100 cheat_teleport_destination -2000,0,-2000
+input 11280 1000 0 0 0 0 0 0
+input 11310 0000 0 0 0 0 0 0
+capture 11520 landing-09
+input 11580 0000 0 255 0 0 0 0
+wait 11581 1200 vehicle-moved 3
+capture 11761 drive-09
+input 11820 0000 0 0 0 0 0 0
+input 12120 0020 0 0 0 0 0 0
+input 12150 0000 0 0 0 0 0 0
+capture 12240 map-10
+cvar 12300 cheat_teleport_destination -4000,0,-2000
+input 12480 1000 0 0 0 0 0 0
+input 12510 0000 0 0 0 0 0 0
+capture 12720 landing-10
+input 12780 0000 0 255 0 0 0 0
+wait 12781 1200 vehicle-moved 3
+capture 12961 drive-10
+input 13020 0000 0 0 0 0 0 0
+input 13320 0020 0 0 0 0 0 0
+input 13350 0000 0 0 0 0 0 0
+capture 13440 map-11
+cvar 13500 cheat_teleport_destination -4000,0,0
+input 13680 1000 0 0 0 0 0 0
+input 13710 0000 0 0 0 0 0 0
+capture 13920 landing-11
+input 13980 0000 0 255 0 0 0 0
+wait 13981 1200 vehicle-moved 3
+capture 14161 drive-11
+input 14220 0000 0 0 0 0 0 0
+input 14520 0020 0 0 0 0 0 0
+input 14550 0000 0 0 0 0 0 0
+capture 14640 map-12
+cvar 14700 cheat_teleport_destination -2000,0,0
+input 14880 1000 0 0 0 0 0 0
+input 14910 0000 0 0 0 0 0 0
+capture 15120 landing-12
+input 15180 0000 0 255 0 0 0 0
+wait 15181 1200 vehicle-moved 3
+capture 15361 drive-12
+input 15420 0000 0 0 0 0 0 0
+input 15720 0020 0 0 0 0 0 0
+input 15750 0000 0 0 0 0 0 0
+capture 15840 map-13
+cvar 15900 cheat_teleport_destination 0,0,0
+input 16080 1000 0 0 0 0 0 0
+input 16110 0000 0 0 0 0 0 0
+capture 16320 landing-13
+input 16380 0000 0 255 0 0 0 0
+wait 16381 1200 vehicle-moved 3
+capture 16561 drive-13
+input 16620 0000 0 0 0 0 0 0
+input 16920 0020 0 0 0 0 0 0
+input 16950 0000 0 0 0 0 0 0
+capture 17040 map-14
+cvar 17100 cheat_teleport_destination 2000,0,0
+input 17280 1000 0 0 0 0 0 0
+input 17310 0000 0 0 0 0 0 0
+capture 17520 landing-14
+input 17580 0000 0 255 0 0 0 0
+wait 17581 1200 vehicle-moved 3
+capture 17761 drive-14
+input 17820 0000 0 0 0 0 0 0
+input 18120 0020 0 0 0 0 0 0
+input 18150 0000 0 0 0 0 0 0
+capture 18240 map-15
+cvar 18300 cheat_teleport_destination 4000,0,0
+input 18480 1000 0 0 0 0 0 0
+input 18510 0000 0 0 0 0 0 0
+capture 18720 landing-15
+input 18780 0000 0 255 0 0 0 0
+wait 18781 1200 vehicle-moved 3
+capture 18961 drive-15
+input 19020 0000 0 0 0 0 0 0
+input 19320 0020 0 0 0 0 0 0
+input 19350 0000 0 0 0 0 0 0
+capture 19440 map-16
+cvar 19500 cheat_teleport_destination 4000,0,2000
+input 19680 1000 0 0 0 0 0 0
+input 19710 0000 0 0 0 0 0 0
+capture 19920 landing-16
+input 19980 0000 0 255 0 0 0 0
+wait 19981 1200 vehicle-moved 3
+capture 20161 drive-16
+input 20220 0000 0 0 0 0 0 0
+input 20520 0020 0 0 0 0 0 0
+input 20550 0000 0 0 0 0 0 0
+capture 20640 map-17
+cvar 20700 cheat_teleport_destination 2000,0,2000
+input 20880 1000 0 0 0 0 0 0
+input 20910 0000 0 0 0 0 0 0
+capture 21120 landing-17
+input 21180 0000 0 255 0 0 0 0
+wait 21181 1200 vehicle-moved 3
+capture 21361 drive-17
+input 21420 0000 0 0 0 0 0 0
+input 21720 0020 0 0 0 0 0 0
+input 21750 0000 0 0 0 0 0 0
+capture 21840 map-18
+cvar 21900 cheat_teleport_destination 0,0,2000
+input 22080 1000 0 0 0 0 0 0
+input 22110 0000 0 0 0 0 0 0
+capture 22320 landing-18
+input 22380 0000 0 255 0 0 0 0
+wait 22381 1200 vehicle-moved 3
+capture 22561 drive-18
+input 22620 0000 0 0 0 0 0 0
+input 22920 0020 0 0 0 0 0 0
+input 22950 0000 0 0 0 0 0 0
+capture 23040 map-19
+cvar 23100 cheat_teleport_destination -2000,0,2000
+input 23280 1000 0 0 0 0 0 0
+input 23310 0000 0 0 0 0 0 0
+capture 23520 landing-19
+input 23580 0000 0 255 0 0 0 0
+wait 23581 1200 vehicle-moved 3
+capture 23761 drive-19
+input 23820 0000 0 0 0 0 0 0
+input 24120 0020 0 0 0 0 0 0
+input 24150 0000 0 0 0 0 0 0
+capture 24240 map-20
+cvar 24300 cheat_teleport_destination -4000,0,2000
+input 24480 1000 0 0 0 0 0 0
+input 24510 0000 0 0 0 0 0 0
+capture 24720 landing-20
+input 24780 0000 0 255 0 0 0 0
+wait 24781 1200 vehicle-moved 3
+capture 24961 drive-20
+input 25020 0000 0 0 0 0 0 0
+stop 25120

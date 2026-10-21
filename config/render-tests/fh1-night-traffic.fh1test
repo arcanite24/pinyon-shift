@@ -1,0 +1,33 @@
+pinyon-shift-fh1-render-test-v1
+# clock-hz 60
+# #531 observation route, from the Gauntlet free-roam pinned seed.
+# Launch with --pinyon_shift_cheats=true --present_hdr=false, the desired
+# --pinyon_shift_fh1_render_fps_limit=30, 60 or 120, and
+# --pinyon_shift_fh1_shadows=false (repeat with true). Use a fresh private state
+# for each run. Record video: the sparse captures only confirm the scene.
+# The 60 Hz logical clock keeps the 20s-140s night window the same length
+# at every output rate. Output-clock wait steps cannot be used with it.
+# Passing the runner is not a flicker verdict: review the video and confirm
+# that oncoming traffic actually appeared.
+# See docs/native-renderer/HEADLIGHT_FLICKER.md.
+input 0 0000 0 0 0 0 0 0
+cvar 1 cheat_time_of_day 23
+cvar 3 disable_bloom false
+input 360 1000 0 0 0 0 0 0
+input 366 0000 0 0 0 0 0 0
+input 480 1000 0 0 0 0 0 0
+input 486 0000 0 0 0 0 0 0
+input 600 1000 0 0 0 0 0 0
+input 606 0000 0 0 0 0 0 0
+input 720 1000 0 0 0 0 0 0
+input 726 0000 0 0 0 0 0 0
+input 1200 0000 0 80 0 0 0 0
+capture 1200 night-start
+input 1800 0000 0 0 0 0 0 0
+capture 2400 night-40s
+capture 3600 night-60s
+capture 4800 night-80s
+capture 6000 night-100s
+capture 7200 night-120s
+capture 8400 night-140s
+stop 8500

@@ -5,6 +5,67 @@ hook points and a C API, and asset mods that replace game files. This page
 is the contract for mod authors. The design and its history are in the
 [native port backlog](NATIVE_PORT_BACKLOG.md#np-7-mod-host-v1) (NP-7).
 
+## Shader replacements
+
+Vulkan mods put independently authored SPIR-V in `mods/<name>/shaders/`.
+Use an ordinary `mod.toml` without `library`; a visual-only mod can declare
+`shares_save = true`. Only successfully loaded mods participate. The earlier
+mod in resolved load order wins for each exact shader identity, as for
+`game/` files. Dependencies and `load_after` are resolved first. Restart
+after changing mods or bytecode.
+
+Each file is named
+`shader_<guest hash>_<modification>_<translated hash>.spv`, with three
+uppercase 16-digit hexadecimal values. The last value is XXH3-64 of the
+**original** translation before mod or built-in edits. Specialization,
+translator output and graphics settings can change that identity. A
+nonmatching filename is ignored; rebuild and reverify against a fresh
+capture instead of renaming old bytecode to bypass the check.
+
+Mods precede developer `vulkan_shader_override_dirs` (semicolon-separated),
+then legacy `vulkan_shader_override_dir`, then built-in edits. The first
+valid matching file wins; replacements of one shader do not merge. Files
+are limited to 16 MiB and checked by the bundled SPIRV-Tools Vulkan 1.2
+validator, including the translation's `main` execution model. Unreadable,
+malformed or wrong-stage files are logged and skipped, allowing the next
+directory or built-in edit. A Vulkan shader-module rejection retries the
+original translation. `vulkan_shader_overrides = false` disables mod,
+developer and built-in replacements.
+
+To find shaders without disassembly, capture one frame using the native
+Vulkan renderer and a pinned seed:
+
+```powershell
+python tools/run-fh1-render-test.py config/render-tests/fh1-smoke.fh1test `
+  --state-root .local/render-seeds/appdata-2026-09-27 `
+  --output .local/shader-discovery-run `
+  --game-argument=--async_shader_compilation=false `
+  --game-argument=--vulkan_shader_discovery_frame=300 `
+  --game-argument=--vulkan_shader_discovery_dir=C:/path/to/pinyon/.local/shader-discovery
+python tools/discover-fh1-shaders.py .local/shader-discovery
+```
+
+The frame is the GPU swap count; choose one with native draws and a new
+output directory for each capture. Discovery writes original translated
+`.spv` files with full identities and `draws.jsonl`. The tool groups them
+by stage, draw number, HUD boundary and bound color/depth surface (slot,
+packed key, size, format and samples). These are render targets, not
+material or object labels. Use `--shader <hash>`, `--surface <key>` or
+`--json` to inspect them. `--check-mod <state>/mods/<name>/shaders`
+distinguishes stale translations from shaders absent from that frame;
+a matching name still needs runtime validation.
+
+Overrides change how existing inputs are used. Preserve descriptor
+bindings, stage inputs/outputs, push constants and the entry point: this
+feature adds no textures, uniforms or game-side data. Validation does not
+prove interface compatibility or visual correctness. Test on the target
+GPU; replacement pipelines still cost driver compilation time, especially
+on Android.
+
+Keep captures and translated guest shaders under `.local/`; never commit
+or distribute them. Distribute only independently authored code or a local
+transformation built from the player's files, following [LEGAL.md](LEGAL.md).
+
 ## Layout and enabling
 
 A mod lives in the state directory, never in the game files:
@@ -115,19 +176,59 @@ its `SpringK` or `NoiseSeed`, and the game's per-frame layer update scales
 the group by `pinyon_shift_camera_gforce`, `_lean`, `_shake` and `_head`
 (0 to 2, applied at once). F6 > DISPLAY > IMMERSIVE CAMERA sets all four
 (OFF 0, SUBTLE 0.5, DEFAULT 1, STRONG 1.5), and the four CAMERA rows below it
-set each one (CUSTOM). On the v4 build the title update's own
-`media.zip` carries `camera/cameraphysics.xml`, which the game reads instead,
-so the layers do not load there yet.
+set each one (CUSTOM). The v4 update has a separate merge under
+`merge-update/media.zip/camera/cameraphysics.xml`: its chase cameras have
+80/75 stock layers rather than the disc's 74/69. The generator writes both
+variants. Update merges build into the generated mod's `update/` overlay;
+the v4 host mounts it ahead of the verified update on `update:`, leaving
+the installed update untouched. Without an installed update these merges
+are inactive. Misspelt update archive or member names fail the build.
+Merges apply over the winning enabled mod's whole-archive replacement under
+`update/`, when present, using the same load order as disc overrides.
+
+### Camera editor
+
+F6 > DISPLAY > CAMERA EDITOR (#487) edits both chase views live. Height
+(-0.5 to +1.5 m) and distance (-1 to +3 m) are offsets from the data loaded
+for the current car. FOV (80–130%) and stiffness (50–200%) multiply the
+loaded tuning; stiffness scales yaw and height spring K, and D by the
+square root of that multiplier to preserve the damping ratio. Defaults
+are zero offsets and 100%, so the editor makes no changes until used.
+RESET CAMERA EDITOR restores these values and the normal driving view.
+The existing FIELD OF VIEW setting still multiplies every view as well.
+
+`CameraSettings.ini` in `media/camera.zip` supplies the two chase tuning
+blocks, including when another mod merges that member. Per-car
+`CameraOverrides` can replace the instance's placement. The title parses
+this data once and exposes no qualified hot reload; the host applies the
+editor to its loaded blocks and instance offsets on the guest main thread.
+It retains the original values, detects replacement per-car offsets and
+never accumulates edits. No camera data from the game is distributed.
+The controller mode table also contains WheelCam (10) and CarRelativeCams
+(15). DRIVING VIEW selects these native wheel and car-relative replay
+views while driving, then NORMAL returns to the previous player view.
+Photo mode, free camera and cutscenes retain their own modes.
+
+Windows qualification uses `fh1-camera-editor` with pinned `i443-camera`
+and `i443-camera-v4` seeds on multivac. Captures show isolated height,
+distance and FOV changes and their restoration; driving exercises 50% and
+200% spring stiffness, both replay views and the return to normal. v4
+mounts the separate update overlay and reports all four tagged immersive
+groups in chase/cockpit views. Original archive layers and source hashes
+are unchanged by the generated merges. The UI/reset route is
+`fh1-camera-editor-ui`.
 
 `hidden_cars` (#484) is listed on F6 > MODS, off by default. Its
-`db/10-hidden-cars.sql` lists the 22 cars the database marks drivable but
-not selectable (traffic cars such as the tour bus, the Kenworth T440, the
-Leaf and the Prius, and the showcase Mini, 500 Abarth and 205 T16) and
-prices the seven that cost nothing. They are sold in the Autoshow under
-their make and play the modded profile. Most have no Autoshow thumbnail, so
-their tile is black until bought. The tour bus was bought, saved and driven,
-and the Kenworth raced, on the base build
-(`config/render-tests/fh1-hidden-car-drive.fh1test`).
+`db/10-hidden-cars.sql` lists only the intro Corrado and showcase Mini,
+500 Abarth and 205 T16. Traffic entries, including the tour bus, are no
+longer exposed: `IsDrivable` does not establish garage or paint support
+(#669). Purchases play the modded profile. Existing purchases stay in that
+profile; updating the mod does not delete them. If an unsupported selected
+car prevents garage use, close the game and run
+`python tools/fh1-profile.py recover-car --state-root "<state>"` to back up
+that profile and request the title's starter-car fallback on its next load.
+See [Hidden-car qualification and recovery](HIDDEN_CARS.md) for the complete
+asset audit, limitations and backup restoration steps.
 
 `photo_mode_limits` (#488) is listed on F6 > MODS, off by default, and
 keeps the player's own save (`shares_save`). It merges four

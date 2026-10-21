@@ -7,6 +7,7 @@
 #include "pinyon_shift_runtime_hooks.h"
 
 #include <atomic>
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <cstring>
@@ -162,12 +163,17 @@ void KeepShadowsOff(rex::memory::Memory* memory) {
   mask_resolves_seen = mask_resolves;
   if (resolving) return;
   auto* mask = memory->TranslatePhysical<uint32_t*>(mask_base);
-  if (mask_resolves == mask_resolves_filled && mask[0] == 0xFFFFFFFFu &&
-      mask[mask_length / 4 - 1] == 0xFFFFFFFFu) {
+  // Lit geometry in a resolved mask is bytes 00 FF FF 00 (the same word
+  // either endianness): the two shadow terms full, the other two channels
+  // zero. All FF also sets those, and the car shaders of the garage's
+  // thumbnail studio read them: panels blown out to cyan or pink (#700).
+  constexpr uint32_t kLitMask = 0x00FFFF00u;
+  if (mask_resolves == mask_resolves_filled && mask[0] == kLitMask &&
+      mask[mask_length / 4 - 1] == kLitMask) {
     return;
   }
   mask_resolves_filled = mask_resolves;
-  std::memset(mask, 0xFF, mask_length);
+  std::fill(mask, mask + mask_length / 4, kLitMask);
   memory->TriggerPhysicalMemoryCallbacks(rex::thread::global_critical_region::AcquireDirect(),
                                          0xA0000000u + mask_base, mask_length, true, false);
 }

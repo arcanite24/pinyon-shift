@@ -1,0 +1,90 @@
+pinyon-shift-fh1-render-test-v1
+# Issue #674: five saved language changes and two free-roam/title cycles.
+# Use appdata-2026-09-27 and --include-opening-movies. Output-frame paced.
+# Windows: --game-argument=--pinyon_shift_fh1_render_fps_limit=60
+# Language changes go through PROFILE and remain pending until process restart.
+# expect-facade-transitions 2
+input 0 0000 0 0 0 0 0 0
+input 360 1000 0 0 0 0 0 0
+input 366 0000 0 0 0 0 0 0
+input 480 1000 0 0 0 0 0 0
+input 486 0000 0 0 0 0 0 0
+input 600 1000 0 0 0 0 0 0
+input 606 0000 0 0 0 0 0 0
+input 720 1000 0 0 0 0 0 0
+input 726 0000 0 0 0 0 0 0
+capture 1560 free-roam
+hostkey 1660 f6
+hostkey 1680 down
+hostkey 1700 down
+hostkey 1720 down
+hostkey 1740 down
+hostkey 1760 down
+hostkey 1780 enter
+hostkey 1800 down
+hostkey 1820 right
+hostkey 1840 right
+hostkey 1860 right
+hostkey 1880 right
+hostkey 1900 right
+capture 1980 pending-language
+hostkey 2040 escape
+hostkey 2060 escape
+# Closing host settings leaves the guest pause menu open.
+# Seven downs cover the optional HORIZON RALLY row; the list clamps at QUIT.
+capture 2240 first-pause
+input 2260 0002 0 0 0 0 0 0
+input 2266 0000 0 0 0 0 0 0
+input 2280 0002 0 0 0 0 0 0
+input 2286 0000 0 0 0 0 0 0
+input 2300 0002 0 0 0 0 0 0
+input 2306 0000 0 0 0 0 0 0
+input 2320 0002 0 0 0 0 0 0
+input 2326 0000 0 0 0 0 0 0
+input 2340 0002 0 0 0 0 0 0
+input 2346 0000 0 0 0 0 0 0
+input 2360 0002 0 0 0 0 0 0
+input 2366 0000 0 0 0 0 0 0
+input 2380 0002 0 0 0 0 0 0
+input 2386 0000 0 0 0 0 0 0
+capture 2400 first-quit-highlighted
+input 2460 1000 0 0 0 0 0 0
+input 2466 0000 0 0 0 0 0 0
+capture 2490 first-quit-dialog
+input 2520 1000 0 0 0 0 0 0
+input 2526 0000 0 0 0 0 0 0
+capture 3200 first-title
+input 3600 1000 0 0 0 0 0 0
+input 3606 0000 0 0 0 0 0 0
+input 3720 1000 0 0 0 0 0 0
+input 3726 0000 0 0 0 0 0 0
+input 3840 1000 0 0 0 0 0 0
+input 3846 0000 0 0 0 0 0 0
+input 3960 1000 0 0 0 0 0 0
+input 3966 0000 0 0 0 0 0 0
+capture 5200 free-roam-reloaded
+input 5400 0010 0 0 0 0 0 0
+input 5406 0000 0 0 0 0 0 0
+capture 5440 second-pause
+input 5460 0002 0 0 0 0 0 0
+input 5466 0000 0 0 0 0 0 0
+input 5480 0002 0 0 0 0 0 0
+input 5486 0000 0 0 0 0 0 0
+input 5500 0002 0 0 0 0 0 0
+input 5506 0000 0 0 0 0 0 0
+input 5520 0002 0 0 0 0 0 0
+input 5526 0000 0 0 0 0 0 0
+input 5540 0002 0 0 0 0 0 0
+input 5546 0000 0 0 0 0 0 0
+input 5560 0002 0 0 0 0 0 0
+input 5566 0000 0 0 0 0 0 0
+input 5580 0002 0 0 0 0 0 0
+input 5586 0000 0 0 0 0 0 0
+capture 5600 second-quit-highlighted
+input 5660 1000 0 0 0 0 0 0
+input 5666 0000 0 0 0 0 0 0
+capture 5690 second-quit-dialog
+input 5720 1000 0 0 0 0 0 0
+input 5726 0000 0 0 0 0 0 0
+capture 6400 second-title
+stop 6560

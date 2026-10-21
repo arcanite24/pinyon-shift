@@ -70,7 +70,7 @@ name = """how base code maps to v4"""
 what = """About half of the base's functions are unchanged in v4 apart from branch displacements and absolute addresses: 27,556 of 57,127 have a unique, identical normalized body in both images, and call-graph anchoring through aligned code pairs maps 5,561 more. The rest needs instruction-window context, vtable slots and `lis`/`addi` references (for code outside `.pdata`), or a shape match that tolerates field offsets, because classes grew and their field offsets and vtable slots moved. Runs of small `subi r3,r3,4; b` thunks look identical once branches are masked, so a correct pairing must also check that direct branches reach the mapped counterparts of their targets."""
 how = """A mapper over both loaded images, functions taken from each image's `.pdata`, every result shape-checked over its own range and tested on synthetic images. An earlier version shifted a thunk run by one, which the branch check now rejects."""
 confidence = """confirmed"""
-note = """All 123 hooks, 116 function entries, setjmp/longjmp and the CRT replacements map, with 4 reviewed overrides."""
+note = """All hooks, function entries, codegen address lists, setjmp/longjmp and the CRT replacements map; overrides.toml holds the reviewed exceptions."""
 source = """docs/TITLE_UPDATE_V4_BACKLOG.md TU-3; tools/map-fh1-v4-addresses.py; tools/port-fh1-v4-analysis.py"""
 
 [[finding]]
@@ -102,6 +102,26 @@ what = """Vtables of two `DynamicRenderSettings` control types: the float contro
 how = """Manual pairing: 5 of 7 slots equal, the other two the base's neighbours; the bool vtable's trailing "Skip" string matches."""
 confidence = """probable"""
 source = """config/rexglue/analysis-v4/overrides.toml; docs/TITLE_UPDATE_V4_BACKLOG.md TU-3"""
+
+[[finding]]
+group = """Address mapping"""
+base = """82CB6308, 82CB7A88, 82CB9F98, 82CBA9F8, 82D0FA28, 82D123D0, 82D1D4E8, 82D20A40, 82D210F8, 82D21DB0, 82D230B8, 82D2EC70, 82D2F070, 82D303D0, 82D37C70, 82D39140, 82D3A350, 82D48518, 82E2D5A8"""
+v4 = """82D77DF0, 82D79570, 82D7BA80, 82D7C4E0, 82DD1890, 82DD4248, 82DDF430, 82DE29A0, 82DE3058, 82DE3D10, 82DE5018, 82DF0DA0, 82DF11A0, 82DF2500, 82DF9CF8, 82DFB280, 82DFC430, 82E0A610, 82EEF5B8"""
+name = """physics specialization functions in v4"""
+what = """The 19 car-physics functions the base build specializes (NN-5.1) all exist in v4, but three changed. `82D210F8` (v4 `82DE3058`) keeps its size, 0x514 bytes, with 80 % of its instruction shape equal; `82D303D0` (v4 `82DF2500`) keeps its size, 0x1A0, at 99 %; `82D1D4E8` (v4 `82DDF430`) keeps its size, 0xEC, at 88 %. The title update edited car physics in these bodies, so a result measured on the base build's physics does not carry over to v4 unmeasured. The other 16 map automatically (exact or aligned)."""
+how = """Automatic mapper for 16. For the three: callers paired at the same call positions (82D210F8: one caller, 82D303D0: two callers, four calls each) with one-to-one mapped callees; 82D1D4E8 has no direct caller and is the only v4 function of its size range with a similar shape (next best 14 %), referenced from the same three tables, one of which keeps its constant neighbours."""
+confidence = """probable"""
+source = """config/rexglue/analysis-v4/overrides.toml; issue #743"""
+
+[[finding]]
+group = """Address mapping"""
+base = """host_overridden_functions, register_locals_functions, fixed_fp_mode_functions, single_precision_functions, reference_functions, host_local_lr_keep, [rexcrt] SwitchToFiber"""
+name = """address lists the v4 port did not map"""
+what = """Until October 2026 the v4 port of the analysis files rewrote only single-address keys and function tables. Address lists, and the `[rexcrt]` fiber keys other than the three CRT memory routines, were copied with their base addresses and reported as mapped, so the v4 file had to be edited by hand and still lacked every codegen option that carries a list (NN-1.2, NN-1.3, NN-5.1, NL-1.5, NL-1.10). The port now maps every address under a key its schema names, stops on an image address under any other key, and checks `host_overridden_functions` against the v4 address of every `PINYON_GUEST_NATIVE` declaration: 14 of 16 agreed with the automatic mapper, the two FMOD voice methods (`830B6500`, `830B6510`) needed the declared pairs."""
+how = """Regenerated the v4 files with the old port and diffed them against the committed ones; a synthetic test for each address-bearing key."""
+confidence = """confirmed"""
+negative = true
+source = """tools/port-fh1-v4-analysis.py; tools/tests/test_v4_mapping.py; issue #742"""
 
 # ------------------------------------------------------------ Layout changes
 

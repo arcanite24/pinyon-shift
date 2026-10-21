@@ -14,7 +14,7 @@ CXX = ROOT / '.local/toolchain/llvm-20.1.8/bin/clang++.exe'
 class GpuWaitPolicyTests(unittest.TestCase):
     def test_short_sleeps_work_without_vsync_and_zero_preserves_polling(self):
         source = (ROOT / 'thirdparty/shiftglue-sdk/src/graphics/command_processor.cpp').read_text()
-        start = source.index('        if (!REXCVAR_GET(vsync)')
+        start = source.index('        const WaitRegMemPolicy policy = CurrentWaitRegMemPolicy();')
         end = source.index('        rex::thread::SyncMemory();', start)
         policy = source[start:end]
         harness = r'''
@@ -22,9 +22,18 @@ class GpuWaitPolicyTests(unittest.TestCase):
 #include <cassert>
 bool vsync; int wait_reg_mem_sleep_us, wait_reg_mem_yield_us;
 int yields; long long sleep_us; bool slept;
+struct WaitRegMemPolicy { int sleep_us, yield_us; };
+WaitRegMemPolicy CurrentWaitRegMemPolicy() {
+  return {wait_reg_mem_sleep_us, wait_reg_mem_yield_us};
+}
 #define REXCVAR_GET(name) name
 namespace rex::thread {
 void MaybeYield() { ++yields; }
+void WaitUntil(std::chrono::steady_clock::time_point deadline) {
+  assert(deadline - std::chrono::steady_clock::now() <=
+         std::chrono::microseconds(wait_reg_mem_sleep_us));
+  sleep_us = wait_reg_mem_sleep_us;
+}
 template<class Rep, class Period> void Sleep(std::chrono::duration<Rep,Period> d) {
   sleep_us = std::chrono::duration_cast<std::chrono::microseconds>(d).count();
 }

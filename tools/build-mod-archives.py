@@ -31,6 +31,14 @@ member (NP-10.2):
   mods/<name>/merge/<archive path>/<member path>
   e.g. mods/my_mod/merge/media/physics.zip/PhysicsSettings.ini
 
+The v4 update's own archive members use an explicit, separate tree:
+
+  mods/<name>/merge-update/media.zip/camera/cameraphysics.xml
+
+These merge against <state>/title-update-v4 and build under the generated
+mod's update/ overlay, mounted only by the v4 host. They are inactive when
+the update is absent. Neither the verified update nor the disc is written.
+
 A merged .ini lists the lines to set (`Section\\Key value`; other keys keep the
 player's values, unknown keys are added). A merged .xml mirrors the member's
 structure with only the elements to change: an element matches the member's
@@ -323,11 +331,11 @@ def collect_strings(state: Path, mods: list[str],
     return archives
 
 
-def collect_merges(state: Path, mods: list[str]) -> dict[str, dict[str, list[tuple[str, Path]]]]:
+def collect_merges(state: Path, mods: list[str], tree: str = "merge") -> dict[str, dict[str, list[tuple[str, Path]]]]:
     """archive -> member -> [(mod, merge file)] in load order."""
     archives: dict[str, dict[str, list[tuple[str, Path]]]] = {}
     for mod in mods:
-        root = state / "mods" / mod / "merge"
+        root = state / "mods" / mod / tree
         if not root.is_dir():
             continue
         for file in sorted(p for p in root.rglob("*") if p.is_file()):
@@ -480,6 +488,50 @@ def find_case_insensitive(root: Path, relative: str) -> Path | None:
     return current
 
 
+def build_update_merges(state: Path, mods: list[str], staging: Path,
+                        extractor: Path | None) -> list[dict]:
+    """Explicit update: members, separate from game: and the disc manifest.
+
+    No installed v4 update means these optional patches are inactive. Never
+    replace or write the verified title update itself.
+    """
+    update = state / "title-update-v4"
+    if not update.is_dir():
+        return []
+    results = []
+    for archive, members in sorted(collect_merges(state, mods, "merge-update").items()):
+        base = find_case_insensitive(update, archive)
+        if base is None or not base.is_file():
+            raise ArchiveError(f"update:/{archive} is not in the installed title update")
+        # As with game: merges, keep the winning whole-archive replacement.
+        for mod in reversed(mods):
+            replacement = find_case_insensitive(state / "mods" / mod / "update", archive)
+            if replacement is not None and replacement.is_file():
+                base = replacement
+        data = base.read_bytes()
+        names = {info["name"].replace("/", "\\").lower()
+                 for _, info in read_central(data)[0]}
+        missing = sorted(set(members) - names)
+        if missing:
+            raise ArchiveError(f"update:/{archive} has no member {missing[0]}")
+        replacements = {}
+        for member, edits in sorted(members.items()):
+            body = read_member(base, data, member, extractor)
+            for _, patch in reversed(edits):
+                body = merge_member(member, body, patch.read_bytes())
+            replacements[member] = body
+        rebuilt, _, _, _ = rebuild(data, replacements)
+        output = staging / "update" / archive
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_bytes(rebuilt)
+        results.append({"update_archive": archive,
+                        "merged": {m: [mod for mod, _ in edits]
+                                   for m, edits in sorted(members.items())},
+                        "base_sha256": hashlib.sha256(data).hexdigest().upper(),
+                        "sha256": hashlib.sha256(rebuilt).hexdigest().upper()})
+    return results
+
+
 def build(state: Path, game_root: Path, extractor: Path | None = None) -> dict:
     patches = _patches_module()
     config = state / "config" / "pinyon_shift.toml"
@@ -491,14 +543,16 @@ def build(state: Path, game_root: Path, extractor: Path | None = None) -> dict:
     for archive in list(merges) + list(additions) + list(string_edits):
         archives.setdefault(archive, {})
     target = state / "mods" / GENERATED
-    if not archives:
+    update_merges = (state / "title-update-v4").is_dir() and collect_merges(state, mods, "merge-update")
+    if not archives and not update_merges:
         if target.exists():
             patches.remove_written_directory(target)
         patches.set_enabled_mods(config, mods)
         return {"patched": False, "mods": mods}
     # A mod that replaces whole archives or the manifest (a total conversion
     # such as the XE mod) is the base its members are patched on.
-    manifest = patches.effective_game_file(state, mods, game_root, MANIFEST.as_posix())         .read_bytes().decode("utf-8-sig")
+    manifest = (patches.effective_game_file(state, mods, game_root, MANIFEST.as_posix())
+                .read_bytes().decode("utf-8-sig")) if archives else ""
     staging = state / "mods" / (GENERATED + ".building")
     if staging.exists():
         patches.remove_written_directory(staging)
@@ -563,8 +617,10 @@ def build(state: Path, game_root: Path, extractor: Path | None = None) -> dict:
                                                                key=lambda item: item[1])},
                         "base_sha256": hashlib.sha256(data).hexdigest().upper(),
                         "sha256": hashlib.sha256(rebuilt).hexdigest().upper()})
-    (staging / "game" / MANIFEST).parent.mkdir(parents=True, exist_ok=True)
-    (staging / "game" / MANIFEST).write_bytes(b"\xef\xbb\xbf" + manifest.encode("utf-8"))
+    results.extend(build_update_merges(state, mods, staging, extractor))
+    if archives:
+        (staging / "game" / MANIFEST).parent.mkdir(parents=True, exist_ok=True)
+        (staging / "game" / MANIFEST).write_bytes(b"\xef\xbb\xbf" + manifest.encode("utf-8"))
     # Built only from mods that keep the player's save, it keeps it too.
     shares = all(patches.shares_save(state, mod) for mod in mods)
     (staging / "mod.toml").write_text(

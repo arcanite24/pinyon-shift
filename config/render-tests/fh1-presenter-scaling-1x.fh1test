@@ -1,0 +1,32 @@
+pinyon-shift-fh1-render-test-v1
+# clock-hz 60
+# Spatial output-scaling repro (#686). Start with both draw-scale axes at 1x
+# on the command line too. No presets, fullscreen changes or temporal providers.
+# The supplied loss was about 47 seconds after the last scaling change, so
+# keep rendering for over a minute after the cycle instead of stopping at it.
+input 0 0000 0 0 0 0 0 0
+input 360 1000 0 0 0 0 0 0
+input 366 0000 0 0 0 0 0 0
+input 480 1000 0 0 0 0 0 0
+input 486 0000 0 0 0 0 0 0
+input 600 1000 0 0 0 0 0 0
+input 606 0000 0 0 0 0 0 0
+input 720 1000 0 0 0 0 0 0
+input 726 0000 0 0 0 0 0 0
+cvar 900 draw_resolution_scale_x 1
+cvar 901 draw_resolution_scale_y 1
+cvar 960 present_effect cas
+cvar 990 present_effect fsr
+cvar 1020 present_effect bilinear
+cvar 1050 present_effect cas
+cvar 1065 present_effect fsr
+cvar 1080 present_effect bilinear
+cvar 1095 present_effect cas
+cvar 1110 present_effect fsr
+cvar 1125 present_effect bilinear
+cvar 1140 present_effect cas
+cvar 1170 present_effect fsr
+cvar 1200 present_effect bilinear
+capture 1260 after-spatial-effects
+capture 5280 after-soak
+stop 5400

@@ -1,0 +1,50 @@
+pinyon-shift-fh1-render-test-v1
+# clock-hz 60
+# Preset/window lifetime regression (#680), separate from the VSYNC and 1x
+# spatial-scaling repros. Use a private copy of a pinned gameplay seed.
+input 0 0000 0 0 0 0 0 0
+input 360 1000 0 0 0 0 0 0
+input 366 0000 0 0 0 0 0 0
+input 480 1000 0 0 0 0 0 0
+input 486 0000 0 0 0 0 0 0
+input 600 1000 0 0 0 0 0 0
+input 606 0000 0 0 0 0 0 0
+input 720 1000 0 0 0 0 0 0
+input 726 0000 0 0 0 0 0 0
+capture 900 before-changes
+# Resize the presentation target with an intermediate FSR texture in use.
+cvar 1530 present_effect fsr
+cvar 1560 fullscreen false
+cvar 1620 fullscreen true
+cvar 1680 fullscreen false
+cvar 1740 fullscreen true
+cvar 1800 fullscreen false
+cvar 1860 present_effect bilinear
+cvar 1890 fullscreen true
+capture 1920 after-fullscreen
+# A temporal provider may be unavailable; then this exercises its FSR 1 fallback.
+# Fullscreen should be larger than the guest's 1280x720 so the provider runs.
+cvar 1950 present_effect fsr2
+cvar 1980 fullscreen false
+cvar 2010 present_effect fsr3
+cvar 2040 fullscreen true
+cvar 2070 present_effect bilinear
+cvar 2130 present_effect fsr2
+cvar 2190 present_effect bilinear
+capture 2250 after-temporal-effects
+# Exercise the real settings preset path while the UI owns painting.
+hostkey 2280 f6
+hostkey 2310 down
+hostkey 2340 down
+hostkey 2370 enter
+hostkey 2400 right
+hostkey 2460 right
+hostkey 2520 right
+hostkey 2580 right
+hostkey 2640 right
+hostkey 2700 right
+hostkey 2760 escape
+hostkey 2790 escape
+capture 2880 after-presets
+capture 3600 after-focus-soak
+stop 3660

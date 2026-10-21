@@ -5,6 +5,7 @@
 #include <functional>
 #include <initializer_list>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "pinyon_mod.h"
@@ -61,13 +62,15 @@ bool ModsShareSave(const std::filesystem::path& state_root, const std::string& e
 const std::vector<ModInfo>& Mods();
 bool AnyModLoaded();
 // Directories of loaded mods' game/ overrides, in priority order.
-std::vector<std::filesystem::path> OverlayRoots();
+std::vector<std::filesystem::path> OverlayRoots(std::string_view directory = "game");
 // Marketplace packages that loaded mods cannot run with (mod.toml
 // hide_dlc): the title neither lists nor opens them while those mods are on.
 std::vector<std::string> HiddenDlc();
 // Directories of loaded mods' textures/ replacements (<hash>.dds, NP-10.3),
 // in priority order.
 std::vector<std::filesystem::path> TextureRoots();
+// Loaded mods' shaders/ directories, with the same first-wins order as game/.
+std::vector<std::filesystem::path> ShaderRoots();
 
 // Profile isolation (NP-7.5). With mods enabled the title plays the separate
 // `user_root` profile (<state>/user-modded); each save then writes

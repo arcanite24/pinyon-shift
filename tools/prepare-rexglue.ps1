@@ -97,13 +97,18 @@ if ($isRepositoryCheckout) {
 }
 else {
     $replaceCheckout = $false
+    $head = @()
     if (Test-Path -LiteralPath $sdkRoot) {
-        $head = @(& $git -C $sdkRoot rev-parse HEAD 2>$null | Select-Object -First 1)
+        if (Test-Path -LiteralPath (Join-Path $sdkRoot '.git')) {
+            $head = @(& $git -C $sdkRoot rev-parse HEAD 2>$null | Select-Object -First 1)
+        }
         $dirty = @(& $git -C $sdkRoot status --porcelain --ignore-submodules=dirty 2>$null).Count -ne 0
         if ($dirty) {
             throw "The managed ShiftGlue checkout has local changes: $sdkRoot"
         }
-        $replaceCheckout = $head.Count -ne 1 -or $head[0] -ne $config.rexglue.revision
+        # Keep a valid checkout's dependency sources and build trees across pin
+        # changes; Git and CMake invalidate only the inputs that changed.
+        $replaceCheckout = $head.Count -ne 1 -or $head[0] -notmatch '^[0-9a-fA-F]{40}$'
     }
     if ($replaceCheckout) {
         $resolved = [IO.Path]::GetFullPath($sdkRoot)
@@ -125,6 +130,8 @@ else {
                 Remove-Item -LiteralPath $sdkRoot -Recurse -Force
             }
         }
+    }
+    if ($head.Count -ne 1 -or $head[0] -ne $config.rexglue.revision) {
         Invoke-PinyonGitWithRetry -Activity 'Fetching the pinned ShiftGlue revision' -Arguments @(
             '-c', 'http.version=HTTP/1.1', '-C', $sdkRoot, 'fetch', '--depth', '1',
             'origin', $config.rexglue.revision

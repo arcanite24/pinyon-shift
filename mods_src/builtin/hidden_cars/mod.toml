@@ -1,5 +1,5 @@
 name = "hidden_cars"
-version = "1.0.0"
+version = "1.1.0"
 abi = 1
-# Sells the traffic and showcase cars the game can drive but never lists
-# (#484). Bought cars live in the modded profile, not the player's own save.
+# Lists only the audited hidden player-car variants (#484, #669).
+# Bought cars live in the modded profile, not the player's own save.

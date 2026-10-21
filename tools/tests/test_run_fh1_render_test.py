@@ -18,6 +18,20 @@ SPEC.loader.exec_module(MODULE)
 
 
 class Fh1RenderTestRunnerTests(unittest.TestCase):
+    def test_facade_transitions_require_ordered_cycles_and_language_changes(self):
+        events = [dict(event="settings.changed", row="LANGUAGE")] * 5
+        cycle = "\n".join(f"{action} module: {name}" for name in
+                          ("speechfacade_default.xex", "xmediafacade_default.xex")
+                          for action in ("Registering", "Unregistering"))
+        result = MODULE.facade_transition_summary(cycle + "\n" + cycle, events, 2)
+        self.assertEqual(result["modules"]["speechfacade_default.xex"]["unloads"], 2)
+        self.assertEqual(result["language_changes"], 5)
+        for runtime, changes in ((cycle, events), (cycle * 2, events[:4]),
+                                 ("Unregistering module: speechfacade_default.xex", events),
+                                 ("Registering module: speechfacade_default.xex\n" * 2, events)):
+            with self.assertRaises(RuntimeError):
+                MODULE.facade_transition_summary(runtime, changes, 2)
+
     def test_rally_test_ai_requires_native_controller_and_stays_diagnostic(self):
         driver = dict(event="fh1.render_test.rally_ai_driver", route="2", race_serial="49",
                       car="41000000", control_mode="0")
@@ -924,6 +938,23 @@ class Fh1RenderTestRunnerTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     MODULE.parse_scenario(script)
 
+    def test_accepts_same_frame_cvars_for_aligned_captures(self):
+        header = MODULE.HEADER + "\ninput 0 0000 0 0 0 0 0 0\n"
+        tail = "capture 20 shot\nstop 30\n"
+        with tempfile.TemporaryDirectory() as directory:
+            script = Path(directory) / "route.fh1test"
+            script.write_text(header + "cvar 5 fh1_frame_dump_frame -1\n"
+                              "cvar 5 fh1_inspector_capture true\n" + tail, encoding="utf-8")
+            self.assertEqual([(20, "shot")], MODULE.parse_scenario(script)[0])
+            for steps in ("cvar 6 a true\ncvar 5 b true\n",
+                          "cvar 5 a true\nhostkey 5 enter\n",
+                          "cvar 5 a true\naudiocapture 5\n"):
+                script.write_text(header + steps + tail, encoding="utf-8")
+                with self.assertRaises(ValueError):
+                    MODULE.parse_scenario(script)
+        route = MODULE_PATH.parents[1] / "config/render-tests/fh1-frame-inspector.fh1test"
+        self.assertEqual(2, len(MODULE.parse_scenario(route)[0]))
+
     def test_accepts_memory_snapshots_and_pokes(self):
         header = MODULE.HEADER + "\ninput 0 0000 0 0 0 0 0 0\n"
         tail = "capture 20 shot\nstop 30\n"
@@ -1079,19 +1110,28 @@ class Fh1RenderTestRunnerTests(unittest.TestCase):
             storage.mkdir(parents=True)
             (storage / "4D5309C9.xsh").write_bytes(b"ucode")
             (storage / "4D5309C9.fbo.vk.xpso").write_bytes(b"pipelines")
+            (storage / "4D5309C9.fbo.vk.signs.xpso").write_bytes(b"specialized")
             (storage / "4D5309C9.rtv.d3d12.xpso").write_bytes(b"d3d12")
             (storage / "pack.pnsp").write_bytes(b"pack")
+            driver_cache = storage.parent / "4D5309C9.vkpipelinecache.10DE_00002704_91420000.bin"
+            driver_cache.write_bytes(b"driver cache")
+            (storage.parent / "unrelated.bin").write_bytes(b"unrelated")
             destination = root / "destination"
 
             self.assertEqual(
-                ["4D5309C9.fbo.vk.xpso", "4D5309C9.xsh"],
+                ["4D5309C9.fbo.vk.signs.xpso", "4D5309C9.fbo.vk.xpso", "4D5309C9.xsh",
+                 driver_cache.name],
                 MODULE.seed_vulkan_shader_storage(source, destination),
             )
             copied = destination / "cache" / "shaders" / "shareable"
             self.assertEqual(b"ucode", (copied / "4D5309C9.xsh").read_bytes())
             self.assertEqual(b"pipelines", (copied / "4D5309C9.fbo.vk.xpso").read_bytes())
+            self.assertEqual(b"specialized", (copied / "4D5309C9.fbo.vk.signs.xpso").read_bytes())
+            self.assertEqual(b"driver cache", (copied.parent / driver_cache.name).read_bytes())
             self.assertFalse((copied / "4D5309C9.rtv.d3d12.xpso").exists())
             self.assertFalse((copied / "pack.pnsp").exists())
+            self.assertFalse((copied.parent / "unrelated.bin").exists())
+            self.assertEqual(b"driver cache", driver_cache.read_bytes())
             with self.assertRaises(ValueError):
                 MODULE.seed_vulkan_shader_storage(root / "empty", destination)
 

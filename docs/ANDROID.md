@@ -97,6 +97,17 @@ uploaded. The repository refuses Android packages, libraries and signing keys
 
 ## From the PC to the device
 
+The launcher's source ZIP includes `config/performance/symbol-order-base.txt`
+and `config/performance/symbol-order-v4.txt`, which the base and v4 Android
+linkers require; the v4 file comes from a v4 probe build (#745). It contains only symbol names ordered
+by our local profiling tool, with no translated instructions or game assets.
+Clustering frequently called functions reduced `libmain.so` PSS from 52 MB to
+34-36 MB on the Odin 2 Portal's boot-to-race route (two runs per build;
+[NN-1.9](NEAR_NATIVE_RESEARCH.md)). If Ninja reports this file missing, update
+the launcher and its installed sources, then retry **Build APK**.
+The same applies if CMake reports `tests/camera_tuning_tests.cpp` missing:
+the source ZIP includes the host test sources checked during configuration.
+
 In the launcher, once the game plays on the PC, choose **Android**:
 
 1. **Build APK** builds `.local/android/pinyon-shift.apk` (20 to 60 minutes
@@ -236,6 +247,92 @@ cheats on), SAVE PHOTO and the achievements, which have keyboard keys on the PC.
 Clicking both sticks (LS + RS) shows or hides the performance panel, F3 on a
 keyboard; SETTINGS > CONTROLLER > PERFORMANCE PANEL changes the buttons
 (`pad_chord_debug_overlay`).
+
+## HDR calibration
+
+**SETTINGS > DISPLAY > HDR CALIBRATION** sends known signal levels through
+the HDR10 presentation path. Paper white is the signal level of white menus
+and the HUD; peak is the target used by the highlight expansion. HIGHLIGHTS
+controls the strength of that expansion, independently of the calibration.
+The patterns replace the guest image and its HUD mask, so the minimap or a
+menu frame cannot cover the chart. They temporarily suspend HDR COMPARE
+without changing its current choice; leaving calibration restores the comparison.
+
+The pattern uses the selected peak, without substituting Android's advertised
+maximum; the advertised levels are used for HDR10 metadata. The peak pattern
+compares a square at the selected peak with a 10,000-nit
+reference field. It finds a clipping threshold only when the display path
+clips those signals. A compositor which tone-maps them can keep the square
+visible throughout the range. In that case, do not keep raising the peak
+until it looks right: keep the existing value pending a measured calibration.
+Reported HDR capabilities are desired content levels, not a measurement of
+what the panel emits at the current brightness or display mode. Neither
+HDR10 metadata nor a PQ swapchain guarantees an unmodified signal at the
+panel ([Android HDR](https://source.android.com/docs/core/display/hdr),
+[Vulkan HDR metadata](https://docs.vulkan.org/refpages/latest/refpages/source/VkHdrMetadataEXT.html)).
+
+For a device qualification or an incorrect calibration report:
+
+1. Use a private copy of a pinned render seed. Keep the installed save and
+   normal configuration intact, and retain the installed APK before replacing
+   it so it can be restored. Keep the device cool and the room lighting fixed.
+2. Record the device/ROM, display color mode, refresh rate, brightness and
+   adaptive-brightness setting. Disable adaptive brightness, night light and
+   optional display enhancements for the comparison; restore them afterwards.
+3. Repeat with SYSTEM and the bundled Turnip driver after restarting each
+   time. Use identical paper white, peak, gamma and highlight settings.
+   Record all three calibration steps with HDR COMPARE both on and off.
+   [fh1-android-hdr-calibration.fh1test](../config/render-tests/fh1-android-hdr-calibration.fh1test)
+   cycles the steps at fixed 200-nit white and 1000-nit peak signal levels;
+   it does not derive or approve those settings for the device.
+4. Retain `runtime.log`: `Android display environment` records the launch
+   brightness/mode snapshot (`brightness_mode=0` is manual, `1` automatic),
+   `Android display HDR` the advertised luminance, `Vulkan device` the actual
+   driver, and `Created ... swapchain` its format, color space and transform.
+   `HDR10 metadata` records the submitted levels, and `HDR calibration pattern`
+   records the tested signal values when the step, white, peak or gamma changes.
+   The launch snapshot does not track later system setting changes.
+5. While the pattern is visible, save `adb shell dumpsys display` and
+   `adb shell dumpsys SurfaceFlinger`. Inspect the game's layer data space,
+   composition path and display HDR mode for both drivers. A screenshot is
+   tone-mapped and cannot establish panel luminance. Measure black, paper
+   white and clipping with a luminance meter at the same patch size and
+   brightness/mode; retain those conditions with the readings.
+
+Issue [#566](https://github.com/arcanite24/pinyon-shift/issues/566) remains an
+Astra qualification gate. The AYN Odin 2 Portal reports 420 / 210.1615 /
+0.323 cd/m² (maximum / average / minimum) in `dumpsys display`; these are
+advertised values, not new measured limits. There is no established Astra
+peak or correction curve, so the shared 200-nit paper-white and 1000-nit
+peak defaults have not been replaced with a guessed device preset.
+
+Visibility baseline (2026-10-18): the Odin's installed v4 APK 0.5.1 completed
+this route through frame 1680 on both SYSTEM (0x802A4035) and Turnip
+(0x6802063). Each run used a private copy of `odin-graphics-20261006` plus
+verified pinned title-update-v4 files; a base-only state cannot boot that
+installed v4 APK. The raw brightness setting stayed at 141 in manual mode,
+and both refresh-rate settings at 120.00001 Hz. Both drivers used format 64,
+a 10-bit buffer marked PQ, pre-transform 2 and the same 420 / 210.1615 /
+0.323 metadata. Host-UI screenshots reproduce the guest menu image covering
+the paper-white chart; Turnip also reproduces it with compare off. This
+establishes the old renderer's chart contamination, not emitted luminance. The normal user trees retained all
+36 file hashes; the APK and settings were unchanged and private states removed.
+
+The updated base 0.6.0 build passed the same private route on both drivers.
+Host-UI screenshots taken when the pattern-change logs appeared show the
+square and gray steps instead of the guest menu. The paper-white chart band
+has identical decoded RGB pixels with compare on and off, both within each
+driver and between SYSTEM and Turnip; leaving calibration restores the
+comparison divider. Startup logs include the raw display settings, and the
+six step transitions log their 200-nit white / 1000-nit peak signal values.
+This verifies chart visibility and signal routing, not physical luminance.
+The test-only repack used the installed version code 501, with native
+libraries and Java bytecode identical to the normal build. The original
+0.5.1 APK was restored by exact SHA-256; all 36 user-file hashes and the
+recorded brightness/refresh settings were unchanged. The APK, private states
+and captures stay local; the Astra measurement gate remains open.
+
+
 
 ## Troubleshooting
 

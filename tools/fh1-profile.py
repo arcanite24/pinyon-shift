@@ -13,6 +13,8 @@ decoded body gives back the same bytes.
   fh1-profile.py get BODY Main/Credits         one value
   fh1-profile.py set BODY Main/Credits 1000000 --output OUT
   fh1-profile.py check BODY                    decode, encode, compare
+  fh1-profile.py recover-car --state-root STATE back up the modded save and
+                                               reset its selected car on load
 """
 
 from __future__ import annotations
@@ -21,6 +23,10 @@ import argparse
 import json
 import struct
 import sys
+import hashlib
+import shutil
+import uuid
+from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -149,6 +155,58 @@ def _as_json(fields: list[Field]) -> dict:
     }
 
 
+def recover_car(state: Path) -> dict:
+    """Queue the title's normal missing-car fallback, never edit encrypted saves."""
+    import pinyon_common as common
+    import pinyon_config as config
+    import pinyon_saves as saves
+
+    common.require_game_closed("recovering the selected car")
+    path = state / "config" / "pinyon_shift.toml"
+    text = config.read_config(path)
+    if config.get_value(text, "cheat_set_profile_fields", ""):
+        raise ProfileError("cheat_set_profile_fields is already pending; finish or clear it first")
+    # A named mod profile takes precedence over user-modded in the host.
+    for mod in (config.get_value(text, "enabled_mods", "") or "").split(","):
+        manifest = state / "mods" / mod.strip() / "mod.toml"
+        if manifest.is_file() and config.get_value(config.read_config(manifest), "profile", ""):
+            raise ProfileError("disable mods with a named profile before recovering user-modded")
+    xuid = saves.selected_xuid(state)
+    if not saves.usable_xuid(xuid):
+        raise ProfileError("user_xuid is not a usable profile ID")
+    source = common.child_ignoring_case(state / "user-modded", xuid)
+    title = common.child_ignoring_case(source, common.TITLE_ID) if source else None
+    if title is None or not saves.has_save(title):
+        raise ProfileError("no existing selected user-modded profile; nothing changed")
+
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    backup = state / "backups" / f"before-car-recovery-{stamp}-{uuid.uuid4().hex[:6]}"
+    staging = backup.with_name(backup.name + ".partial")
+    destination = staging / "user-modded" / source.name
+    try:
+        shutil.copytree(source, destination)
+        if path.is_file():
+            (staging / "config").mkdir()
+            shutil.copy2(path, staging / "config" / path.name)
+        manifest = {p.relative_to(staging).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
+                    for p in sorted(staging.rglob("*")) if p.is_file()}
+        # Verify the backup before publishing the request.
+        for original in source.rglob("*"):
+            if original.is_file() and original.read_bytes() != (destination / original.relative_to(source)).read_bytes():
+                raise ProfileError("the profile changed during backup; close the game and retry")
+        (staging / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+        common.rename(staging, backup)
+    finally:
+        if staging.exists():
+            shutil.rmtree(staging)
+    text = config.set_value(text, "cheat_set_profile_fields", '"Main/CareerCar=0"')
+    config.write_config(path, text)
+    return {"backup": str(backup), "profile": str(source),
+            "queued": "Main/CareerCar=0", "note": "Start the same title version, let it save, then restart. "
+            "The title resets the selection; owned cars, parts and credits stay in the modded profile. "
+            "Keep using that profile to continue its progress."}
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     commands = parser.add_subparsers(dest="command", required=True)
@@ -162,10 +220,15 @@ def main(argv: list[str] | None = None) -> int:
     put.add_argument("path")
     put.add_argument("value")
     put.add_argument("--output", type=Path, required=True)
+    recover = commands.add_parser("recover-car", help="back up and recover an existing modded profile")
+    recover.add_argument("--state-root", type=Path, required=True)
     args = parser.parse_args(argv)
 
-    body = args.body.read_bytes()
     try:
+        if args.command == "recover-car":
+            print(json.dumps(recover_car(args.state_root.resolve()), indent=2))
+            return 0
+        body = args.body.read_bytes()
         profile = decode(body)
         if args.command == "dump":
             print(json.dumps({"fields": _as_json(profile.fields), "tail_bytes": len(profile.tail)},
@@ -185,7 +248,7 @@ def main(argv: list[str] | None = None) -> int:
             assert len(encoded) == len(body)
             args.output.write_bytes(encoded)
             print(f"{args.path} = {item.value}")
-    except (ProfileError, KeyError) as error:
+    except (OSError, ValueError, KeyError, RuntimeError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
     return 0

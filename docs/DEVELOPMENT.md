@@ -269,6 +269,68 @@ that hardware. There is no Xenos reference any more: compare with earlier
 native runs of the same route and seed. The last build with Xenos is tagged
 `xenos-rollback`.
 
+For presenter changes, run these separate routes in `config/render-tests/`
+with `tools/run-fh1-render-test.py --state-root <pinned-seed>`, a private
+build directory, and `--game-argument=--present_capture_readable=true` to
+capture the presented output too. Start both draw-scale axes at 1x.
+
+- `fh1-presenter-vsync.fh1test` sets VSYNC ten times without other graphics
+  changes. Repeat with `--game-argument=--vsync=false` for cold start.
+- `fh1-presenter-scaling-1x.fh1test` cycles bilinear/CAS/FSR 1 four times at
+  1x without presets, fullscreen or temporal providers. It keeps rendering
+  for over a minute after the last toggle: #686 lost the device about 47
+  seconds after its last output-scaling change, after focus loss and return.
+- `fh1-presenter-reconfigure.fh1test` resizes through fullscreen, switches
+  temporal providers (or their FSR 1 fallback), and cycles six real settings
+  presets. Presets may change draw scale. Exercise focus loss and return
+  just after a preset, then check the final capture after the soak.
+
+Verify all cvar events succeeded and every capture arrived. On the VSYNC
+route, check that swapchain creation continued in both presentation modes.
+Run a separate pass with `--game-argument=--vulkan_validation_enabled=true`,
+`--game-argument=--vulkan_validation_sync=true`,
+`--game-argument=--vulkan_diagnostic_checkpoints=true`, and
+`--game-argument=--vulkan_memory_budget_log_seconds=1`; validation requires
+the Khronos layer to be installed. NVIDIA checkpoints are diagnostic markers,
+not `VK_EXT_device_fault` support. Keep validation output and memory-budget
+logs with the private test results.
+
+On 2026-10-18, the VSYNC route on an RTX 4080 (Windows, driver 581.08,
+3840x2160 output, both draw-scale axes at 1x) created 11 swapchains on
+both the `45d1739` control build and the retirement-drain build, using
+the same pinned seed and synchronization validation. The control logged
+10 `VUID-vkDestroySemaphore-semaphore-05149` errors and eight
+`VUID-vkDestroySwapchainKHR-swapchain-01282` errors; the retirement-drain
+build logged neither. Both still logged the copy-to-readback-buffer
+`SYNC-HAZARD-WRITE-AFTER-WRITE` and `VUID-vkCmdEndQuery-None-01923`, so
+these were not clean validation passes. The normal routes completed
+VSYNC changes from both cold-start settings, four spatial-scaling cycles
+with minimize/restore, and six preset changes with fullscreen transitions
+and minimize/restore. FSR 2/3 used the FSR 1 fallback because the runtime
+DLL was unavailable. These local checks do not establish the cause of
+the reporter crashes or qualify their hardware.
+
+Draw fences alone do not cover presentation semaphore waits. The shared
+swapchain retirement path drains the present queue after the draw tracker,
+under the queue's existing host-access lock. Retirement logs the draw wait
+and presentation queue drain separately, so the last runtime line can
+identify the wait in a stalled reconfiguration. Without swapchain-maintenance
+present fences, `vkQueueWaitIdle` is the conventional fallback; the
+specification gives no guarantee that the presentation engine has released
+every resource. See the
+[Khronos lifetime discussion](https://docs.vulkan.org/guide/latest/swapchain_semaphore_reuse.html#_vk_ext_swapchain_maintenance1_extension).
+Image acquisition uses a 50 ms timeout so loss of surface progress cannot
+indefinitely hold the painting owner or submission worker. A failed presenter
+submit with `VK_ERROR_DEVICE_LOST` reports GPU loss instead of trying to
+reconnect the lost device's swapchain. Submit errors log the numeric Vulkan
+result so an allocation failure is distinguishable from device loss.
+
+The separate RX 580 (#572), GTX 1660 Ti (#680), and GTX 1050 Ti (#686)
+reports still require qualification on those devices. Also exercise graphics
+presets with focus loss and restoration, rapid VSYNC toggles in both directions,
+and bilinear/CAS/FSR 1 changes at 1x. Intel #606 is a related needs-info report,
+not an established duplicate. Exit codes alone do not establish a shared cause.
+
 ## Historical evidence
 
 Superseded journals and roadmap versions are retained in Git at the source

@@ -5,6 +5,13 @@
 # offset in fh1-symbols.toml.
 
 [offsets]
+"script.components" = 28  # gps action 829423B0 -> 829F5278, component-list read unchanged
+"gps_action.position" = 32  # gps action 829423B0 -> 829F5278, lvx at this+32 unchanged
+"gps_manager.destination_locked" = 764  # destination setter 8299FB40 -> 82A54068, same lock byte
+"map.nearest_road_point" = 576  # map update: base 8280286C stores +564, v4 map action reads +576
+"map.request_fast_travel" = 426  # native travel input: base 82803350 -> v4 828B7888
+"map.fast_travel_cost" = 444  # native map's quoted cost in both map updates
+"road_point.position" = 4  # road fallback in the base/v4 map action reads floats +4/+8/+12
 "activity.name" = 16  # activity vtable slot 3: base 828A5258 -> v4 82956980
 "activity.revealed" = 8  # activity.reveal 828A52F0 -> 82956A20
 "activity_manager.begin" = 4  # activities.reveal_all 828AF6F8 -> 829613C8

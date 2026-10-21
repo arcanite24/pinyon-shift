@@ -2,6 +2,22 @@
 # mapper (tools/map-fh1-v4-addresses.py) cannot place. Each entry records why.
 
 [default]
+# #703/#715: paired through the matching audio vtable at base 8227E680 /
+# v4 822918A0, slot +48. v4 adds an empty-child branch and uses r29 as the
+# index/r31 as the slot; the shared hook goes after that branch and is a no-op.
+"82FFD9E0" = "830BEB68"
+"82FFD9F0" = "830BEB78"
+# #485: the map update still keeps the hovered marker in r21 and the map
+# in r31 before its travel-input test. v4 adds a second entry below the branch,
+# so an automatic context match is ambiguous. Both sites precede the input test.
+"82803344" = "828B787C"
+# The same map update's return from its travel predicate (#485 marker fix).
+"82803360" = "828B7898"
+# Native map nearest-road wrapper: r4 is still a position pointer and r3
+# input is unused. v4 replaces the base road_type lookup through component
+# 832FF094 with a query on the GPS position manager (v4 833EDC44).
+# Verified from the corresponding map-update call sites and both bodies.
+"827FADE8" = "828AF1B8"
 # DynamicRenderSettings control vtables (graphics_hooks.cpp): the float
 # control (EnvMapFrequencyScale) and the bool control
 # (SkipShadowMapUnlessCockpit). Their v4 vtables hold the mapped methods in
@@ -31,3 +47,23 @@
 # All 23 mapped callees match; v4 rewrote the body (0x3E8 -> 0x4E4 bytes,
 # shape ratio 0.69), consistent with its changed DLC handling.
 "82516630" = "82580638"
+# XAPI SwitchToFiber ([rexcrt]): the fiber block moved as one piece, every
+# other fiber function by +0xC1E80, and SwitchToFiber is a short tail call the
+# context search cannot place on its own.
+"830EBE90" = "831ADD10"
+# Native FMOD output replacements (src/guest_native/fmod_output.cpp), checked
+# at run time by the guest-code hash of each declaration: output_matrix and
+# destroy. Listed in host_overridden_functions.
+"830B6500" = "831764C8"
+"830B6510" = "83171230"
+# NN-5.1 physics specializations whose v4 bodies changed (#743). 82D210F8:
+# same size (0x514), shape ratio 0.80; its only caller (82D2D060 -> v4
+# 82DEF190) calls it at the same position, and its callees map one to one.
+"82D210F8" = "82DE3058"
+# 82D303D0: same size (0x1A0), shape ratio 0.99; both callers (82D396E0,
+# 82D39AE0 -> v4 82DFB820, 82DFBC20) call it at the same four positions.
+"82D303D0" = "82DF2500"
+# 82D1D4E8: no direct caller; the only v4 function of its size range with a
+# similar shape (0.88; next best 0.14), referenced from the same three
+# tables, one of which keeps its constant neighbours 40005002 / 40003B02.
+"82D1D4E8" = "82DDF430"

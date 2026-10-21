@@ -14,6 +14,21 @@ SPEC.loader.exec_module(MODULE)
 
 
 class BuildModPatchesTests(unittest.TestCase):
+    def test_hidden_cars_exposes_only_the_explicit_player_model_allowlist(self):
+        script = MODULE.BUILTIN / "hidden_cars" / "db" / "10-hidden-cars.sql"
+        hidden = (282, 414, 1215, 1241, 1340, 1365, 1529, 1530, 1531, 1532,
+                  1541, 1542, 1543, 1546, 1549, 1550, 1560, 1561, 1562,
+                  1565, 1566, 1567, 1568, 9999)
+        with closing(sqlite3.connect(":memory:")) as db:
+            db.execute("create table Data_Car (Id integer, IsSelectable integer, IsDrivable integer, BaseCost integer)")
+            db.executemany("insert into Data_Car values (?,0,1,0)", [(i,) for i in hidden])
+            db.execute("insert into Data_Car values (1496,1,1,120000)")
+            db.executescript(script.read_text(encoding="utf-8"))
+            self.assertEqual([1496, 1565, 1566, 1567, 1568], [r[0] for r in db.execute(
+                "select Id from Data_Car where IsSelectable=1 order by Id")])
+            self.assertEqual(299000, db.execute("select sum(BaseCost) from Data_Car").fetchone()[0])
+            self.assertEqual(100000, db.execute("select BaseCost from Data_Car where Id=1529").fetchone()[0])
+
     def make(self, directory: Path):
         game = directory / "game"
         (game / "media" / "db").mkdir(parents=True)

@@ -6,6 +6,7 @@
 #include <Windows.h>
 #include <DbgHelp.h>
 #include <rex/input/input_system.h>
+#include "platform/display_hdr.h"
 
 #include <array>
 #include <atomic>
@@ -181,6 +182,9 @@ LONG WINAPI UnhandledExceptionReporter(EXCEPTION_POINTERS* exception) {
   // A DualSense keeps its trigger effects after the process is gone; leave
   // the triggers slack (bounded wait, after the report is safe on disk).
   rex::input::InputSystem::ReleaseAllFeedback(true);
+  // WINDOWS HDR: the display back to SDR (the restore file covers a crash
+  // this misses).
+  pinyon_shift::platform::RestoreDisplayHdr();
   return EXCEPTION_EXECUTE_HANDLER;
 }
 

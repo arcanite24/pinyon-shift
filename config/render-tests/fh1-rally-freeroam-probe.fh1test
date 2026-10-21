@@ -1,0 +1,27 @@
+pinyon-shift-fh1-render-test-v1
+# Use tools/create-rally-freeroam-seed.py with a pinned base-disc seed.
+# Initial placement, short driving and map inspection only. This is not the
+# 20-minute entry/save/reload/Colorado-return acceptance route for issue #490.
+input 0 0000 0 0 0 0 0 0
+input 360 1000 0 0 0 0 0 0
+input 366 0000 0 0 0 0 0 0
+input 480 1000 0 0 0 0 0 0
+input 486 0000 0 0 0 0 0 0
+input 600 1000 0 0 0 0 0 0
+input 606 0000 0 0 0 0 0 0
+input 720 1000 0 0 0 0 0 0
+input 726 0000 0 0 0 0 0 0
+wait 800 5000 vehicle
+input 960 0000 0 160 0 0 0 0
+wait 970 3000 vehicle-moved 30
+capture 1100 rally-moving
+input 1140 0000 255 0 0 0 0 0
+input 1200 0000 0 0 0 0 0 0
+capture 1280 rally-road
+input 1320 0020 0 0 0 0 0 0
+input 1326 0000 0 0 0 0 0 0
+capture 1480 rally-map
+input 1560 0020 0 0 0 0 0 0
+input 1566 0000 0 0 0 0 0 0
+capture 1720 rally-map-closed
+stop 1780

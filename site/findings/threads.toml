@@ -3,6 +3,17 @@
 # ---------------------------------------------------------------- Thread map
 
 [[finding]]
+group = "Thread map"
+base = "0x881ED4F0, 0x881ED538"
+v4 = "0x881ED4F0, 0x881ED538"
+name = "XMedia facade thread creation and stack reuse fault"
+what = "The wrapper at 0x881ED4F0 calls ExCreateThread; 0x881ED538 is its return address. The Pixel 3 XL report in issue #556 faults in memset on the parent thread at that LR while a guest stack is initialized, not while a child fiber executes. The POSIX backend accepted relocated mmap results when old kernels ignored MAP_FIXED_NOREPLACE, leaving reused guard pages inaccessible. Exact-address validation and cleanup now preserve the requested stack commit. The reported GPU budget warning does not establish OOM as this fault's cause."
+how = "Import call analysis and normalized base/v4 function matching; report registers and runtime log; production POSIX allocator regression with the NOREPLACE flag stripped to simulate Linux before 4.17."
+confidence = "confirmed"
+note = "The wrapper and allocator bug are confirmed; a current launch on the reporter's Linux 4.9.337 Pixel is still needed to confirm that this fixes their crash."
+source = "docs/FACADE_LIFETIME_FAULTS.md; thirdparty/shiftglue-sdk/tests/unit/core/memory_posix_test.cpp; issue #556"
+
+[[finding]]
 group = """Thread map"""
 base = """8255AE10, 825A6320, 82FB4AF8, 82C0C8C8"""
 v4 = """825CEC88, 8261E318, 83075D18, 82CCC368"""
@@ -365,6 +376,17 @@ what = """No guest function is a dominant hot spot in a race. The next largest l
 how = """Thread sampler and WPR profiles on desktop and simulated low-spec runs; `simpleperf` on the 8 Elite for v4."""
 confidence = """confirmed"""
 source = """docs/PERFORMANCE_BACKLOG.md PB-3.1, PB-3.12 candidates"""
+
+[[finding]]
+group = """Hot functions"""
+v4 = """sub_82E10560, sub_82E100B0, sub_82E08FF8, sub_82DFC608, sub_82DFC570"""
+name = """car physics call chain"""
+what = """On the v4 drive the car physics runs on the main thread (`825CEC88`) and on a job worker (`82CCC368`) through `sub_82E10560` (main thread only, 2.6 % of process cycles inclusive), `sub_82E100B0`, `sub_82E08FF8` (1.4 % + 1.2 %), `sub_82DFC608` (1.4 % + 1.2 %) and `sub_82DFC570` (1.1 % + 1.0 %), the parent of six of the specialised physics functions; the earlier native-region root `sub_82DE3058` is under 0.3 %. `sub_82DFC570` reaches 77 functions, runs about 46 times a frame and takes about 20 µs a call on the Odin."""
+how = """`simpleperf --call-graph fp` inclusive report on the Odin, 30 s of the v4 drive; call counts and per-call time from the native-region A/B timer."""
+confidence = """probable"""
+note = """The chain's order and shares are measured; that these are the car-physics step rests on the specialised physics functions below them (NN-5.1)."""
+issue = """#756"""
+source = """site/pages/recompiler.md Native regions"""
 
 [[finding]]
 group = """Hot functions"""

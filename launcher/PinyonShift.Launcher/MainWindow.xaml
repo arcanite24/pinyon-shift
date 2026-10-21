@@ -476,7 +476,7 @@
                             <ComboBoxItem Tag="fsr">FSR 1</ComboBoxItem>
                             <ComboBoxItem Tag="fsr2">FSR 2 (temporal)</ComboBoxItem>
                             <ComboBoxItem Tag="fsr3">FSR 3 (temporal)</ComboBoxItem>
-                            <ComboBoxItem Tag="dlss">DLSS (temporal, NVIDIA)</ComboBoxItem>
+                            <ComboBoxItem Tag="dlss">NVIDIA DLSS (temporal, RTX GPUs)</ComboBoxItem>
                         </ComboBox>
                         <TextBlock Grid.Row="2" Grid.ColumnSpan="5" x:Name="ResolutionLineText" Margin="0,14,0,0"
                                    FontSize="13.5" Foreground="{StaticResource FogBrush}" TextWrapping="Wrap"

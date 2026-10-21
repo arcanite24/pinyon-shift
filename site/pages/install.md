@@ -24,11 +24,13 @@ Your disc image and game files stay on your machine. The launcher downloads only
 
 ## Verify the download
 
-The launcher isn't code-signed yet, so SmartScreen may call it an unrecognized app. Download it only from this repository's releases, and compare the ZIP's SHA-256 with the value in the release notes:
+The launcher isn't code-signed yet, so SmartScreen may call it an unrecognized app. Download it only from this repository's releases, and compare the ZIP's SHA-256 with that asset's `digest` in the [GitHub release API](https://api.github.com/repos/arcanite24/pinyon-shift/releases/latest) (use `/releases/tags/<tag>` for older releases):
 
 ```powershell
 Get-FileHash .\PinyonShift-Launcher.zip -Algorithm SHA256
 ```
+
+A matching hash identifies the official download. If Defender names a threat or quarantines a file, follow [the detection reporting steps](troubleshooting.md#defender-reports-a-trojan-or-quarantines-a-file) before running it.
 
 Administrator permission is requested only when Visual Studio 2022 C++ Build Tools (17.1 or newer) must be installed. VS 2019 alone isn't enough.
 
@@ -64,7 +66,7 @@ PinyonShift\
 
 ![The launcher's Settings panel: Vulkan, internal resolution, output scaling and the Treasure Map toggle](img/launcher-settings.png)
 
-**Settings** sets the internal resolution and the output scaling (bilinear, CAS, FSR 1, or FSR 2 and FSR 3 when their runtime is installed; Linux, macOS and Android builds include it), and shows the resulting resolutions. It also has the Treasure Map toggle. **This PC** lists the GPU, its memory, the CPU cores and the display's refresh rate, and recommends an in-game preset. Everything else is in the [in-game settings](playing.md).
+**Settings** sets the internal resolution and the output scaling (bilinear, CAS, FSR 1, FSR 2, FSR 3, and on Windows NVIDIA DLSS for RTX GPUs; setup downloads or builds their runtimes, so there is nothing to install by hand), and shows the resulting resolutions. It also has the Treasure Map toggle. **This PC** lists the GPU, its memory, the CPU cores and the display's refresh rate, and recommends an in-game preset. Everything else is in the [in-game settings](playing.md).
 
 ## Uninstall
 

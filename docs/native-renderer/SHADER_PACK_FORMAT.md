@@ -178,6 +178,16 @@ A later session's capture adds its misses. A pack captured from
 `fh1-race-sync` on the RTX 4080 held 479 shaders; `fh1-buy-car` then hit
 377 and translated only the showroom's new ones.
 
+## Frame inspector diagnostics
+
+The desktop [frame inspector](FRAME_INSPECTOR.md) previews a live frame or a
+replayed dump without changing the shader-pack format. Its preview compute
+shader and overdraw fragment shader are host diagnostics, compiled on demand;
+they are not guest translations and are not exported into packs. Diagnostic
+pipeline state has its own pipeline-description key and cache version, so a
+wireframe or overdraw pipeline cannot be reused for ordinary rendering.
+Diagnostic pipelines are not added to the persisted pipeline descriptions.
+
 ## Pack misses and self-repair
 
 The title generates some shaders at runtime (disc shaders it patches with

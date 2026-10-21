@@ -286,7 +286,7 @@ def build(args: argparse.Namespace) -> int:
                            "tools/build-v4.ps1)")
     directory = build_directory(args)
     environment = dict(os.environ, ANDROID_NDK_HOME=str(tools.ndk))
-    if not (directory / "CMakeCache.txt").is_file():
+    if not configured(directory):
         run([tools.cmake, "--preset", preset(args),
              f"-DREXSDK_DIR={rexsdk_dir().as_posix()}",
              f"-DCMAKE_MAKE_PROGRAM={tools.ninja}", f"-DPYTHON_EXECUTABLE={sys.executable}",
@@ -302,6 +302,13 @@ def build(args: argparse.Namespace) -> int:
     return package(args, tools)
 
 
+def configured(directory: Path) -> bool:
+    """Whether CMake finished configuring the build directory. A configure
+    that failed or was stopped leaves CMakeCache.txt without build.ninja,
+    and every later build then fails to load it (#763)."""
+    return (directory / "CMakeCache.txt").is_file() and (directory / "build.ninja").is_file()
+
+
 def build_fidelityfx(tools: Tools, args: argparse.Namespace, environment: dict) -> None:
     """The FidelityFX library, a separate CMake project (its SDK's own
     build would rebuild the shader permutations with a Windows tool)."""
@@ -309,7 +316,7 @@ def build_fidelityfx(tools: Tools, args: argparse.Namespace, environment: dict) 
     if not (source / "CMakeLists.txt").is_file():
         return
     directory = build_directory(args) / "fidelityfx-vk"
-    if not (directory / "CMakeCache.txt").is_file():
+    if not configured(directory):
         run([tools.cmake, "-S", source, "-B", directory, "-G", "Ninja",
              f"-DCMAKE_MAKE_PROGRAM={tools.ninja}", "-DCMAKE_BUILD_TYPE=Release",
              f"-DCMAKE_TOOLCHAIN_FILE={(tools.ndk / 'build' / 'cmake' / 'android.toolchain.cmake').as_posix()}",

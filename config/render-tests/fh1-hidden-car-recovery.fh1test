@@ -1,0 +1,26 @@
+pinyon-shift-fh1-render-test-v1
+# clock-hz 60
+# Use a private copy of i484-bus-owned after fh1-profile.py recover-car.
+# A second run uses the first run's saved state with no pending request.
+# Review the Corrado in free roam and in car select. Audit native save
+# snapshots as well: original garage rows/parts/credits must be preserved.
+# A route pass alone is not a save-preservation or paint qualification.
+input 0 0000 0 0 0 0 0 0
+input 360 1000 0 0 0 0 0 0
+input 366 0000 0 0 0 0 0 0
+input 480 1000 0 0 0 0 0 0
+input 486 0000 0 0 0 0 0 0
+input 600 1000 0 0 0 0 0 0
+input 606 0000 0 0 0 0 0 0
+input 720 1000 0 0 0 0 0 0
+input 726 0000 0 0 0 0 0 0
+wait 1400 3000 vehicle
+capture 1560 recovered-free-roam
+input 1680 4000 0 0 0 0 0 0
+input 1686 0000 0 0 0 0 0 0
+capture 1860 event-entered
+input 2040 1000 0 0 0 0 0 0
+input 2046 0000 0 0 0 0 0 0
+wait 2050 1200 file thumbnail_
+capture 2220 recovered-car-select
+stop 2300

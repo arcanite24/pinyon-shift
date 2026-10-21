@@ -33,6 +33,8 @@ The runtime implements the exports the game uses and stubs the rest:
 
 Implementations include threads, events, semaphores, timers, the file system, content and profiles, and the XAudio render client.
 
+NT timestamps use 100 ns ticks from 1601. Calendar conversion keeps that precision when changing to the Unix epoch: Linux's native nanosecond `system_clock` cannot represent 1601. Both calendar directions retain a 100 ns time point; file metadata and kernel time queries already use integer NT ticks. The [clock conversion audit](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/CLOCK_CONVERSIONS.md) describes the callers and regression coverage.
+
 ## Threads
 
 Each guest thread is one host thread, named `Guest <start address>`. About 42 are alive in a race; the busy ones are the simulation and render threads, FMOD's mixer thread and 11 job workers. Guest CPU numbers rotate over six virtual hardware threads, and guest affinities are ignored by default: honouring them, with one host core per Xenon hardware thread, gave no consistent gain.

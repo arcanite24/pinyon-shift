@@ -1,0 +1,40 @@
+pinyon-shift-fh1-render-test-v1
+# clock-hz 60
+# Base hidden-car reload/drive/view qualification. Use a private seed with
+# a natively bought retained variant selected near the Gauntlet, with only
+# hidden_cars enabled (remove recommendation/price helper mods).
+# Compare the saved CareerCar/garage model and review captures: a route
+# pass alone does not prove the intended model, garage entry or paint.
+# This drives for eight seconds, then cycles the five camera views.
+input 0 0000 0 0 0 0 0 0
+input 360 1000 0 0 0 0 0 0
+input 366 0000 0 0 0 0 0 0
+input 480 1000 0 0 0 0 0 0
+input 486 0000 0 0 0 0 0 0
+input 600 1000 0 0 0 0 0 0
+input 606 0000 0 0 0 0 0 0
+input 720 1000 0 0 0 0 0 0
+input 726 0000 0 0 0 0 0 0
+input 780 0000 0 0 0 0 0 0
+input 930 0000 0 0 0 0 0 0
+wait 1400 3000 vehicle
+capture 1560 selected-model
+input 1680 0000 0 255 0 0 0 0
+input 2160 0000 0 0 0 0 0 0
+capture 2300 driven-model
+input 2360 0200 0 0 0 0 0 0
+input 2366 0000 0 0 0 0 0 0
+capture 2450 camera-1
+input 2480 0200 0 0 0 0 0 0
+input 2486 0000 0 0 0 0 0 0
+capture 2570 camera-2
+input 2600 0200 0 0 0 0 0 0
+input 2606 0000 0 0 0 0 0 0
+capture 2690 camera-3
+input 2720 0200 0 0 0 0 0 0
+input 2726 0000 0 0 0 0 0 0
+capture 2810 camera-4
+input 2840 0200 0 0 0 0 0 0
+input 2846 0000 0 0 0 0 0 0
+capture 2930 camera-5
+stop 2970

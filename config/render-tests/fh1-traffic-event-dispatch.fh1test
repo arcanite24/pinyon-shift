@@ -1,0 +1,110 @@
+pinyon-shift-fh1-render-test-v1
+# #703/#715: stock base, XE base, stock v4; 60 fps output limit.
+# seed appdata-2026-09-27: wait for the car in free roam, sign up for the
+# nearby event (X), open car select and wait for the profile thumbnails it loads,
+# pick the car, wait for the race's replay stream (loading done), press A
+# through the intro, start and rival screens (each takes its default), then
+# hold the throttle and capture once the car has moved.
+input 0 0000 0 0 0 0 0 0
+input 360 1000 0 0 0 0 0 0
+input 366 0000 0 0 0 0 0 0
+input 480 1000 0 0 0 0 0 0
+input 486 0000 0 0 0 0 0 0
+input 600 1000 0 0 0 0 0 0
+input 606 0000 0 0 0 0 0 0
+input 720 1000 0 0 0 0 0 0
+# Hold the handbrake at the sign-up marker while traffic passes.
+input 726 1000 0 0 0 0 0 0
+wait 1400 3000 vehicle
+capture 1560 event-ready
+input 1680 4000 0 0 0 0 0 0
+input 1686 0000 0 0 0 0 0 0
+capture 1860 event-entered
+input 2040 1000 0 0 0 0 0 0
+input 2046 0000 0 0 0 0 0 0
+wait 2050 1200 file thumbnail_
+capture 2220 car-select
+input 2400 1000 0 0 0 0 0 0
+input 2406 0000 0 0 0 0 0 0
+wait 2410 3000 file replay_stream
+input 2530 1000 0 0 0 0 0 0
+input 2536 0000 0 0 0 0 0 0
+input 2650 1000 0 0 0 0 0 0
+input 2656 0000 0 0 0 0 0 0
+input 2770 1000 0 0 0 0 0 0
+input 2776 0000 0 0 0 0 0 0
+input 2890 1000 0 0 0 0 0 0
+input 2896 0000 0 0 0 0 0 0
+input 3010 1000 0 0 0 0 0 0
+input 3016 0000 0 0 0 0 0 0
+input 3130 1000 0 0 0 0 0 0
+input 3136 0000 0 0 0 0 0 0
+input 3250 1000 0 0 0 0 0 0
+input 3256 0000 0 0 0 0 0 0
+input 3370 1000 0 0 0 0 0 0
+input 3376 0000 0 0 0 0 0 0
+input 3490 1000 0 0 0 0 0 0
+input 3496 0000 0 0 0 0 0 0
+input 3610 1000 0 0 0 0 0 0
+input 3616 0000 0 0 0 0 0 0
+input 3730 1000 0 0 0 0 0 0
+input 3736 0000 0 0 0 0 0 0
+input 3900 0000 0 255 0 0 0 0
+wait 3910 2400 vehicle-moved 30
+capture 4030 race-moving
+capture 4150 race-moving-later
+capture 6360 race-sustained
+input 6420 0010 0 0 0 0 0 0
+input 6426 0000 0 0 0 0 0 0
+capture 6540 race-paused
+input 6600 0002 0 0 0 0 0 0
+input 6606 0000 0 0 0 0 0 0
+input 6630 0002 0 0 0 0 0 0
+input 6636 0000 0 0 0 0 0 0
+input 6660 0002 0 0 0 0 0 0
+input 6666 0000 0 0 0 0 0 0
+input 6690 0002 0 0 0 0 0 0
+input 6696 0000 0 0 0 0 0 0
+input 6720 0002 0 0 0 0 0 0
+input 6726 0000 0 0 0 0 0 0
+capture 6780 quit-selected
+input 6840 1000 0 0 0 0 0 0
+input 6846 0000 0 0 0 0 0 0
+capture 7080 after-quit
+input 7140 1000 0 0 0 0 0 0
+input 7146 0000 0 0 0 0 0 0
+capture 7380 after-retire
+capture 7680 free-roam-after-retire
+# Retire -> title -> load the same private run's saved profile.
+input 7800 0010 0 0 0 0 0 0
+input 7806 0000 0 0 0 0 0 0
+input 7900 0002 0 0 0 0 0 0
+input 7906 0000 0 0 0 0 0 0
+input 7930 0002 0 0 0 0 0 0
+input 7936 0000 0 0 0 0 0 0
+input 7960 0002 0 0 0 0 0 0
+input 7966 0000 0 0 0 0 0 0
+input 7990 0002 0 0 0 0 0 0
+input 7996 0000 0 0 0 0 0 0
+input 8020 0002 0 0 0 0 0 0
+input 8026 0000 0 0 0 0 0 0
+input 8050 0002 0 0 0 0 0 0
+input 8056 0000 0 0 0 0 0 0
+input 8080 0002 0 0 0 0 0 0
+input 8086 0000 0 0 0 0 0 0
+input 8180 1000 0 0 0 0 0 0
+input 8186 0000 0 0 0 0 0 0
+input 8380 1000 0 0 0 0 0 0
+input 8386 0000 0 0 0 0 0 0
+input 9360 1000 0 0 0 0 0 0
+input 9366 0000 0 0 0 0 0 0
+input 9480 1000 0 0 0 0 0 0
+input 9486 0000 0 0 0 0 0 0
+input 9600 1000 0 0 0 0 0 0
+input 9606 0000 0 0 0 0 0 0
+input 9720 1000 0 0 0 0 0 0
+input 9726 0000 0 0 0 0 0 0
+capture 8900 title-after-retire
+wait 10400 3000 vehicle
+capture 10600 reloaded-free-roam
+stop 10800

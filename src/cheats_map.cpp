@@ -4,7 +4,10 @@
 #include <algorithm>
 #include <atomic>
 #include <bit>
+#include <chrono>
 #include <cstdint>
+#include <cstring>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <unordered_set>
@@ -17,6 +20,7 @@
 #include <rex/system/xmemory.h>
 
 #include "cheats.h"
+#include "cheats_travel.h"
 #include "dlc_treasure_map.h"
 #include "mod/mod_host.h"
 #include "pinyon_shift_diagnostics.h"
@@ -25,6 +29,18 @@ REXCVAR_DEFINE_BOOL(cheat_show_collectibles, false, "Cheats",
                     "Show the discount signs and barn finds not yet found on the map and "
                     "minimap, with the title's own markers (found ones keep their collected "
                     "marker)")
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+
+REXCVAR_DEFINE_STRING(cheat_gps_destination, "", "Cheats",
+                      "Set a GPS destination once in free roam as x,y,z in world metres; "
+                      "an empty string leaves the route alone")
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+REXCVAR_DEFINE_STRING(cheat_saved_destination, "", "Cheats",
+                      "Saved map destination as x,y,z in world metres, for the trainer's GPS action")
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+REXCVAR_DEFINE_STRING(cheat_teleport_destination, "", "Cheats",
+                      "Travel once to the nearest road at x,y,z in world metres. Open the map "
+                      "first; the request expires after 10 seconds")
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
 
 // How the title marks its collectibles (NP-8.6, found with the NP-8.4
@@ -146,6 +162,11 @@ uint8_t Load8(uint32_t address) {
 }
 
 float LoadF32(uint32_t address) { return std::bit_cast<float>(Load32(address)); }
+
+void Store32(uint32_t address, uint32_t value) {
+  auto* base = rex::system::kernel_state()->memory()->virtual_membase();
+  *rex::memory::GuestPtr<rex::be_u32*>(base, address) = value;
+}
 
 // A pointer field, 0 unless it and `size` bytes behind it are readable.
 uint32_t LoadPointer(uint32_t address, uint32_t size) {
@@ -336,6 +357,242 @@ void SyncMarkers(bool show, bool log) {
 }  // namespace
 
 namespace pinyon_shift::cheats {
+
+namespace {
+std::mutex g_destination_mutex;
+std::optional<Destination> g_map_destination;
+std::atomic<bool> g_gps_queued{false};
+std::atomic<bool> g_travel_queued{false};
+std::mutex g_travel_mutex;
+struct MapTravelRequest {
+  uint32_t road = 0;
+  uint32_t components = 0;
+  std::chrono::steady_clock::time_point expires{};
+  uint32_t armed_map = 0;
+};
+MapTravelRequest g_map_travel;
+uint32_t g_observed_map = 0;
+bool g_observed_enabled = false;
+// The map whose last predicate call was admitted only by FAST TRAVEL ANYWHERE.
+uint32_t g_overridden_map = 0;
+
+uint32_t Components() {
+  const uint32_t holder = LoadPointer(kWorldHolder, 8);
+  const uint32_t handle = holder ? LoadPointer(holder + 4, 80) : 0;
+  return handle ? LoadPointer(handle + 76, 4) : 0;
+}
+
+uint32_t Component(uint32_t components, uint32_t index_address, uint32_t size) {
+  const uint32_t array = LoadPointer(components, 4);
+  if (!array || !Readable(index_address, 4)) return 0;
+  const uint32_t index = Load32(index_address);
+  return index <= 4096 ? LoadPointer(array + 4 * index, size) : 0;
+}
+
+bool FreeRoam() {
+  const uint32_t holder = LoadPointer(kWorldHolder, 8);
+  const uint32_t handle = holder ? LoadPointer(holder + 4, 8) : 0;
+  const uint32_t world = handle ? LoadPointer(handle + 4, 128) : 0;
+  const uint32_t session = world ? LoadPointer(world + 124, 60) : 0;
+  return session && Load32(session + 56) == 17;
+}
+
+std::optional<Destination> RoadPosition(uint32_t road) {
+  if (!Readable(road, 20)) return {};
+  const Destination point{LoadF32(road + 4), LoadF32(road + 8), LoadF32(road + 12)};
+  return ValidDestination(point) ? std::optional(point) : std::nullopt;
+}
+
+void SetGpsDestination(const Destination& point) {
+  if (!Enabled() || !FreeRoam()) {
+    diagnostics::RecordEvent("cheat.gps", {{"result", "requires_free_roam"}});
+    return;
+  }
+  const uint32_t components = mod::CallGuest(FH1_ADDR(0x825F6FB0u), {});
+  // Both managers are required: the action otherwise silently skips its work.
+  const uint32_t satnav = Component(components, FH1_ADDR(0x832FF054u), 766);
+  if (!Component(components, FH1_ADDR(0x832FF090u), 4) || !satnav) {
+    diagnostics::RecordEvent("cheat.gps", {{"result", "managers_unavailable"}});
+    return;
+  }
+  if (Load8(satnav + 764)) {
+    diagnostics::RecordEvent("cheat.gps", {{"result", "destination_locked"}});
+    return;
+  }
+  auto* memory = rex::system::kernel_state()->memory();
+  const uint32_t action = memory->SystemHeapAlloc(48, 16);
+  if (!action) {
+    diagnostics::RecordEvent("cheat.gps", {{"result", "allocation_failed"}});
+    return;
+  }
+  std::memset(memory->TranslateVirtual(action), 0, 48);
+  // CSetSatNavDestinationPos's execute reads only these descriptor fields.
+  Store32(action + 28, components);
+  for (uint32_t i = 0; i < 3; ++i) Store32(action + 32 + 4 * i, std::bit_cast<uint32_t>(point[i]));
+  const bool accepted = (mod::CallGuest(FH1_ADDR(0x829423B0u), {action, 0, 0}) & 0xFFu) != 0;
+  memory->SystemHeapFree(action);
+  diagnostics::RecordEvent("cheat.gps", {{"result", accepted ? "accepted" : "rejected"},
+      {"x", fmt::format("{}", point[0])}, {"y", fmt::format("{}", point[1])},
+      {"z", fmt::format("{}", point[2])}});
+}
+}  // namespace
+
+std::optional<Destination> MapDestination() {
+  std::lock_guard lock(g_destination_mutex);
+  return g_map_destination;
+}
+
+bool RequestGpsDestination(const Destination& point) {
+  if (!Enabled() || !ValidDestination(point) || g_gps_queued.exchange(true)) return false;
+  mod::EnqueueHostGuestTask([point] {
+    SetGpsDestination(point);
+    g_gps_queued.store(false);
+  });
+  return true;
+}
+
+bool RequestTeleportDestination(const Destination& point) {
+  if (!Enabled() || !ValidDestination(point) || g_travel_queued.exchange(true)) return false;
+  mod::EnqueueHostGuestTask([point] {
+    const uint32_t components = Components();
+    if (!Enabled() || !FreeRoam()) {
+      g_travel_queued.store(false);
+      diagnostics::RecordEvent("cheat.teleport", {{"result", "requires_free_roam"}});
+      return;
+    }
+    // v4 routes this lookup through the GPS position manager instead.
+    constexpr uint32_t kLookupIndex = fh1::kTitleUpdateV4 ? FH1_ADDR(0x832FF090u)
+                                                         : FH1_ADDR(0x832FF094u);
+    if (!Component(components, kLookupIndex, 4)) {
+      g_travel_queued.store(false);
+      diagnostics::RecordEvent("cheat.teleport", {{"result", "managers_unavailable"}});
+      return;
+    }
+    auto* memory = rex::system::kernel_state()->memory();
+    const uint32_t position = memory->SystemHeapAlloc(16, 16);
+    if (!position) {
+      g_travel_queued.store(false);
+      diagnostics::RecordEvent("cheat.teleport", {{"result", "allocation_failed"}});
+      return;
+    }
+    for (uint32_t i = 0; i < 3; ++i)
+      Store32(position + 4 * i, std::bit_cast<uint32_t>(point[i]));
+    Store32(position + 12, 0);
+    // The native map lookup resolves a road graph point; r3 is unused.
+    const uint32_t road = mod::CallGuest(FH1_ADDR(0x827FADE8u), {0, position});
+    memory->SystemHeapFree(position);
+    if (!RoadPosition(road)) {
+      g_travel_queued.store(false);
+      diagnostics::RecordEvent("cheat.teleport", {{"result", "road_unavailable"}});
+      return;
+    }
+    {
+      std::lock_guard lock(g_travel_mutex);
+      g_map_travel = {road, components, std::chrono::steady_clock::now() + std::chrono::seconds(10)};
+    }
+    diagnostics::RecordEvent("cheat.teleport", {{"result", "waiting_for_map"},
+        {"x", fmt::format("{}", point[0])}, {"y", fmt::format("{}", point[1])},
+        {"z", fmt::format("{}", point[2])}});
+  });
+  return true;
+}
+
+void UpdateDestinations() {
+  static bool reached_free_roam = false;
+  reached_free_roam |= FreeRoam();
+  {
+    std::lock_guard lock(g_travel_mutex);
+    if (g_map_travel.road && (!Enabled() || !FreeRoam() ||
+                             std::chrono::steady_clock::now() > g_map_travel.expires ||
+                             Components() != g_map_travel.components)) {
+      diagnostics::RecordEvent("cheat.teleport", {{"result", "cancelled"}});
+      g_map_travel = {};
+      g_travel_queued.store(false);
+    }
+  }
+  // Launch settings wait for the first free roam. Later requests in another
+  // mode are consumed and rejected, never deferred until a race ends.
+  if (!Enabled() || !reached_free_roam) return;
+  const std::string travel = REXCVAR_GET(cheat_teleport_destination);
+  if (!travel.empty() && pinyon_shift::dlc::GameModeReady()) {
+    const auto point = ParseDestination(travel);
+    if (!point || RequestTeleportDestination(*point)) {
+      if (!point) diagnostics::RecordEvent("cheat.teleport", {{"result", "invalid_coordinates"}});
+      rex::cvar::SetFlagByName("cheat_teleport_destination", "");
+      TeleportDestinationApplied();
+    }
+  }
+  const std::string text = REXCVAR_GET(cheat_gps_destination);
+  if (text.empty()) return;
+  // Wait for the mode at startup, then consume once. The guest task rejects
+  // races instead of retaining a request until the next free-roam session.
+  if (!pinyon_shift::dlc::GameModeReady()) return;
+  const auto point = ParseDestination(text);
+  if (point && !RequestGpsDestination(*point)) return;
+  if (!point) diagnostics::RecordEvent("cheat.gps", {{"result", "invalid_coordinates"}});
+  rex::cvar::SetFlagByName("cheat_gps_destination", "");
+  GpsDestinationApplied();
+}
+
+bool AllowMapTravel(uint32_t map, bool title_enabled, bool title_admitted) {
+  if (!Enabled()) return false;
+  const bool readable = Readable(map, 580);
+  std::lock_guard travel_lock(g_travel_mutex);
+  g_overridden_map = 0;
+  if (map != g_observed_map || title_enabled != g_observed_enabled) {
+    g_observed_map = map;
+    g_observed_enabled = title_enabled;
+    diagnostics::RecordEvent("cheat.map", {{"map", fmt::format("{:08X}", map)},
+        {"readable", readable ? "1" : "0"}, {"title_enabled", title_enabled ? "1" : "0"},
+        {"free_roam", FreeRoam() ? "1" : "0"}});
+  }
+  if (!readable) return false;
+  // v4 added three fields ahead of the map's nearest road-point pointer.
+  constexpr uint32_t kRoadPoint = fh1::kTitleUpdateV4 ? 576 : 564;
+  const auto requested = RoadPosition(g_map_travel.road);
+  const bool custom = requested && g_map_travel.components == Components() &&
+      title_enabled && FreeRoam();
+  if (custom) Store32(map + kRoadPoint, g_map_travel.road);
+  const auto point = custom ? requested : RoadPosition(Load32(map + kRoadPoint));
+  if (!point) return false;
+  {
+    std::lock_guard lock(g_destination_mutex);
+    g_map_destination = *point;
+  }
+  if (custom && g_map_travel.armed_map == map && Load8(map + 426)) {
+    Store32(map + 444, 0);
+    diagnostics::RecordEvent("cheat.teleport", {{"result", "native_map_handoff"},
+        {"road_x", fmt::format("{}", (*point)[0])}, {"road_y", fmt::format("{}", (*point)[1])},
+        {"road_z", fmt::format("{}", (*point)[2])}});
+    g_map_travel = {};
+    g_travel_queued.store(false);
+  }
+  if (!title_enabled || !FreeRoam() || !(custom || FastTravelAnywhere())) return false;
+  // Only a destination the title refused takes the road fallback; an eligible
+  // hovered marker keeps its own placement.
+  if (!custom && !title_admitted) g_overridden_map = map;
+  return true;
+}
+
+bool PrepareMapTravelInput(uint32_t map) {
+  std::lock_guard lock(g_travel_mutex);
+  constexpr uint32_t kRoadPoint = fh1::kTitleUpdateV4 ? 576 : 564;
+  g_map_travel.armed_map = 0;
+  if (!Enabled() || !FreeRoam() || !Readable(map, kRoadPoint + 4)) return false;
+  if (g_map_travel.components == Components() && RoadPosition(g_map_travel.road)) {
+    Store32(map + kRoadPoint, g_map_travel.road);
+    auto* base = rex::system::kernel_state()->memory()->virtual_membase();
+    *rex::memory::GuestPtr<uint8_t*>(base, map + 426) = 1;
+    g_map_travel.armed_map = map;
+    return true;
+  }
+  return false;
+}
+
+bool UseMapRoadFallback(uint32_t map, bool admitted) {
+  std::lock_guard lock(g_travel_mutex);
+  return admitted && Enabled() && map != 0 && map == g_overridden_map;
+}
 
 bool ShowCollectibles() { return Enabled() && REXCVAR_GET(cheat_show_collectibles); }
 

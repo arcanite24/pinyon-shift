@@ -144,7 +144,7 @@
   },
   "rexglue": {
     "repository": "https://github.com/arcanite24/shiftglue-sdk",
-    "revision": "b528422cb2e63c6163e9a3f3cc4cecd5a71fb721",
+    "revision": "59bc11f546a6ea67eefcad974d0c14041b2ab20d",
     "submodule_path": "thirdparty/shiftglue-sdk",
     "fallback_path": ".local/rexglue"
   }

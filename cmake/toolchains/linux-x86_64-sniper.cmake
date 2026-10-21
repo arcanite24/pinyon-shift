@@ -46,12 +46,14 @@ foreach(_pinyon_lang C CXX ASM)
   set(CMAKE_${_pinyon_lang}_COMPILER_EXTERNAL_TOOLCHAIN "${CMAKE_SYSROOT}/usr/lib/gcc-14")
 endforeach()
 
-set(_pinyon_link "-fuse-ld=lld -L${PINYON_LINUX_TOOLCHAIN}/sniper-libgcc -static-libstdc++")
+# Paths are quoted: an install folder with spaces ("Non-Steam Games" on an
+# SD card) split them into separate arguments (#727).
+set(_pinyon_link "-fuse-ld=lld \"-L${PINYON_LINUX_TOOLCHAIN}/sniper-libgcc\" -static-libstdc++")
 # On a Linux host, setup's bin/ wrappers run ld.lld and wayland-scanner with
 # the sysroot's libxml2.so.2, which current distributions no longer ship.
 set(_pinyon_wrappers "${PINYON_LINUX_TOOLCHAIN}/bin")
 if(NOT CMAKE_HOST_WIN32 AND EXISTS "${_pinyon_wrappers}/ld.lld")
-  string(APPEND _pinyon_link " --ld-path=${_pinyon_wrappers}/ld.lld")
+  string(APPEND _pinyon_link " \"--ld-path=${_pinyon_wrappers}/ld.lld\"")
 endif()
 set(CMAKE_EXE_LINKER_FLAGS_INIT "${_pinyon_link}")
 set(CMAKE_SHARED_LINKER_FLAGS_INIT "${_pinyon_link}")

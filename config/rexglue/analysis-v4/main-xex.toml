@@ -31,6 +31,88 @@ xer_as_local = true
 # (NEXT_LEVEL_RESEARCH.md NL-1.2).
 interior_resume = false
 
+# Direct calls name the strong `__imp__sub_` definitions so Clang can inline
+# guest functions; the functions src/guest_native replaces with a strong
+# `sub_` of its own keep going through the weak thunk (NL-1.5). The list holds
+# every PINYON_GUEST_NATIVE replacement, including those reached only through
+# function pointers today; tools/port-fh1-v4-analysis.py checks it.
+direct_calls_bypass_thunk = true
+host_overridden_functions = [0x82468E50, 0x8248D438, 0x82B2A848, 0x83047550,
+    0x83088AB0, 0x831696F8, 0x8316A6A8, 0x831703C0, 0x83171848, 0x831719A0,
+    0x83171B88, 0x83171D10, 0x831776E8, 0x831764C8, 0x83171230, 0x831B4090]
+
+# Loads from a constant .rdata address (lis/addi then lfs, lfd, lwz, ...) become
+# literals; the runtime refuses an image whose folded bytes differ (NL-1.10).
+fold_rodata_loads = true
+
+# A function whose prologue calls __savegprlr_N keeps rN-r31 in host locals
+# instead of the guest stack slots (NEAR_NATIVE_RESEARCH.md NN-1.2): ctx is
+# write-through, so the copy back at each __restgprlr_N gives the caller the
+# same registers. The LR slot and back chain are still written. Functions the
+# generator's save-area scan cannot clear (slot loads, dynamic frames, tail
+# branches, exception info, mid-asm hooks such as the UI trace hooks that read
+# r1+160/168) keep the helpers; host_local_register_saves_keep lists more.
+host_local_register_saves = true
+
+# The LR save slot (entry r1 - 8) moves into a host local as well
+# (NEAR_NATIVE_RESEARCH.md NN-1.3): the prologue's slot store, from the inlined
+# __savegprlr_N or an explicit stw, and its reloads become copies through
+# `rex_saved_lr`, so r12 and ctx.lr keep their values and only the guest stack
+# word is gone. The generator's LR-slot scan keeps the slot in memory for any
+# other slot access, a dynamic frame, exception info, a mid-asm hook, or a tail
+# branch to code that may read it first. The back chain is still written, so
+# stall_dump still walks the stack, but its "returns to" column and the M5
+# reentry trace read stale words for changed frames. The keep list holds the
+# functions whose slot a host reader needs: sub_82BC5870 (TraceVehiclePose
+# reads its caller_lr at r1+392; the mid-asm hook keeps it anyway).
+host_local_lr = true
+host_local_lr_keep = [0x82C84258]
+
+# Physics specialised at build time (NEAR_NATIVE_RESEARCH.md NN-5.1). The
+# generator, not the repository, produces the native form from the player's
+# executable (docs/LEGAL.md). register_locals_functions keeps every guest
+# register of the listed functions in C++ locals, writing ctx back at calls
+# and returns and reading the volatile registers back after calls; such a
+# function with flush-mode toggles runs only in fixed FP mode (the default
+# on arm64) and tail calls an unspecialised ieee_ copy otherwise.
+# fixed_fp_mode_functions reads the fixed FP mode switch once per call instead
+# of at every toggle; single_precision_functions computes fmadds-family
+# operations on single-precision operands as one single fma (the guest's
+# rounding) instead of a double fma rounded to single. The list is the 19 of
+# the 131-function physics family whose arm64 code got at least 3 % shorter
+# with no more memory accesses (NDK clang, release flags); the tyre model
+# sub_82D2F348 and the others got longer and stay as they were.
+register_locals_functions = [0x82D77DF0, 0x82D79570, 0x82D7BA80, 0x82D7C4E0,
+    0x82DD1890, 0x82DD4248, 0x82DDF430, 0x82DE29A0, 0x82DE3058, 0x82DE3D10,
+    0x82DE5018, 0x82DF0DA0, 0x82DF11A0, 0x82DF2500, 0x82DF9CF8, 0x82DFB280,
+    0x82DFC430, 0x82E0A610, 0x82EEF5B8]
+fixed_fp_mode_functions = [0x82D77DF0, 0x82D79570, 0x82D7BA80, 0x82D7C4E0,
+    0x82DD1890, 0x82DD4248, 0x82DDF430, 0x82DE29A0, 0x82DE3058, 0x82DE3D10,
+    0x82DE5018, 0x82DF0DA0, 0x82DF11A0, 0x82DF2500, 0x82DF9CF8, 0x82DFB280,
+    0x82DFC430, 0x82E0A610, 0x82EEF5B8]
+single_precision_functions = [0x82D77DF0, 0x82D79570, 0x82D7BA80, 0x82D7C4E0,
+    0x82DD1890, 0x82DD4248, 0x82DDF430, 0x82DE29A0, 0x82DE3058, 0x82DE3D10,
+    0x82DE5018, 0x82DF0DA0, 0x82DF11A0, 0x82DF2500, 0x82DF9CF8, 0x82DFB280,
+    0x82DFC430, 0x82E0A610, 0x82EEF5B8]
+# Reference copies of the specialised call-free functions for the lockstep
+# verifier (pinyon_shift_reference_verify, src/guest_native/reference_verify.cpp).
+reference_functions = [0x82D77DF0, 0x82D79570, 0x82D7BA80, 0x82D7C4E0,
+    0x82DD1890, 0x82DD4248, 0x82DDF430, 0x82DE29A0, 0x82DE3D10, 0x82DE5018,
+    0x82DF11A0, 0x82DF2500, 0x82DF9CF8, 0x82DFB280, 0x82DFC430, 0x82E0A610,
+    0x82EEF5B8]
+# Region oracle (#749): the root and every function it reaches are emitted
+# twice more as logged copies, compared with the PowerPC interpreter on
+oracle_regions = [0x82DE3058, 0x82DFC570]
+# Native region pilot (#750): the root's region also as inline copies on
+# one local context, run with pinyon_shift_native_region.
+native_regions = [0x82DE3058]
+
+# Lockstep verify (NL-0.2): every 40th leaf function is also emitted as a
+# reference copy with every register in ctx and no folding; with
+# pinyon_shift_reference_verify=N the host runs both every Nth call and
+# compares (src/guest_native/reference_verify.cpp).
+reference_sample_every = 40
+
 # Scripted, default-off companion experiment: match the complete original
 # decoded member at the borrowed-buffer stream constructor. This avoids ZIP
 # repacking and does not enable the older scene_insert pointer repairs.
@@ -181,7 +263,8 @@ context = true
 
 # PERF-11 read-only critical-path probes around the indexed title draw emitter
 # and its exact PM4 header publication. All return immediately unless the SDK
-# perf_critical_path_trace flag is enabled.
+# perf_critical_path_trace flag is enabled. The begin hook also carries the
+# registers of the D3D census (DL-0.1, below), whose draw entry 5 it is.
 [[midasm_hook]]
 address = 0x8243F488
 name = "PinyonShiftObserveTitleDrawEmitterBegin"
@@ -737,7 +820,7 @@ registers = ["r10"]
 # storing it at +448 on the main-loop owner and dispatching update systems.
 # Accumulate that title-authored delta for wall-time validation without
 # changing the register, store, or update cadence.
-# The guest vblank callback sub_824ABBD8 has decided whether to raise the
+# The guest vblank callback sub_8247C678 has decided whether to raise the
 # simulation's step event (r11, low byte non-zero to raise; it then resets its
 # vblank count). The step gate (#381, pinyon_shift_step_backpressure) holds
 # the raise while the render thread is two steps behind; the render thread's
@@ -774,7 +857,7 @@ name = "PinyonShiftTraceRetainVtable"
 registers = ["r4", "r11", "r30", "r31"]
 jump_address_on_true = 0x82471858
 
-# sub_82E180E0 is the other intrusive-pointer assignment: AddRef the new object
+# sub_824E81A8 is the other intrusive-pointer assignment: AddRef the new object
 # (vtable+8), store it, Release the old one (vtable+12). #584 reached its
 # Release with the freed object the guard above had just refused (vtable
 # 0x07E0487C, heap data) and faulted at vtable+12. Skip either call when
@@ -984,6 +1067,31 @@ after_instruction = true
 address = 0x82D2EC30
 name = "PinyonShiftTraceRetainSourceSlot"
 registers = ["r3", "r4", "r26", "r27", "r29", "r31"]
+
+# NA-2.4 pilot (issue #753): the procedural models' calls into their list
+# runner 0x82447010 (base 0x82418A24 and 0x82418EC8) and the runner's entry
+# (base 0x82416A00, D3DDevice_RunCommandBuffer): the lists they run are drawn
+# from owned draw programs (src/native_renderer/d3d_program.cpp).
+[[midasm_hook]]
+address = 0x824489D4
+name = "PinyonShiftD3dProgramOwnerEnter0"
+
+[[midasm_hook]]
+address = 0x824489D8
+name = "PinyonShiftD3dProgramOwnerLeave0"
+
+[[midasm_hook]]
+address = 0x82448E78
+name = "PinyonShiftD3dProgramOwnerEnter1"
+
+[[midasm_hook]]
+address = 0x82448E7C
+name = "PinyonShiftD3dProgramOwnerLeave1"
+
+[[midasm_hook]]
+address = 0x824469B0
+name = "PinyonShiftD3dProgramRunCommandBuffer"
+registers = ["r4"]
 
 # Six adjacent compiler-generated adjustment/thunk functions. ReXGlue's gap
 # fill initially coalesces most of this range into one function.
@@ -1381,9 +1489,9 @@ memset = 0x82B3C1F0
 # (kernel/crt/threading.cpp). Found from the only callers of
 # KeSetCurrentStackPointers: SwitchToFiber tail-calls the context switch;
 # CreateFiber allocates a 2,640-byte context (the SDK's X_FIBER_CONTEXT size)
-# and a kernel stack with the entry thunk 0x831ADD20; ConvertThreadToFiber
+# and a kernel stack with the entry thunk 0x830EBEA0; ConvertThreadToFiber
 # fails with ERROR_ALREADY_FIBER (1280) when KTHREAD+0x164 is set;
-# DeleteFiber frees the kernel stack. GetCurrentFiber (0x831ADAE0) stays
+# DeleteFiber frees the kernel stack. GetCurrentFiber (0x830EBC60) stays
 # guest code: it reads the KTHREAD field the SDK maintains.
 ConvertThreadToFiber = 0x831ADAF0
 ConvertFiberToThread = 0x831ADB80
@@ -1428,6 +1536,30 @@ address = 0x8269B3C4
 name = "PinyonShiftAnyCarEventClass"
 registers = ["r4"]
 jump_address_on_true = 0x8269B488
+
+# #485: preserve the title's travel lock (r31), but let the isolated trainer
+# admit the map's nearest road point. r30 is the map component; r11 is the
+# return value before clrlwi. The map still owns the fade/streaming flow.
+[[midasm_hook]]
+address = 0x828AF4C8
+name = "PinyonShiftMapTravelGate"
+registers = ["r11", "r30", "r31"]
+
+# Before the map reads its input latch: r21 is a hovered marker whose transform
+# normally wins over the road fallback. Arm a queued request at consumption,
+# after the title's earlier processing, with the native flow intact.
+[[midasm_hook]]
+address = 0x828B787C
+name = "PinyonShiftMapTravelInput"
+registers = ["r21", "r31"]
+
+# The map update's predicate result (r3) before clrlwi. When FAST TRAVEL
+# ANYWHERE alone admitted a marker the title refused, drop r21 for the road
+# fallback; eligible markers (outposts, festival) keep their own placement.
+[[midasm_hook]]
+address = 0x828B7898
+name = "PinyonShiftMapTravelMarker"
+registers = ["r3", "r21", "r31"]
 
 # #482 AI OPPONENTS (pinyon_shift_ai_opponents, src/pinyon_shift_runtime_hooks.cpp):
 # the event's opponent difficulty before sub_8249BCB8 picks the database
@@ -1477,6 +1609,23 @@ registers = ["r3"]
 address = 0x826C3800
 name = "PinyonShiftAiTraceDynamicUpdate"
 registers = ["r3"]
+
+
+# Diagnostic-only allocation override target, immediately before the virtual
+# call whose return address is reported in #674. See FACADE_LIFETIME_FAULTS.md.
+[[midasm_hook]]
+address = 0x82D835D8
+name = "PinyonShiftTraceAllocationOverride"
+registers = ["r3", "r4", "r5", "r11"]
+
+# #703/#715: a counted audio child slot can be empty at construction or after
+# teardown. Match v4's skip, retaining the last result and the normal unlock.
+# See docs/research/TRAFFIC_EVENT_NULL_DISPATCH.md.
+[[midasm_hook]]
+address = 0x830BEB68
+name = "PinyonShiftGuardEmptyAudioChild"
+registers = ["r3", "r28", "r30", "r31"]
+jump_address_on_true = 0x830BEB78
 
 # Virtual-call thunks discovered in the v4 image (vcall_thunks in
 # tools/map-fh1-v4-addresses.py). Entries marked THUNK above are covered here.

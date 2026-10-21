@@ -160,7 +160,7 @@
                                 <ComboBoxItem Tag="fsr">FSR 1</ComboBoxItem>
                                 <ComboBoxItem Tag="fsr2">FSR 2 (temporal)</ComboBoxItem>
                                 <ComboBoxItem Tag="fsr3">FSR 3 (temporal)</ComboBoxItem>
-                                <ComboBoxItem Tag="dlss">DLSS (temporal, NVIDIA)</ComboBoxItem>
+                                <ComboBoxItem Tag="dlss">NVIDIA DLSS (Windows only)</ComboBoxItem>
                             </ComboBox>
                         </Grid>
                         <TextBlock x:Name="ResolutionLineText" FontSize="13.5" TextWrapping="Wrap"/>

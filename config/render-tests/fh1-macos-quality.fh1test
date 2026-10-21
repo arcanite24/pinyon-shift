@@ -1,0 +1,21 @@
+pinyon-shift-fh1-render-test-v1
+# clock-hz 60
+# Apple-silicon quality matrix: use a pinned base-game free-roam seed,
+# bilinear SDR, 60 fps, scale 1/2 and MSAA off/2x/4x (restart each cell).
+# Compare the parked car first, then measure frames 1400-3600 without captures.
+# Resource sampling must cover that same interval. See docs/MACOS.md.
+wait 1 30000 file pressstart.wmv
+input 0 0000 0 0 0 0 0 0
+input 360 1000 0 0 0 0 0 0
+input 366 0000 0 0 0 0 0 0
+input 480 1000 0 0 0 0 0 0
+input 486 0000 0 0 0 0 0 0
+input 600 1000 0 0 0 0 0 0
+input 606 0000 0 0 0 0 0 0
+input 720 1000 0 0 0 0 0 0
+input 726 0000 0 0 0 0 0 0
+capture 1200 parked
+input 1400 0000 0 255 0 0 0 0
+capture 3600 drive-end
+input 3610 0000 0 0 0 0 0 0
+stop 3630

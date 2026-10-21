@@ -1,0 +1,22 @@
+pinyon-shift-fh1-render-test-v1
+# clock-hz 60
+# Capture-free measurement window for first-visit and warmed day/night
+# comparisons. Use the same pinned seed and pass cheat_time_of_day=12 or 0
+# with pinyon_shift_cheats=true. Keep the final capture out of hitch totals.
+input 0 0000 0 0 0 0 0 0
+input 360 1000 0 0 0 0 0 0
+input 366 0000 0 0 0 0 0 0
+input 480 1000 0 0 0 0 0 0
+input 486 0000 0 0 0 0 0 0
+input 600 1000 0 0 0 0 0 0
+input 606 0000 0 0 0 0 0 0
+input 720 1000 0 0 0 0 0 0
+input 726 0000 0 0 0 0 0 0
+input 780 0000 0 0 0 0 0 0
+input 930 0000 0 0 0 0 0 0
+wait 960 3600 freeroam
+input 1200 0000 0 255 0 0 0 0
+wait 1210 2400 vehicle-moved 30
+input 3610 0000 0 0 0 0 0 0
+capture 3620 end
+stop 3630

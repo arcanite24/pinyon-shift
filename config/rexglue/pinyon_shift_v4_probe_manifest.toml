@@ -1,0 +1,28 @@
+# Pinyon Shift manifest for the v4 probe build: the v4 title update's inputs
+# and analysis (pinyon_shift_v4_manifest.toml), generated into a tree of its
+# own because the generator counts every function entry there
+# (PINYON_SHIFT_TITLE_UPDATE_V4 with PINYON_SHIFT_RECOMP_PROBE, rexglue codegen
+# --probes --xex_apply_patches=true). Its call counts give the v4 symbol
+# ordering file (tools/make-symbol-order.py, #745).
+
+[project]
+name = "pinyon_shift"
+sdk_version = "0.10.0"
+game_root = "../../.local/game/v4-codegen"
+
+[entrypoint]
+file_path = "../../.local/game/v4-codegen/default.xex"
+out_directory_path = "../../.local/generated-v4-probe/default"
+includes = ["analysis-v4/main-xex.toml"]
+
+[[modules]]
+guest_path = "SpeechFacade_default.xex"
+file_path = "../../.local/game/v4-codegen/SpeechFacade_default.xex"
+out_directory_path = "../../.local/generated-v4-probe/speech"
+includes = ["analysis-v4/speech-facade.toml"]
+
+[[modules]]
+guest_path = "XMediaFacade_default.xex"
+file_path = "../../.local/game/v4-codegen/XMediaFacade_default.xex"
+out_directory_path = "../../.local/generated-v4-probe/xmedia"
+includes = ["analysis-v4/xmedia-facade.toml"]

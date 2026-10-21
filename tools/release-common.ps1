@@ -552,6 +552,99 @@ function Get-PinyonBuildJobCount {
     $jobs
 }
 
+function Test-PinyonCpuFma {
+    # Windows reports AVX2 only when it also saves the AVX register state, and
+    # every CPU with AVX2 has FMA3.
+    if (-not ('PinyonShift.CpuFeatures' -as [type])) {
+        Add-Type -Namespace PinyonShift -Name CpuFeatures -MemberDefinition @'
+[System.Runtime.InteropServices.DllImport("kernel32.dll")]
+public static extern bool IsProcessorFeaturePresent(uint feature);
+'@
+    }
+    return [PinyonShift.CpuFeatures]::IsProcessorFeaturePresent(40)
+}
+
+# NP-3.5: 'auto' builds with FMA3 when this CPU has it (a faster build of the
+# same results); the build only runs on CPUs with the chosen baseline. 'v3'
+# (NEXT_LEVEL_RESEARCH.md NL-1.8) adds AVX2, BMI and MOVBE on top, for Haswell,
+# Zen and later CPUs; same results again. Every Windows game build, base and
+# v4, configures with what this returns (#744).
+function Select-PinyonCpuBaseline {
+    param([ValidateSet('auto', 'sse4.1', 'fma', 'v3')] [string]$CpuBaseline = 'auto')
+    $baseline = if ($CpuBaseline -ne 'auto') { $CpuBaseline }
+        elseif (Test-PinyonCpuFma) { 'fma' } else { 'sse4.1' }
+    $flags = switch ($baseline) {
+        'v3' { '-msse4.1 -mfma -ffp-contract=off -march=x86-64-v3' }
+        'fma' { '-msse4.1 -mfma -ffp-contract=off' }
+        default { '-msse4.1' }
+    }
+    [pscustomobject]@{
+        Baseline = $baseline
+        Flags = $flags
+        CMakeArguments = @("-DPINYON_SHIFT_CPU_BASELINE=$baseline", "-DCMAKE_C_FLAGS=$flags",
+            "-DCMAKE_CXX_FLAGS=$flags")
+    }
+}
+
+# Effective-build record beside a built executable, pinyon_shift_build.json
+# (#746): the same fields build-preview.ps1 writes for the base build, which
+# the game's diagnostics and tools/pinyon_title_update.py read, plus what a
+# measurement needs to name its exact build: the variant, the CPU flags and
+# the hash of every analysis file the generator read. Missing Git metadata (a
+# release install) reads as unknown instead of failing the build.
+function Write-PinyonBuildInfo {
+    param(
+        [Parameter(Mandatory)] [string]$BuildDirectory,
+        [Parameter(Mandatory)] [string]$Variant,
+        [Parameter(Mandatory)] $Cpu,
+        [Parameter(Mandatory)] [string]$AnalysisDirectory,
+        [string]$Configuration = 'Release'
+    )
+    $root = Get-PinyonRepoRoot
+    $git = Get-PinyonGit
+    $source = Get-PinyonSourceProvenance -Root $root -Git $git
+    $sdkRoot = Resolve-PinyonRexGlueRoot
+    $sdkCommit = 'unknown'
+    $sdkDirty = 'unknown'
+    if (Test-Path -LiteralPath (Join-Path $sdkRoot '.git')) {
+        $line = @(& $git -C $sdkRoot rev-parse HEAD 2>$null | Select-Object -First 1)
+        if ($line.Count -eq 1 -and $line[0] -match '^[0-9a-fA-F]{40}$') {
+            $sdkCommit = $line[0].ToLowerInvariant()
+            $sdkDirty = (@(& $git -C $sdkRoot status --porcelain --ignore-submodules=dirty).Count -ne 0).
+                ToString().ToLowerInvariant()
+        }
+    }
+    $payloadMarker = Join-Path $root '.pinyon-source-sha256'
+    $payload = if (Test-Path -LiteralPath $payloadMarker -PathType Leaf) {
+        (Get-Content -LiteralPath $payloadMarker -Raw).Trim().ToUpperInvariant()
+    } else { '' }
+    $analysis = [ordered]@{}
+    foreach ($file in Get-ChildItem -LiteralPath $AnalysisDirectory -Filter '*.toml' | Sort-Object Name) {
+        $analysis[$file.Name] = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash
+    }
+    $executable = Join-Path $BuildDirectory 'pinyon_shift.exe'
+    $info = [ordered]@{
+        schema_version = 3
+        variant = $Variant
+        configuration = $Configuration
+        cpu_baseline = $Cpu.Baseline
+        cpu_flags = $Cpu.Flags
+        created_utc = [DateTime]::UtcNow.ToString('o')
+        executable_sha256 = (Get-FileHash -LiteralPath $executable -Algorithm SHA256).Hash
+        generated_locally = $true
+        pinyon_shift_commit = $source.Commit
+        pinyon_shift_dirty = $source.Dirty.ToString().ToLowerInvariant()
+        pinyon_shift_source_payload_sha256 = $payload
+        rexglue_commit = $sdkCommit
+        rexglue_dirty = $sdkDirty
+        analysis_sha256 = $analysis
+    }
+    $path = Join-Path $BuildDirectory 'pinyon_shift_build.json'
+    [IO.File]::WriteAllText($path, ($info | ConvertTo-Json -Depth 4) + [Environment]::NewLine,
+        [Text.UTF8Encoding]::new($false))
+    $path
+}
+
 # Machine facts that explain most setup failures (memory, disk, threads).
 function Get-PinyonSystemSummary {
     param([Parameter(Mandatory)] [string]$Root)

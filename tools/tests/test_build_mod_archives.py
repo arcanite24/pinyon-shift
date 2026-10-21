@@ -26,6 +26,64 @@ def manifest_line(archive: Path, guest: str) -> str:
 
 
 class BuildModArchivesTests(unittest.TestCase):
+    def test_update_merge_has_its_own_mount_and_keeps_verified_input(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            state, game = root / "state", root / "game"
+            update = state / "title-update-v4" / "media.zip"
+            update.parent.mkdir(parents=True)
+            with zipfile.ZipFile(update, "w") as archive:
+                archive.writestr("camera/cameraphysics.xml", '<CameraPhysics><FollowCam NumLayers="80"/></CameraPhysics>')
+                archive.writestr("other.bin", b"unchanged")
+            original = update.read_bytes()
+            for mod, count in (("first", 84), ("second", 90)):
+                patch = state / "mods" / mod / "merge-update" / "media.zip" / "camera" / "cameraphysics.xml"
+                patch.parent.mkdir(parents=True)
+                patch.write_text(f'<CameraPhysics><FollowCam NumLayers="{count}"/></CameraPhysics>')
+                (state / "mods" / mod / "mod.toml").write_text('shares_save = true\n')
+            config = state / "config" / "pinyon_shift.toml"
+            config.parent.mkdir()
+            config.write_text('enabled_mods = "first,second"\n')
+            result = MODULE.build(state, game)
+            output = state / "mods" / MODULE.GENERATED
+            with zipfile.ZipFile(output / "update" / "media.zip") as archive:
+                self.assertIn(b'NumLayers="84"', archive.read("camera/cameraphysics.xml"))
+                self.assertEqual(b"unchanged", archive.read("other.bin"))
+            self.assertFalse((output / "game").exists())
+            self.assertEqual(update.read_bytes(), original)
+            self.assertEqual(result["archives"][0]["update_archive"], "media.zip")
+            MODULE.build(state, game)  # Repeat launch uses the same original, not the appended output.
+            self.assertEqual(update.read_bytes(), original)
+            replacement = state / "mods" / "replacement"
+            (replacement / "update").mkdir(parents=True)
+            (replacement / "mod.toml").write_text('shares_save = true\n')
+            with zipfile.ZipFile(replacement / "update" / "media.zip", "w") as archive:
+                archive.writestr("camera/cameraphysics.xml", '<CameraPhysics><FollowCam NumLayers="80"/></CameraPhysics>')
+                archive.writestr("other.bin", b"custom archive")
+            config.write_text('enabled_mods = "first,second,replacement"\n')
+            MODULE.build(state, game)
+            with zipfile.ZipFile(output / "update" / "media.zip") as archive:
+                self.assertEqual(b"custom archive", archive.read("other.bin"))
+                self.assertIn(b'NumLayers="84"', archive.read("camera/cameraphysics.xml"))
+            self.assertEqual(update.read_bytes(), original)
+
+    def test_update_merge_is_inactive_without_update_and_rejects_missing_member(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory)
+            patch = state / "mods" / "camera" / "merge-update" / "media.zip" / "missing.xml"
+            patch.parent.mkdir(parents=True)
+            patch.write_text('<CameraPhysics/>')
+            config = state / "config" / "pinyon_shift.toml"
+            config.parent.mkdir()
+            config.write_text('enabled_mods = "camera"\n')
+            self.assertFalse(MODULE.build(state, state / "no-disc")["patched"])
+            update = state / "title-update-v4" / "media.zip"
+            update.parent.mkdir()
+            with zipfile.ZipFile(update, "w") as archive:
+                archive.writestr("other.xml", '<CameraPhysics/>')
+            with self.assertRaisesRegex(MODULE.ArchiveError, "has no member"):
+                MODULE.build(state, state / "no-disc")
+
     def make(self, directory: Path):
         game = directory / "game"
         tables = game / "media" / "StringTables"

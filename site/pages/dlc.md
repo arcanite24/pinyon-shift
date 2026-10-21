@@ -21,6 +21,11 @@ DLC comes from your own Xbox 360 packages. The launcher (on Windows, Linux and m
 
 Import every copy of a package you own: verified variants of the same package combine their licences. The full November pack, for example, needs its full-licence copy.
 
+Rally championships do not include open-world Rally travel. A save-safe entry,
+reload and return to Colorado remain unqualified on both builds. The
+[Rally free-roam investigation](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/RALLY_FREEROAM.md)
+has a private initial-placement probe for developers; it is not a player option.
+
 ## What to import
 
 - The original package files: no file extension, beginning with `LIVE`, `CON` or `PIRS`. A folder or ZIP holding them works too. ZIPs that can't be read (Deflate64, which Windows uses for large ZIPs, or encrypted ones) are skipped and named; extract them first.

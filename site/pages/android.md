@@ -58,6 +58,22 @@ On Adreno 7xx and 8xx the bundled Mesa Turnip driver (Gen8 V37) is chosen automa
 
 Where a phone's fastest cores form their own cluster of two or more (the Snapdragon 8 Elite's two 4.32 GHz cores), the GPU command decoder thread is pinned to them. Left to the scheduler it spent whole stretches on the slower cores: in an in-run A/B on the Astra at the 60 fps limit, 25 % of frames took over 17.5 ms and the decoder 16.2 ms of CPU a frame, against 2 % and 10.2 ms pinned, with the same GPU time. Phones with a single fastest core, such as the 8 Gen 2 and 8 Gen 3, are left alone. The `android_thread_cores` setting overrides it (`NAME=CORES` entries separated by semicolons, `off` to disable).
 
+## HDR calibration
+
+Keep brightness and the display mode fixed, and turn adaptive brightness off
+while calibrating. **SETTINGS > DISPLAY > HDR CALIBRATION** shows the selected
+signal levels; Android and the display may tone-map them before they reach
+the panel. If the peak square never disappears, keep the existing peak
+pending a measured calibration. Patterns replace the guest image and HUD;
+HDR COMPARE is suspended while they are shown and resumes when you leave calibration.
+
+HDR10 and calibration chart visibility were checked on the Odin 2 Portal with SYSTEM and Turnip at fixed brightness and refresh. The captured paper-white chart is identical with compare on or off; this does not measure panel luminance. The RedMagic Astra's
+calibration remains unqualified ([#566](https://github.com/arcanite24/pinyon-shift/issues/566));
+there is no measured Astra preset. The reported luminance is not a panel
+measurement. The [Android reference](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/ANDROID.md#hdr-calibration)
+describes the driver comparison, display diagnostics and measurements needed
+to qualify it.
+
 ## Measured devices
 
 | Device | SoC and GPU | Driver | SMOOTH 60 |
@@ -74,8 +90,19 @@ A built-in, Bluetooth or USB controller works as on the PC. On a touch screen, o
 
 ## Troubleshooting
 
+On older Linux kernels, including the Pixel 3 XL's reported 4.9.337 kernel,
+the runtime now checks that a fixed allocation actually maps the requested
+address. This prevents a relocated mapping from leaving a reused guest stack's
+guard inaccessible. A native ARM64 probe on the Odin 2 Portal's 4 KB pages
+reproduced the failure with old-kernel mapping behavior simulated and passed
+with the fix. A current Pixel 3 XL launch is still needed to qualify that
+device. The stack fault in issue #556
+does not by itself show GPU memory exhaustion. The investigation is recorded
+in [facade lifetime faults](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/FACADE_LIFETIME_FAULTS.md).
+
 | Symptom | Cause |
 | --- | --- |
+| Build APK reports `symbol-order-base.txt`, `symbol-order-v4.txt` or `camera_tuning_tests.cpp` missing | An older source ZIP omitted required build inputs. Update the launcher and its installed sources, then retry Build APK |
 | The app doesn't find the PC | Different networks, a network that blocks broadcasts, or Windows Firewall. Enter the address the launcher shows and allow the launcher on private networks |
 | The app closes at once | The game files are missing. Open it from the app icon, or run `push-data` again |
 | RESOLUTION SCALE offers only 1X | Higher scales need more shared memory than a phone has |

@@ -16,7 +16,7 @@ platforms = ["Windows", "Linux and Steam Deck", "macOS", "Android"]
 feature = "Resolution"
 link = "playing.md#graphics-presets"
 xbox = "1280 × 720"
-pinyon = "1x to 4x internal resolution; bilinear, CAS or FSR 1 output scaling, temporal FSR 2 and 3 (built in on Linux, macOS and Android, with the FidelityFX runtime on Windows); ultrawide with a 16:9 HUD"
+pinyon = "1x to 4x internal resolution; bilinear, CAS or FSR 1 output scaling, temporal FSR 2 and 3 everywhere and NVIDIA DLSS on Windows RTX GPUs, set up without player downloads; ultrawide with a 16:9 HUD"
 
 [[original]]
 feature = "Frame rate"
@@ -34,7 +34,7 @@ pinyon = "Presets, MSAA up to 4x, FXAA on the world only, anisotropic filtering,
 feature = "HDR"
 link = "playing.md#hdr"
 xbox = "No"
-pinyon = "HDR output with paper white, highlights and a calibration screen"
+pinyon = "HDR output with paper white, highlights and a calibration screen; on Windows it can turn the display's HDR on while playing"
 
 [[original]]
 feature = "Textures"
@@ -44,9 +44,9 @@ pinyon = "Replacement textures up to 8 times larger, reloaded in game"
 
 [[original]]
 feature = "Camera"
-link = "playing.md#immersive-camera"
+link = "playing.md#camera-editor"
 xbox = "Stock cameras"
-pinyon = "Optional immersive camera: G-forces, lean, speed shake and head motion"
+pinyon = "Live chase height, distance, FOV and stiffness; optional immersive camera motion"
 
 [[original]]
 feature = "Music"
@@ -64,7 +64,7 @@ pinyon = "Engine, other cars, tyres, wind, ambience and music levels, and the co
 feature = "Mods"
 link = "modding.md"
 xbox = "No"
-pinyon = "Asset, database, texture and native mods; the Forza Horizon XE mod installs from the launcher"
+pinyon = "Asset, database, texture, Vulkan shader and native mods; the Forza Horizon XE mod installs from the launcher"
 
 [[original]]
 feature = "DLC and title update"
@@ -88,7 +88,7 @@ pinyon = "Automatic save backups, PNG photos, saves imported from Xenia"
 feature = "Cheats"
 link = "playing.md#trainer"
 xbox = "None"
-pinyon = "A trainer on a separate profile: credits, wristbands, game speed, time of day, day length, free camera, collectibles on the map, any car in any event"
+pinyon = "A trainer on a separate profile: credits, wristbands, game speed, time of day, day length, free camera, collectibles on the map, any car in any event; experimental map travel and saved GPS targets"
 
 [[original]]
 feature = "AI opponents"
@@ -106,7 +106,7 @@ pinyon = "None; the 1000 Club challenges run offline on the v4 build"
 feature = "Installing and updating"
 link = "install.md#updating"
 xbox = "Disc"
-pinyon = "The launcher verifies your disc, builds the game and updates itself"
+pinyon = "The launcher verifies your disc, builds the game and updates itself; startup [repairs partial settings](troubleshooting.md#a-partial-settings-file-on-a-fresh-state) with missing defaults and an exact backup, keeping saved values"
 
 # Table 2: features by platform.
 [[platform]]
@@ -150,14 +150,14 @@ link = "playing.md#graphics-presets"
 cells = [
   "yes: up to 120 fps",
   "yes: up to 120 fps; 60 on the Steam Deck",
-  "yes: up to 120 fps",
+  "partly: 60 fps at 1x on the M4 Pro; QUALITY 60 measured about 40 fps ([qualification](platforms.md#macos-on-apple-silicon))",
   "partly: SMOOTH 60 or QUALITY 30",
 ]
 
 [[platform]]
 feature = "Graphics presets"
 link = "playing.md#graphics-presets"
-cells = ["yes", "yes", "yes", "partly: three presets of their own"]
+cells = ["yes", "yes", "partly: presets available; QUALITY 60 misses 60 fps on the tested M4 Pro", "partly: three presets of their own"]
 
 [[platform]]
 feature = "HDR"
@@ -166,7 +166,7 @@ cells = [
   "yes",
   "partly: offered when the driver has an HDR swapchain; not tested",
   "partly: offered when the driver has an HDR swapchain; not tested",
-  "partly: HDR10 on displays that report it; tested on the Odin 2 Portal",
+  "partly: HDR10 checked on the Odin 2 Portal; Astra calibration unqualified",
 ]
 
 [[platform]]
@@ -200,9 +200,14 @@ link = "modding.md"
 cells = ["yes", "yes", "yes", "partly: DXT texture replacements need a GPU with BC formats ([#516](https://github.com/arcanite24/pinyon-shift/issues/516))"]
 
 [[platform]]
-feature = "Traffic and showcase cars"
+feature = "Frame inspector"
+link = "modding.md#frame-inspector"
+  cells = ["partly: desktop Vulkan; color, resolve-source previews and replay diagnostics", "partly: desktop Vulkan implementation; device qualification pending", "partly: desktop Vulkan implementation; diagnostic views depend on device capabilities; qualification pending", "n/a"]
+
+[[platform]]
+feature = "Hidden player-car variants"
 link = "playing.md#traffic-and-showcase-cars"
-cells = ["yes", "partly: the same database mod; tried on Windows only", "partly: the same database mod; tried on Windows only", "partly: shared from the PC with its mods; not tried"]
+cells = ["partly: base purchase, reload and driving checked; intro garage entry checked; remaining garage/paint and v4 pending", "partly: the same database mod; not qualified", "partly: the same database mod; not qualified", "partly: shared from the PC with its mods; not qualified"]
 
 [[platform]]
 feature = "Wider photo camera limits"

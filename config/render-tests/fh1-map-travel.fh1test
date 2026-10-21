@@ -1,0 +1,34 @@
+pinyon-shift-fh1-render-test-v1
+# clock-hz 60
+# #485 probe: run with pinyon_shift_cheats=true on a private pinned seed.
+# This exercises the native map confirmation/streaming flow; captures require
+# inspection. One successful process exit does not certify a streamed landing.
+input 0 0000 0 0 0 0 0 0
+input 360 1000 0 0 0 0 0 0
+input 366 0000 0 0 0 0 0 0
+input 480 1000 0 0 0 0 0 0
+input 486 0000 0 0 0 0 0 0
+input 600 1000 0 0 0 0 0 0
+input 606 0000 0 0 0 0 0 0
+input 720 1000 0 0 0 0 0 0
+input 726 0000 0 0 0 0 0 0
+wait 960 3600 freeroam
+capture 1200 free-roam
+cvar 1220 cheat_fast_travel_anywhere true
+input 1260 0020 0 0 0 0 0 0
+input 1290 0000 0 0 0 0 0 0
+input 1380 0000 0 0 16000 10000 0 0
+input 1440 0000 0 0 0 0 0 0
+capture 1500 chosen-road
+input 1560 4000 0 0 0 0 0 0
+input 1590 0000 0 0 0 0 0 0
+capture 1620 confirmation
+input 1680 1000 0 0 0 0 0 0
+input 1710 0000 0 0 0 0 0 0
+capture 1800 travel
+capture 2400 landing
+input 2460 0000 0 255 0 0 0 0
+wait 2580 1200 vehicle-moved 3
+capture 2640 driving
+input 2700 0000 0 0 0 0 0 0
+stop 2760

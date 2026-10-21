@@ -1,0 +1,82 @@
+pinyon-shift-fh1-render-test-v1
+# clock-hz 60
+# Fixture: pinned private painted-MX5 state produced by fh1-livery-save.
+# Reload, enter Design Creator without editing, return to the world and travel to Race Central.
+# Use the 30 fps cap and inspect the captures; see the livery investigation.
+input 0 0000 0 0 0 0 0 0
+input 360 1000 0 0 0 0 0 0
+input 366 0000 0 0 0 0 0 0
+input 480 1000 0 0 0 0 0 0
+input 486 0000 0 0 0 0 0 0
+input 600 1000 0 0 0 0 0 0
+input 606 0000 0 0 0 0 0 0
+input 720 1000 0 0 0 0 0 0
+input 726 0000 0 0 0 0 0 0
+input 780 0000 0 0 0 0 0 0
+input 930 0000 0 0 0 0 0 0
+capture 1400 world
+input 1440 0020 0 0 0 0 0 0
+input 1446 0000 0 0 0 0 0 0
+capture 1580 map
+input 1660 0000 0 0 -32767 0 0 0
+input 1664 0000 0 0 0 0 0 0
+capture 1720 option-left-down
+input 1800 4000 0 0 0 0 0 0
+input 1806 0000 0 0 0 0 0 0
+capture 1860 travel-prompt
+input 1920 1000 0 0 0 0 0 0
+input 1926 0000 0 0 0 0 0 0
+capture 2640 at-paint
+input 2700 4000 0 0 0 0 0 0
+input 2706 0000 0 0 0 0 0 0
+capture 3180 paint-menu
+input 3300 1000 0 0 0 0 0 0
+input 3306 0000 0 0 0 0 0 0
+capture 3780 first-option
+input 3900 2000 0 0 0 0 0 0
+input 3906 0000 0 0 0 0 0 0
+input 4140 2000 0 0 0 0 0 0
+input 4146 0000 0 0 0 0 0 0
+capture 4260 exit-prompt
+input 4380 1000 0 0 0 0 0 0
+input 4386 0000 0 0 0 0 0 0
+capture 5100 world-after
+input 5280 0000 0 128 0 0 0 0
+input 5700 0000 0 0 0 0 0 0
+capture 5880 world-road
+input 5940 0020 0 0 0 0 0 0
+input 5946 0000 0 0 0 0 0 0
+capture 6080 map-travel
+input 6160 0000 0 0 32767 0 0 0
+input 6164 0000 0 0 0 0 0 0
+capture 6220 travel-destination
+input 6300 4000 0 0 0 0 0 0
+input 6306 0000 0 0 0 0 0 0
+capture 6360 travel-prompt
+input 6420 1000 0 0 0 0 0 0
+input 6426 0000 0 0 0 0 0 0
+capture 7140 after-travel
+input 7320 0000 0 128 0 0 0 0
+input 7740 0000 0 0 0 0 0 0
+capture 7920 after-travel-road
+input 8100 0000 0 0 0 0 32767 0
+capture 8220 world-look-right
+input 8226 0000 0 0 0 0 0 0
+input 8460 0000 0 0 0 0 -32767 0
+capture 8580 world-look-left
+input 8586 0000 0 0 0 0 0 0
+cvar 120 fh1_texture_reload_probe false
+cvar 1000 pinyon_shift_fh1_render_fps_limit 30
+cvar 1300 fh1_texture_reload_probe true
+cvar 1306 fh1_texture_reload_probe false
+cvar 3260 fh1_texture_reload_probe true
+cvar 3266 fh1_texture_reload_probe false
+cvar 3360 fh1_texture_reload_probe true
+cvar 3366 fh1_texture_reload_probe false
+cvar 4500 fh1_texture_reload_probe true
+cvar 4506 fh1_texture_reload_probe false
+cvar 5500 fh1_texture_reload_probe true
+cvar 5506 fh1_texture_reload_probe false
+cvar 7200 fh1_texture_reload_probe true
+cvar 7206 fh1_texture_reload_probe false
+stop 8640

@@ -29,7 +29,7 @@ class ConfigRepairTests(unittest.TestCase):
         app = read("src/pinyon_shift_app.cpp")
         check = app[app.index("bool EnsureSupportedConfig("):]
         missing = check[check.index("if (!std::regex_search(config_text, match, schema_pattern)"):]
-        missing = missing[:missing.index("  try {")]
+        missing = missing[:missing.index("    const uint32_t schema")]
         self.assertIn('".noschema.bak"', missing)
         self.assertIn("WriteAtomically(path, repaired)", missing)
         self.assertIn("migrated = true;", missing)
