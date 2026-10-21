@@ -452,6 +452,7 @@
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="1.3*"/>
@@ -507,7 +508,27 @@
                                      Text=" · Every discount sign and barn find on the map. Once applied, it stays with that save."/>
                             </TextBlock>
                         </CheckBox>
-                        <DockPanel Grid.Row="5" Grid.ColumnSpan="5" Margin="0,22,0,0">
+                        <!-- FB-12.15: start the game in a VR headset (xr_enabled), at a render
+                             size of its own, as the headset's eye favours rows over columns. -->
+                        <DockPanel Grid.Row="5" Grid.ColumnSpan="5" Margin="0,16,0,0">
+                            <ComboBox DockPanel.Dock="Right" x:Name="VrScaleComboBox" Width="240"
+                                      VerticalAlignment="Center" Margin="16,0,0,0" SelectedIndex="0"
+                                      IsEnabled="False" AutomationProperties.Name="VR render size"
+                                      SelectionChanged="GraphicsChoice_SelectionChanged">
+                                <ComboBoxItem Tag="2x4">2×4 · recommended (100 Hz)</ComboBoxItem>
+                                <ComboBoxItem Tag="2x3">2×3 · lighter (120 Hz)</ComboBoxItem>
+                                <ComboBoxItem Tag="3x3">3×3</ComboBoxItem>
+                            </ComboBox>
+                            <CheckBox x:Name="VrCheckBox" FontFamily="Bahnschrift" FontSize="13"
+                                      VerticalAlignment="Center" AutomationProperties.Name="VR headset"
+                                      Checked="VrCheckBox_Changed" Unchecked="VrCheckBox_Changed">
+                                <TextBlock TextWrapping="Wrap" Foreground="{StaticResource FogBrush}">
+                                    <Run Text="VR headset (experimental)"/><Run Foreground="{StaticResource MutedBrush}"
+                                         Text=" · Starts the game in the headset of a running Virtual Desktop, SteamVR or Meta Link: the cockpit and hood cameras in 3D, base game only."/>
+                                </TextBlock>
+                            </CheckBox>
+                        </DockPanel>
+                        <DockPanel Grid.Row="6" Grid.ColumnSpan="5" Margin="0,22,0,0">
                             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
                                 <Button x:Name="RestoreGraphicsButton" Content="Restore backup" Style="{StaticResource LinkButton}"
                                         VerticalAlignment="Center" Click="RestoreGraphicsButton_Click"/>
