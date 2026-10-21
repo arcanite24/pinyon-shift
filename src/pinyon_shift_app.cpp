@@ -1263,24 +1263,25 @@ void PinyonShiftApp::OnPostSetup() {
                         "VR: make where your head is now the driver's seat",
                         [] { rex::ui::vulkan::openxr::Recenter(); });
   // In VR the headset takes its own copy of every frame and the window is a
-  // mirror: presenting it every other frame stops its present call holding
-  // up the submission thread (on a Quest 3 at 2x, 54 to 63 eye pairs a
-  // second). A value set in the config or on the command line wins.
+  // mirror: presenting it on one frame in eight keeps its present call (about
+  // 2.5 ms of the GPU-bound frame at 3x) off the others (simulated stereo at
+  // 3x, visible window: 124 fps every other frame, 134 one in eight). A value
+  // set in the config or on the command line wins.
   if (rex::cvar::GetFlagByName("xr_enabled") == "true" &&
       rex::cvar::GetFlagSource("present_window_interval") == rex::cvar::Source::kDefault) {
-    rex::cvar::SetFlagByName("present_window_interval", "2");
+    rex::cvar::SetFlagByName("present_window_interval", "8");
     pinyon_shift::diagnostics::RecordEvent("present.window_interval",
-                                           {{"interval", "2"}, {"reason", "vr_default"}});
+                                           {{"interval", "8"}, {"reason", "vr_default"}});
   }
   // For comparing in the headset: not saved, the config's value returns on
   // the next launch.
   rex::ui::RegisterBind("bind_window_interval", pinyon_shift::config::kWindowIntervalKeys,
-                        "VR: present the desktop window every frame or every other frame",
+                        "VR: present the desktop window every frame or one frame in eight",
                         [] {
     const bool every = rex::cvar::GetFlagByName("present_window_interval") != "1";
-    rex::cvar::SetFlagByName("present_window_interval", every ? "1" : "2");
+    rex::cvar::SetFlagByName("present_window_interval", every ? "1" : "8");
     pinyon_shift::diagnostics::RecordEvent("present.window_interval",
-                                           {{"interval", every ? "1" : "2"}});
+                                           {{"interval", every ? "1" : "8"}});
   });
 #endif
   rex::ui::RegisterBind("bind_music_next", pinyon_shift::config::kMusicNextKeys,
