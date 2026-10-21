@@ -196,6 +196,10 @@ writers before treating a settings edit as a live control. Preserve the
 loaded baseline so resetting retains another mod's tuning. See
 [Collision and cameras](game-world.md#collision-and-cameras).
 
+## Count what reaches the display
+
+In VR the game's frame rate and the headset's frame rate both looked healthy while the image juddered. The number that mattered was the new eye pairs the headset received a second, against the pairs the game made: at 3x the game made 55-63 a second and the headset showed 35-48, because a pair still being copied on the GPU was overwritten by the next one before it was shown (three slots were too few once a pair took longer than a pair interval to finish). Virtual Desktop's overlay showed about 70 fps throughout, counting the headset's own frames, repeats included. Log made against shown, by time window, before judging a pacing change: a change that made the game faster had made it feel worse.
+
 ## What didn't pay off here
 
 Negative results, so they aren't retried without a new reason:
