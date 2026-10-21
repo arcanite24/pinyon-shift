@@ -21,8 +21,8 @@
 #include "pinyon_shift_diagnostics.h"
 
 REXCVAR_DEFINE_BOOL(telemetry_udp, false, "Telemetry",
-                    "Send the player car's telemetry over UDP in Forza Motorsport 7's Data Out "
-                    "Dash layout, for SimHub, dashboards and motion software")
+                    "Send the player car's telemetry over UDP in Forza's Data Out layout "
+                    "(telemetry_udp_format), for SimHub, dashboards and motion software")
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
 REXCVAR_DEFINE_STRING(telemetry_udp_format, "fm7", "Telemetry",
                       "Packet layout: fm7 (Forza Motorsport 7 Dash, 311 bytes) or horizon "
@@ -104,7 +104,8 @@ bool Open(const std::string& target) {
     return false;
   }
   g_failed = false;
-  REXLOG_INFO("Telemetry: sending Forza Data Out (Dash) packets to {}", target);
+  REXLOG_INFO("Telemetry: sending Forza Data Out packets ({}) to {}",
+              REXCVAR_GET(telemetry_udp_format), target);
   diagnostics::RecordEvent("telemetry.udp.open", {{"target", target}});
   return true;
 }
