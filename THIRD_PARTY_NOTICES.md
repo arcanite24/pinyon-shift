@@ -31,3 +31,7 @@ and checked by SHA-256, are staged beside the game in
 The Vulkan shader-mod loader statically links the SDK's pinned
 [SPIRV-Tools](https://github.com/KhronosGroup/SPIRV-Tools) validator
 (Apache License 2.0, in `thirdparty/shiftglue-sdk/thirdparty/spirv-tools/LICENSE`).
+
+The launcher's racing wheel screen loads `SDL3.dll`, built from the SDK's
+pinned [SDL](https://github.com/libsdl-org/SDL) source (zlib License, in
+`thirdparty/shiftglue-sdk/thirdparty/sdl3/LICENSE.txt`).
