@@ -6060,12 +6060,12 @@ constexpr uint32_t kWheels = 3936;           // four 1024-byte wheel blocks
 constexpr uint32_t kWheelStride = 1024;
 constexpr uint32_t kWheelSpeed = 12;         // f32 rad/s
 constexpr uint32_t kWheelSlip = 496;         // f32 smoothed slip, 1.0 = peak grip
-// f32 smoothed slip angle over the tyre's peak (pinyon-shift #605).
+// f32 smoothed slip angle over the tyre's peak (wheel.norm_slip_angle).
 constexpr uint32_t kWheelSlipAngle = 520;
 constexpr uint32_t kWheelContact = 796;      // u8
 // The car's controls as the game built them from the player's input
-// (sub_82487650, pinyon-shift #605): f32 gas, brake, steer (-1 to 1),
-// clutch and handbrake.
+// (dynamics.controls, built by sub_82487650): f32 gas, brake, steer (-1 to
+// 1), clutch and handbrake. Same offsets in v4.
 constexpr uint32_t kControls = 3904;
 constexpr uint32_t kControlGas = 0;
 constexpr uint32_t kControlBrake = 4;
@@ -6079,8 +6079,8 @@ constexpr uint32_t kWheelSuspension = 0;
 constexpr uint32_t kWheelSuspensionRest = 860;
 // The car's three collision pulses and two scripted motor adds, which the
 // rumble builder sub_8248AB08 reads and then clears each frame
-// (site/findings/ui.toml, rumble output).
-constexpr uint32_t kCarRumbleInputs = 14664;
+// (site/findings/ui.toml, rumble output). v4 adds a word before them.
+constexpr uint32_t kCarRumbleInputs = pinyon_shift::fh1::kTitleUpdateV4 ? 14668 : 14664;
 // The pad's rumble as 0-1 floats ([0x834398E0] + 16 + 5648 * pad): the low
 // (bumps, kerbs, impacts) motor at +696, the high (engine) motor at +700.
 constexpr uint32_t kPadStride = 5648;
@@ -6090,6 +6090,15 @@ constexpr float kRadPerSecToRpm = 9.5492966f;
 // The car's driver type, 0 for the player's car (same offset in v4).
 constexpr uint32_t kDriverType = 11728;
 }  // namespace car_dynamics
+
+// The last telemetry sample's simulation values and since when they held,
+// for the stopped-simulation check (guest task thread only).
+struct TelemetryStill {
+  bool valid = false;
+  std::array<float, 10> values{};
+  std::chrono::steady_clock::time_point since{};
+};
+static TelemetryStill g_telemetry_still;
 
 static void QueueCarTelemetry() {
   namespace ds = rex::input::dualsense;
@@ -6121,6 +6130,7 @@ static void QueueCarTelemetry() {
     const bool log = REXCVAR_GET(pad_ds_log_telemetry) && ++log_frames >= 30;
     if (log) log_frames = 0;
     if (!player) {
+      g_telemetry_still = {};
       // Telemetry out (#481) says there is no car, as the game's own
       // Data Out does in menus.
       pinyon_shift::telemetry::Send({});
@@ -6211,17 +6221,20 @@ static void QueueCarTelemetry() {
     // gameplay view, so the car is still "driving" above. The simulation is
     // stopped there: engine, wheels and suspension hold exactly the same
     // values, where a running car, even idling, never does. After half a
-    // second of that, telemetry says the race is off, as the game's own Data
-    // Out does in menus.
-    static std::array<float, 10> still_values{};
-    static uint32_t still_frames = 0;
+    // second of that (timed, so it holds at any frame rate), telemetry says
+    // the race is off, as the game's own Data Out does in menus.
     const std::array<float, 10> values = {
         sample.rpm, sample.speed_mps, sample.wheel_speed_rad_s[0], sample.wheel_speed_rad_s[1],
         sample.wheel_speed_rad_s[2], sample.wheel_speed_rad_s[3], sample.suspension_m[0],
         sample.suspension_m[1], sample.suspension_m[2], sample.suspension_m[3]};
-    still_frames = values == still_values ? still_frames + 1 : 0;
-    still_values = values;
-    if (still_frames >= 30) sample.driving = false;
+    const auto now = std::chrono::steady_clock::now();
+    auto& still = g_telemetry_still;
+    if (!still.valid || values != still.values) {
+      still.valid = true;
+      still.values = values;
+      still.since = now;
+    }
+    if (now - still.since >= std::chrono::milliseconds(500)) sample.driving = false;
     if (pinyon_shift::telemetry::MovingOnly() && std::fabs(sample.speed_mps) < 0.5f) {
       sample.driving = false;
     }
