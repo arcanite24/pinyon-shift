@@ -100,6 +100,12 @@ reference_functions = [0x82D77DF0, 0x82D79570, 0x82D7BA80, 0x82D7C4E0,
     0x82DD1890, 0x82DD4248, 0x82DDF430, 0x82DE29A0, 0x82DE3D10, 0x82DE5018,
     0x82DF11A0, 0x82DF2500, 0x82DF9CF8, 0x82DFB280, 0x82DFC430, 0x82E0A610,
     0x82EEF5B8]
+# Region oracle (#749): the root and every function it reaches are emitted
+# twice more as logged copies, compared with the PowerPC interpreter on
+oracle_regions = [0x82DE3058, 0x82DFC570]
+# Native region pilot (#750): the root's region also as inline copies on
+# one local context, run with pinyon_shift_native_region.
+native_regions = [0x82DE3058]
 
 # Lockstep verify (NL-0.2): every 40th leaf function is also emitted as a
 # reference copy with every register in ctx and no folding; with
@@ -1061,6 +1067,31 @@ after_instruction = true
 address = 0x82D2EC30
 name = "PinyonShiftTraceRetainSourceSlot"
 registers = ["r3", "r4", "r26", "r27", "r29", "r31"]
+
+# NA-2.4 pilot (issue #753): the procedural models' calls into their list
+# runner 0x82447010 (base 0x82418A24 and 0x82418EC8) and the runner's entry
+# (base 0x82416A00, D3DDevice_RunCommandBuffer): the lists they run are drawn
+# from owned draw programs (src/native_renderer/d3d_program.cpp).
+[[midasm_hook]]
+address = 0x824489D4
+name = "PinyonShiftD3dProgramOwnerEnter0"
+
+[[midasm_hook]]
+address = 0x824489D8
+name = "PinyonShiftD3dProgramOwnerLeave0"
+
+[[midasm_hook]]
+address = 0x82448E78
+name = "PinyonShiftD3dProgramOwnerEnter1"
+
+[[midasm_hook]]
+address = 0x82448E7C
+name = "PinyonShiftD3dProgramOwnerLeave1"
+
+[[midasm_hook]]
+address = 0x824469B0
+name = "PinyonShiftD3dProgramRunCommandBuffer"
+registers = ["r4"]
 
 # Six adjacent compiler-generated adjustment/thunk functions. ReXGlue's gap
 # fill initially coalesces most of this range into one function.

@@ -120,6 +120,25 @@ std::string Upper(std::string text) {
   return text;
 }
 
+std::string Lower(std::string text) {
+  std::transform(text.begin(), text.end(), text.begin(),
+                 [](unsigned char c) { return char(std::tolower(c)); });
+  return text;
+}
+
+// present_effect values the presenter runs through a temporal upscaler
+// provider; it falls back to FSR 1 when the provider can't run.
+bool IsTemporalEffect(std::string_view effect) {
+  return SameValue(effect, "fsr2") || SameValue(effect, "fsr3") || SameValue(effect, "dlss");
+}
+
+std::string TemporalUpscalerLabel(std::string_view id) {
+  return SameValue(id, "fsr2")   ? "FSR 2"
+         : SameValue(id, "fsr3") ? "FSR 3"
+         : SameValue(id, "dlss") ? "DLSS"
+                                 : Upper(std::string(id));
+}
+
 // Screens of one opening of the menu. The root screen's rows own the pages
 // (every other screen sits above the root on the host UI's stack), so each
 // function here may capture `this`.
@@ -158,6 +177,14 @@ class SettingsPages : public std::enable_shared_from_this<SettingsPages> {
   // What the renderer draws and what reaches the window, for the display
   // and graphics pages' notes.
   std::string ResolutionLine() const;
+  // Whether the presenter lists this temporal upscaler as able to run.
+  bool TemporalUpscalerAvailable(std::string_view id) const {
+    if (!services_.upscalers) return false;
+    for (const rex::ui::UpscalerInfo& info : services_.upscalers()) {
+      if (SameValue(info.id, id)) return info.available;
+    }
+    return false;
+  }
   MenuRow Page(std::string label, std::unique_ptr<MenuScreen> (SettingsPages::*page)());
   std::function<std::string()> RestartNote(std::vector<MenuRow>& rows);
   void Save();
@@ -333,8 +360,15 @@ std::string SettingsPages::ResolutionLine() const {
                          : SameValue(effect, "fsr3") ? ", FSR 3 UPSCALES TO "
                          : SameValue(effect, "dlss") ? ", DLSS UPSCALES TO "
                                                      : ", STRETCHED TO ";
+  // A temporal upscaler the build lacks or whose runtime didn't load runs
+  // as FSR 1 (#762): say so instead of naming the one that was chosen.
+  std::string unavailable;
+  if (IsTemporalEffect(effect) && !TemporalUpscalerAvailable(effect)) {
+    upscaler = ", FSR 1 UPSCALES TO ";
+    unavailable = " (" + TemporalUpscalerLabel(effect) + " UNAVAILABLE)";
+  }
   if (output_width * output_height > render_width * render_height) {
-    return line + upscaler + size(output_width, output_height);
+    return line + upscaler + size(output_width, output_height) + unavailable;
   }
   return line + ", DOWNSCALED TO " + size(output_width, output_height);
 }
@@ -442,17 +476,22 @@ std::unique_ptr<MenuScreen> SettingsPages::Display() {
     // version order (FSR 2 before FSR 3).
     std::stable_sort(upscalers.begin(), upscalers.end(),
                      [](const auto& a, const auto& b) { return a.id < b.id; });
+    bool saved_listed = false;
     for (const rex::ui::UpscalerInfo& info : upscalers) {
       if (info.kind != rex::ui::UpscalerKind::kTemporal ||
           (!info.available && !SameValue(saved_effect, info.id))) {
         continue;
       }
-      std::string label = info.id == "fsr2"   ? "FSR 2"
-                          : info.id == "fsr3" ? "FSR 3"
-                          : info.id == "dlss" ? "DLSS"
-                                              : Upper(info.id);
+      saved_listed = saved_listed || SameValue(saved_effect, info.id);
+      std::string label = TemporalUpscalerLabel(info.id);
       if (!info.available) label += " (UNAVAILABLE)";
       scaling.push_back({label, {{"present_effect", "\"" + info.id + "\""}}});
+    }
+    // Set in the launcher or the config for a build without it (DLSS on
+    // Linux and macOS): still show the setting, as unavailable.
+    if (IsTemporalEffect(saved_effect) && !saved_listed) {
+      scaling.push_back({TemporalUpscalerLabel(saved_effect) + " (UNAVAILABLE)",
+                         {{"present_effect", "\"" + Lower(saved_effect) + "\""}}});
     }
     rows.push_back(Setting("OUTPUT SCALING", std::move(scaling)));
   }
@@ -918,8 +957,11 @@ std::unique_ptr<MenuScreen> SettingsPages::Graphics() {
                           {"FXAA EXTREME", {{"swap_post_effect", "\"fxaa_extreme\""}}}}));
   // The sun's shadows: off drops the shadow maps, a depth pre-pass and the
   // screen's shadow mask (about 6 ms a frame on the Odin 2 Portal) and
-  // lights everything. Applies on the next frame.
-  rows.push_back(Toggle("SHADOWS", "pinyon_shift_fh1_shadows"));
+  // lights everything. Applies on the next frame, and only by day: from
+  // 18:50 to 08:02 the same passes light the road for the headlights, so
+  // the choice says so (#733).
+  rows.push_back(Setting("SHADOWS", {{"OFF BY DAY", {{"pinyon_shift_fh1_shadows", "false"}}},
+                                     {"ON", {{"pinyon_shift_fh1_shadows", "true"}}}}));
   // How often the dynamic cubemap that cars reflect is redrawn.
   rows.push_back(Setting("REFLECTION UPDATES",
                          {{"FULL", {{"pinyon_shift_fh1_env_map_rate", "1"}}},

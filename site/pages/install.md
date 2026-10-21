@@ -66,7 +66,7 @@ PinyonShift\
 
 ![The launcher's Settings panel: Vulkan, internal resolution, output scaling and the Treasure Map toggle](img/launcher-settings.png)
 
-**Settings** sets the internal resolution and the output scaling (bilinear, CAS, FSR 1, or FSR 2 and FSR 3 when their runtime is installed; Linux, macOS and Android builds include it), and shows the resulting resolutions. It also has the Treasure Map toggle. **This PC** lists the GPU, its memory, the CPU cores and the display's refresh rate, and recommends an in-game preset. Everything else is in the [in-game settings](playing.md).
+**Settings** sets the internal resolution and the output scaling (bilinear, CAS, FSR 1, FSR 2, FSR 3, and on Windows NVIDIA DLSS for RTX GPUs; setup downloads or builds their runtimes, so there is nothing to install by hand), and shows the resulting resolutions. It also has the Treasure Map toggle. **This PC** lists the GPU, its memory, the CPU cores and the display's refresh rate, and recommends an in-game preset. Everything else is in the [in-game settings](playing.md).
 
 ## Uninstall
 

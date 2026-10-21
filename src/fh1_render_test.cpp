@@ -1283,6 +1283,7 @@ bool ObserveOutput(
     g_test.stopping = true;
     guest_native::RecordSummary();
     guest_native::reference::RecordSummary();
+    guest_native::region_oracle::RecordSummary();
     // Probe build: the process hard-exits when the title ends, and the
     // runtime library has its own copy of the probe state, so write here.
     if (rex::ppc::ProbeActive()) {

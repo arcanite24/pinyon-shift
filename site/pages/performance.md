@@ -35,7 +35,7 @@ At a 60 fps limit, 2x with MSAA holds a 16.66 ms median (p95 17.04 ms).
 
 ## The title update build
 
-The v4 build players use for Rally and the 1000 Club, with a player's settings: 2x internal resolution, shadows, DLSS to a 3840 × 2160 window, no frame limit and no vsync. The route is a 90-second open-world drive from a pinned save, run on a wall clock so it plays the same at any frame rate; the last 60 seconds are measured. The game paces its steps to the display's 120 Hz, so every build's median is 8.33 ms and the differences show in CPU time and the slow frames. Four interleaved runs a build (October 2026).
+The v4 build players use for Rally and the 1000 Club, with a player's settings: 2x internal resolution, shadows, DLSS to a 3840 × 2160 window, no frame limit and no vsync. The route loads a pinned save into the open world and stands at the Gauntlet's start with traffic passing, for 90 seconds on a wall clock so it plays the same at any frame rate; the last 60 seconds are measured. The game paces its steps to the display's 120 Hz, so every build's median is 8.33 ms and the differences show in CPU time and the slow frames. Four interleaved runs a build (October 2026).
 
 | v4 build | p95 | p99 | Process CPU a frame | Title thread | GPU decoder | GPU recorder |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |

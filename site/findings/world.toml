@@ -35,6 +35,15 @@ source = """docs/REVERSE_ENGINEERING.md@a72a92a5f215 World detail"""
 
 [[finding]]
 group = """Track data and scenery visibility"""
+name = """main-scene draws that pass no samples"""
+what = """After the game's own culling (PVS zones and its culling frustum), many of the main scene's draws contribute nothing. In a race drive 48 % of the depth-writing draws on multivac (1,400 a frame) and 60-70 % on the Odin (1,350 a frame) passed no samples, with 42 % and 40-67 % of their vertices; the shadow depth pass on multivac showed 38 %. With the depth test off, 17 % (multivac) and 15-31 % (Odin) still passed none: those are off screen, back-facing or discard every pixel, and the rest are occluded by geometry drawn earlier in the frame."""
+how = """Census probe `fh1_visibility_census`: a host occlusion query around every draw of one frame in eight or twenty, by rendering and depth mode; `fh1_visibility_census_no_depth` repeats it with the depth test off. Route frame-base (v4, seed i617), multivac with untiled rendering and the Odin, differences of cumulative census windows over the drive."""
+confidence = """confirmed"""
+note = """Queries count in draw order, so a draw covered only by later geometry counts as visible: the hidden share is a lower bound. Dropping every such draw (`fh1_visibility_oracle_skip`, renders wrong) saved 2.2-3.2 ms of the Odin's main-pass GPU time and 1.2-1.8 ms of process CPU a frame; dropping only the ones that pass no samples without the depth test saved 0.6-1.4 ms of GPU time (issue #784, see GPU optimizations)."""
+source = """docs/D3D_RENDERER_RESEARCH.md Progress (#784); issue #784"""
+
+[[finding]]
+group = """Track data and scenery visibility"""
 name = """static world draw routes"""
 what = """In the tested festival scene the track's world geometry came through indirect track scopes, while the direct unified-mesh route was dormant, and the `SimpleModel` static population carried null resources. Draw constants and transforms did not match the 24,025-entry authored spatial catalog under any bounded interpretation tried."""
 how = """Track and static-world draw traces joined to prepared draws; transform matching experiments."""

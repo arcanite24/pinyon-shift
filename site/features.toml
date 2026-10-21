@@ -16,7 +16,7 @@ platforms = ["Windows", "Linux and Steam Deck", "macOS", "Android"]
 feature = "Resolution"
 link = "playing.md#graphics-presets"
 xbox = "1280 × 720"
-pinyon = "1x to 4x internal resolution; bilinear, CAS or FSR 1 output scaling, temporal FSR 2 and 3 (built in on Linux, macOS and Android, with the FidelityFX runtime on Windows); ultrawide with a 16:9 HUD"
+pinyon = "1x to 4x internal resolution; bilinear, CAS or FSR 1 output scaling, temporal FSR 2 and 3 everywhere and NVIDIA DLSS on Windows RTX GPUs, set up without player downloads; ultrawide with a 16:9 HUD"
 
 [[original]]
 feature = "Frame rate"

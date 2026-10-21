@@ -379,6 +379,17 @@ source = """docs/PERFORMANCE_BACKLOG.md PB-3.1, PB-3.12 candidates"""
 
 [[finding]]
 group = """Hot functions"""
+v4 = """sub_82E10560, sub_82E100B0, sub_82E08FF8, sub_82DFC608, sub_82DFC570"""
+name = """car physics call chain"""
+what = """On the v4 drive the car physics runs on the main thread (`825CEC88`) and on a job worker (`82CCC368`) through `sub_82E10560` (main thread only, 2.6 % of process cycles inclusive), `sub_82E100B0`, `sub_82E08FF8` (1.4 % + 1.2 %), `sub_82DFC608` (1.4 % + 1.2 %) and `sub_82DFC570` (1.1 % + 1.0 %), the parent of six of the specialised physics functions; the earlier native-region root `sub_82DE3058` is under 0.3 %. `sub_82DFC570` reaches 77 functions, runs about 46 times a frame and takes about 20 µs a call on the Odin."""
+how = """`simpleperf --call-graph fp` inclusive report on the Odin, 30 s of the v4 drive; call counts and per-call time from the native-region A/B timer."""
+confidence = """probable"""
+note = """The chain's order and shares are measured; that these are the car-physics step rests on the specialised physics functions below them (NN-5.1)."""
+issue = """#756"""
+source = """site/pages/recompiler.md Native regions"""
+
+[[finding]]
+group = """Hot functions"""
 base = """sub_825A6208, sub_82450160, sub_823ED888, sub_823E40D8"""
 name = """render and simulation call chains"""
 what = """In race call graphs the render thread's time runs through `sub_825A6208`, then the render thread frame `sub_8259F3E8`, then `sub_82450160`; the simulation thread's runs through `sub_823ED888`, then `sub_823E40D8`. The roles of `sub_82450160` and `sub_823E40D8` are not known."""

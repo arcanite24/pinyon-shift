@@ -56,7 +56,8 @@ are planned in [UPSCALING_BACKLOG.md](UPSCALING_BACKLOG.md). Their
 licences were read on 2026-10-16 (UP-0.1). The policy:
 
 - **No vendor binary, header or shader is committed, and no release ships
-  one.** Releases stay source and launcher only.
+  one.** Releases stay source and launcher only; the player's setup fetches
+  what the build needs.
 - **Open-source code is fetched at setup and built locally**, like the other
   setup downloads in `THIRD_PARTY_NOTICES.md`: FSR 1-3 and the FidelityFX
   SDK 1.1.x source (MIT), NVIDIA Image Scaling (MIT), Arm ASR (MIT) and
@@ -67,19 +68,22 @@ licences were read on 2026-10-16 (UP-0.1). The policy:
   reverse engineering) and XeSS (Intel Simplified Software License:
   unmodified binaries with the notice; no reverse engineering, no use of
   Intel's name to endorse). XeSS's public headers are MIT since 2026-09.
-- **DLSS (the NVIDIA RTX SDK licence) is opt-in.** That licence lets an
-  application distribute the SDK only as object code inside it. It forbids
-  using the SDK in a way that subjects it to an open-source licence (§4(e)).
-  It requires NVIDIA's marks on the splash screen, about box and credits
-  of an application that incorporates DLSS or NGX, and each use of those
-  marks needs NVIDIA's written approval. It also asks for notice to NVIDIA
-  before a *commercial* release. So the DLSS SDK is never committed, and
-  the player's setup downloads it only after the player accepts NVIDIA's
-  licence. The NGX static library is linked into the player's own build.
-  The game also loads `nvngx_dlss*.dll` from a folder the player fills
-  (NGX's documented `PathListInfo` search path), so any DLSS version the
-  player supplies works. DLSS stays off in releases until NVIDIA answers
-  the questions in UP-0.1 (contact: `nvidia-rtx-license-questions@nvidia.com`).
+- **DLSS (the NVIDIA RTX SDK licence) ships with the Windows build, with
+  NVIDIA's approval (2026-10-20).** That licence lets an application
+  distribute the SDK only as object code inside it, on terms at least as
+  protective as NVIDIA's. It forbids using the SDK in a way that subjects it
+  to an open-source licence (§4(e)), and it asks for attribution with
+  NVIDIA's marks on the splash screen, about box and credits of an
+  application that incorporates DLSS or NGX. So the DLSS SDK is still never
+  committed: the player's setup downloads the NGX headers, the static
+  loader and `nvngx_dlss.dll` from the pinned `github.com/NVIDIA/DLSS`
+  commit, checked by SHA-256 (`thirdparty/shiftglue-sdk/cmake/rexglue_dlss.cmake`),
+  links the loader into the player's own build and stages the DLL with
+  NVIDIA's `LICENSE.txt` in `upscalers/dlss/<version>/`. The launcher
+  names it "NVIDIA DLSS" and `THIRD_PARTY_NOTICES.md` attributes it. The
+  game also loads `nvngx_dlss*.dll` from a newer version folder the player
+  adds there (NGX's documented `PathListInfo` search path). Contact for
+  licence questions: `nvidia-rtx-license-questions@nvidia.com`.
 - **`Lossless.dll` is never downloaded, copied or redistributed** by the
   project. Lossless Scaling is a paid Steam application. Its frame
   generation may be used in two ways only:
