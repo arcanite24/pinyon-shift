@@ -71,6 +71,7 @@
 #include "save/live_profile.h"
 #include "save/profile_body.h"
 #include "telemetry/telemetry_out.h"
+#include "telemetry/telemetry_probe.h"
 #include "ui/fh1_ui_api.h"
 #include "ui/ui_strings.h"
 
@@ -6062,18 +6063,54 @@ namespace car_dynamics {
 constexpr uint32_t kInterface = 0x2D90;      // CCar -> ICarDynamics
 constexpr uint32_t kEngineSpeed = 324;       // f32 rad/s
 constexpr uint32_t kRedline = 452;           // f32 rad/s
+constexpr uint32_t kIdle = 1228;             // f32 rad/s
 constexpr uint32_t kGear = 2240;             // u8: 0 reverse, 1-8, 9 neutral
 constexpr uint32_t kAbsActive = 3020;        // s32, rewritten every step
 constexpr uint32_t kAbsAssist = 3436;        // the ABS assist setting
 constexpr uint32_t kSpeed = 3128;            // f32 m/s
 constexpr uint32_t kWheels = 3936;           // four 1024-byte wheel blocks
 constexpr uint32_t kWheelStride = 1024;
+constexpr uint32_t kWheelSpeed = 12;         // f32 rad/s
 constexpr uint32_t kWheelSlip = 496;         // f32 smoothed slip, 1.0 = peak grip
+// f32 smoothed slip angle over the tyre's peak (wheel.norm_slip_angle).
+constexpr uint32_t kWheelSlipAngle = 520;
 constexpr uint32_t kWheelContact = 796;      // u8
+// The car's controls as the game built them from the player's input
+// (dynamics.controls, built by sub_82487650): f32 gas, brake, steer (-1 to
+// 1), clutch and handbrake. Same offsets in v4.
+constexpr uint32_t kControls = 3904;
+constexpr uint32_t kControlGas = 0;
+constexpr uint32_t kControlBrake = 4;
+constexpr uint32_t kControlSteer = 8;
+constexpr uint32_t kControlClutch = 12;
+constexpr uint32_t kControlHandbrake = 16;
+// Suspension (sub_82D2EC70): the wheel's suspension position at wheel +0 and
+// its spring's rest point at +860; the spring force is their difference
+// times the rate at +828, so compression is +0 above +860.
+constexpr uint32_t kWheelSuspension = 0;
+constexpr uint32_t kWheelSuspensionRest = 860;
+// The car's three collision pulses and two scripted motor adds, which the
+// rumble builder sub_8248AB08 reads and then clears each frame
+// (site/findings/ui.toml, rumble output). v4 adds a word before them.
+constexpr uint32_t kCarRumbleInputs = pinyon_shift::fh1::kTitleUpdateV4 ? 14668 : 14664;
+// The pad's rumble as 0-1 floats ([0x834398E0] + 16 + 5648 * pad): the low
+// (bumps, kerbs, impacts) motor at +696, the high (engine) motor at +700.
+constexpr uint32_t kPadStride = 5648;
+constexpr uint32_t kPadRumbleLow = 696;
+constexpr uint32_t kPadRumbleHigh = 700;
 constexpr float kRadPerSecToRpm = 9.5492966f;
 // The car's driver type, 0 for the player's car (same offset in v4).
 constexpr uint32_t kDriverType = 11728;
 }  // namespace car_dynamics
+
+// The last telemetry sample's simulation values and since when they held,
+// for the stopped-simulation check (guest task thread only).
+struct TelemetryStill {
+  bool valid = false;
+  std::array<float, 10> values{};
+  std::chrono::steady_clock::time_point since{};
+};
+static TelemetryStill g_telemetry_still;
 
 static void QueueCarTelemetry() {
   namespace ds = rex::input::dualsense;
@@ -6105,6 +6142,7 @@ static void QueueCarTelemetry() {
     const bool log = REXCVAR_GET(pad_ds_log_telemetry) && ++log_frames >= 30;
     if (log) log_frames = 0;
     if (!player) {
+      g_telemetry_still = {};
       // Telemetry out (#481) says there is no car, as the game's own
       // Data Out does in menus.
       pinyon_shift::telemetry::Send({});
@@ -6147,11 +6185,129 @@ static void QueueCarTelemetry() {
     pinyon_shift::telemetry::CarSample sample;
     sample.driving = !narrow;
     sample.rpm = t.rpm;
+    sample.idle_rpm = LoadGuestF32(dyn + cd::kIdle) * cd::kRadPerSecToRpm;
     sample.redline_rpm = t.redline_rpm;
     sample.gear = t.gear;
     sample.speed_mps = t.speed_mps;
-    for (int w = 0; w < 4; ++w) sample.wheel_slip[w] = direction * slip[w];
+    for (uint32_t w = 0; w < 4; ++w) {
+      const uint32_t wheel = dyn + cd::kWheels + w * cd::kWheelStride;
+      sample.wheel_slip[w] = direction * slip[w];
+      const float angle = LoadGuestF32(wheel + cd::kWheelSlipAngle);
+      sample.wheel_slip_angle[w] =
+          std::isfinite(angle) && LoadGuestU8(wheel + cd::kWheelContact) ? angle : 0.0f;
+      sample.wheel_speed_rad_s[w] = LoadGuestF32(wheel + cd::kWheelSpeed);
+    }
+    const uint32_t controls = dyn + cd::kControls;
+    sample.throttle = LoadGuestF32(controls + cd::kControlGas);
+    sample.brake = LoadGuestF32(controls + cd::kControlBrake);
+    sample.steer = LoadGuestF32(controls + cd::kControlSteer);
+    sample.clutch = LoadGuestF32(controls + cd::kControlClutch);
+    sample.handbrake = LoadGuestF32(controls + cd::kControlHandbrake);
+    // Normalised travel over the range this car has shown, since the
+    // game's travel limits are not traced; reset when the car changes.
+    static uint32_t travel_car = 0;
+    static std::array<float, 4> travel_min{}, travel_max{};
+    if (travel_car != dyn) {
+      travel_car = dyn;
+      travel_min.fill(-0.02f);
+      travel_max.fill(0.02f);
+    }
+    for (uint32_t w = 0; w < 4; ++w) {
+      const uint32_t wheel = dyn + cd::kWheels + w * cd::kWheelStride;
+      const float travel = LoadGuestF32(wheel + cd::kWheelSuspension) -
+                           LoadGuestF32(wheel + cd::kWheelSuspensionRest);
+      if (!std::isfinite(travel)) continue;
+      sample.suspension_m[w] = travel;
+      travel_min[w] = std::min(travel_min[w], travel);
+      travel_max[w] = std::max(travel_max[w], travel);
+      sample.suspension_normalized[w] = (travel - travel_min[w]) / (travel_max[w] - travel_min[w]);
+    }
+    const uint32_t pads = FH1_BASE_ONLY_ADDR(0x834398E0u);
+    const uint32_t pad = pads ? pointer(pads, 16 + cd::kPadStride) : 0;
+    const float rumble_low = pad ? LoadGuestF32(pad + 16 + cd::kPadRumbleLow) : 0.0f;
+    if (std::isfinite(rumble_low)) sample.surface_rumble.fill(std::clamp(rumble_low, 0.0f, 1.0f));
+    // Forward velocity in the car's frame, for tools that take the speed from
+    // the velocity rather than the speed field.
+    sample.velocity_forward_mps = direction * sample.speed_mps;
+    // The pause menu and other screens drawn over the stopped game keep the
+    // gameplay view, so the car is still "driving" above. The simulation is
+    // stopped there: engine, wheels and suspension hold exactly the same
+    // values, where a running car, even idling, never does. After half a
+    // second of that (timed, so it holds at any frame rate), telemetry says
+    // the race is off, as the game's own Data Out does in menus.
+    const std::array<float, 10> values = {
+        sample.rpm, sample.speed_mps, sample.wheel_speed_rad_s[0], sample.wheel_speed_rad_s[1],
+        sample.wheel_speed_rad_s[2], sample.wheel_speed_rad_s[3], sample.suspension_m[0],
+        sample.suspension_m[1], sample.suspension_m[2], sample.suspension_m[3]};
+    const auto now = std::chrono::steady_clock::now();
+    auto& still = g_telemetry_still;
+    if (!still.valid || values != still.values) {
+      still.valid = true;
+      still.values = values;
+      still.since = now;
+    }
+    if (now - still.since >= std::chrono::milliseconds(500)) sample.driving = false;
+    if (pinyon_shift::telemetry::MovingOnly() && std::fabs(sample.speed_mps) < 0.5f) {
+      sample.driving = false;
+    }
     pinyon_shift::telemetry::Send(sample);
+
+    // telemetry_probe: candidate fields to confirm against a drive before
+    // telemetry sends them (suspension geometry, surface, collisions, rumble,
+    // body vectors), and the dynamics block at a slower rate.
+    namespace tp = pinyon_shift::telemetry;
+    if (tp::ProbeFastDue()) {
+      static const std::string header = [] {
+        std::string h = "speed,rpm,gear,throttle,brake,steer";
+        for (int w = 0; w < 4; ++w) {
+          for (const char* f : {"pos0", "rest860", "f864", "f868", "f872", "f876", "f996",
+                                "force676", "arb700", "f716", "surf336", "surf337", "surf338",
+                                "contact796", "wspeed12", "slip496", "angle520"}) {
+            h += fmt::format(",w{}_{}", w, f);
+          }
+        }
+        for (int i = 0; i < 6; ++i) h += fmt::format(",car{}", cd::kCarRumbleInputs + 4 * i);
+        h += ",pad_low,pad_high";
+        for (const uint32_t v : {2832u, 2848u, 2864u, 2880u, 2896u}) {
+          h += fmt::format(",v{0}x,v{0}y,v{0}z", v);
+        }
+        return h;
+      }();
+      std::vector<float> row = {sample.speed_mps, sample.rpm, float(sample.gear), sample.throttle,
+                                sample.brake, sample.steer};
+      for (uint32_t w = 0; w < 4; ++w) {
+        const uint32_t wheel = dyn + cd::kWheels + w * cd::kWheelStride;
+        for (const uint32_t f : {0u, 860u, 864u, 868u, 872u, 876u, 996u, 676u, 700u, 716u}) {
+          row.push_back(LoadGuestF32(wheel + f));
+        }
+        for (const uint32_t b : {336u, 337u, 338u, 796u}) row.push_back(float(LoadGuestU8(wheel + b)));
+        row.push_back(LoadGuestF32(wheel + cd::kWheelSpeed));
+        row.push_back(LoadGuestF32(wheel + cd::kWheelSlip));
+        row.push_back(LoadGuestF32(wheel + cd::kWheelSlipAngle));
+      }
+      const bool car_readable = PinyonShiftGuestRangeReadable(car + cd::kCarRumbleInputs, 24);
+      for (uint32_t i = 0; i < 6; ++i) {
+        row.push_back(car_readable ? LoadGuestF32(car + cd::kCarRumbleInputs + 4 * i) : NAN);
+      }
+      row.push_back(pad ? LoadGuestF32(pad + 16 + cd::kPadRumbleLow) : NAN);
+      row.push_back(pad ? LoadGuestF32(pad + 16 + cd::kPadRumbleHigh) : NAN);
+      for (const uint32_t v : {2832u, 2848u, 2864u, 2880u, 2896u}) {
+        for (uint32_t c = 0; c < 3; ++c) row.push_back(LoadGuestF32(dyn + v + 4 * c));
+      }
+      tp::ProbeWriteFast(header, row);
+    }
+    if (tp::ProbeSlowDue()) {
+      // The dynamics block before the wheels, one float per word.
+      static const std::string header = [] {
+        std::string h;
+        for (uint32_t o = 0; o < cd::kWheels; o += 4) h += fmt::format("{}d{}", o ? "," : "", o);
+        return h;
+      }();
+      std::vector<float> row;
+      row.reserve(cd::kWheels / 4);
+      for (uint32_t o = 0; o < cd::kWheels; o += 4) row.push_back(LoadGuestF32(dyn + o));
+      tp::ProbeWriteSlow(header, row);
+    }
 
     if (log) {
       REXLOG_INFO("Car telemetry: rpm {:.0f} redline {:.0f} gear {} speed {:.1f} abs {} slip "

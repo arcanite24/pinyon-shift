@@ -212,6 +212,7 @@ PINYON_OFFSET("collectible_state.found", 44)  // verified on v4
 PINYON_OFFSET("collectible_state.revealed", 40)  // verified on v4
 PINYON_OFFSET("dynamics.abs_active", 3020)  // verified on v4
 PINYON_OFFSET("dynamics.abs_assist", 3436)  // verified on v4
+PINYON_OFFSET("dynamics.controls", 3904)  // verified on v4
 PINYON_OFFSET("dynamics.engine_angvel", 324)  // verified on v4
 PINYON_OFFSET("dynamics.gear", 2240)  // verified on v4
 PINYON_OFFSET("dynamics.idle_angvel", 1228)  // verified on v4
@@ -252,7 +253,9 @@ PINYON_OFFSET("vehicle.slot.forward", 15184)  // verified on v4
 PINYON_OFFSET("vehicle.slot.position", 15120)  // verified on v4
 PINYON_OFFSET("vehicle.slot_stride", 1056)  // verified on v4
 PINYON_OFFSET("wheel.contact", 796)  // verified on v4
+PINYON_OFFSET("wheel.norm_slip_angle", 520)  // verified on v4
 PINYON_OFFSET("wheel.norm_slip_ratio", 496)  // verified on v4
+PINYON_OFFSET("wheel.speed", 12)  // verified on v4
 PINYON_OFFSET("wheel.surface_index", 337)  // verified on v4
 PINYON_OFFSET("world.session", 124)  // verified on v4
 PINYON_OFFSET("world.time_of_day", 232)  // verified on v4

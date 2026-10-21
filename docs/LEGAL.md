@@ -79,8 +79,9 @@ licences were read on 2026-10-16 (UP-0.1). The policy:
   loader and `nvngx_dlss.dll` from the pinned `github.com/NVIDIA/DLSS`
   commit, checked by SHA-256 (`thirdparty/shiftglue-sdk/cmake/rexglue_dlss.cmake`),
   links the loader into the player's own build and stages the DLL with
-  NVIDIA's `LICENSE.txt` in `upscalers/dlss/<version>/`. The launcher
-  names it "NVIDIA DLSS" and `THIRD_PARTY_NOTICES.md` attributes it. The
+  NVIDIA's `LICENSE.txt` in `upscalers/dlss/<version>/`. The attribution
+  is text only, as agreed with NVIDIA: the launcher names it "NVIDIA DLSS"
+  and `THIRD_PARTY_NOTICES.md` attributes it; no NVIDIA logos are used. The
   game also loads `nvngx_dlss*.dll` from a newer version folder the player
   adds there (NGX's documented `PathListInfo` search path). Contact for
   licence questions: `nvidia-rtx-license-questions@nvidia.com`.

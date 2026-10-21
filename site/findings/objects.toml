@@ -195,6 +195,18 @@ confidence = """confirmed"""
 note = """The surface index was not enumerated at run time."""
 source = """docs/DUALSENSE_BACKLOG.md DS-3"""
 
+[[finding]]
+group = """Car dynamics"""
+base = """sub_82D2EC70"""
+v4 = """sub_82DF0DA0"""
+name = """suspension position and spring"""
+what = """Each wheel's suspension model reads its block's `+0` as the suspension position and `+860` as the spring's rest point: the spring force is (`+0` − `+860`) × the rate at `+828`, added to a preload at `+716`, so the suspension compresses as `+0` rises past `+860`. The damper multiplies the suspension velocity (from a virtual call) by the bump (`+832`) or rebound (`+840`) rate by its sign and clamps it between `+836` and −`+844`; the total goes to `+676` (Ty Crowther's normal-load field, with the anti-roll bar at `+700`). `sub_82D1D7B0` copies `+864` into `+0`, which looks like a reset to a target position. Telemetry out sends `+0` − `+860` as the suspension travel."""
+how = """Static reading of the generated suspension model and the wheel getters (`sub_82D1E058` returns `+0`)."""
+confidence = """probable"""
+note = """The sign, the units (assumed metres) and the travel limits are not checked at run time; `telemetry_probe` records them for that."""
+issue = """#481"""
+source = """src/pinyon_shift_runtime_hooks.cpp (car_dynamics, QueueCarTelemetry); src/telemetry/telemetry_probe.cpp"""
+
 # ------------------------------------------------ Activities and collectibles
 
 [[finding]]
