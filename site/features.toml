@@ -283,7 +283,7 @@ cells = [
 feature = "VR headsets"
 link = "playing.md#vr-headsets"
 cells = [
-  "partly: experimental, OpenXR on Vulkan; the cockpit in alternate-eye 3D, other views on a screen; base game only",
+  "partly: experimental, OpenXR on Vulkan; the cockpit in alternate-eye 3D, other views on a screen; DLSS per eye in DLSS builds; base game only",
   "not yet",
   "not yet",
   "n/a",
