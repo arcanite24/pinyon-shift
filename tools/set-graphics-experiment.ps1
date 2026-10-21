@@ -15,6 +15,12 @@ param(
     [string]$OutputScaling = 'bilinear',
     [ValidateSet('true', 'false')]
     [string]$TreasureMap = 'true',
+    # FB-12.15: start in a VR headset (xr_enabled), rendering each eye at
+    # VrScale (across x down), which replaces ResolutionScale while on.
+    [ValidateSet('true', 'false')]
+    [string]$Vr = 'false',
+    [ValidateSet('2x3', '2x4', '3x3')]
+    [string]$VrScale = '2x4',
     [ValidateSet('custom', 'shipping_1x', 'experimental_2x', 'experimental_3x')]
     [string]$Preset = 'custom',
     # The in-game GRAPHICS PRESET rows (src/ui/settings_menu.cpp); applied
@@ -304,6 +310,9 @@ function Get-SettingsResult([string]$Text, [string]$BackupPath, [string]$Operati
             letterbox = (Get-TomlValue $Text 'present_letterbox' 'true') -eq 'true'
             # The game turns the Treasure Map on unless the file says false.
             treasure_map = (Get-TomlValue $Text 'pinyon_shift_dlc_treasure_map' 'true') -eq 'true'
+            vr = (Get-TomlValue $Text 'xr_enabled' 'false') -eq 'true'
+            vr_scale = '{0}x{1}' -f (Get-TomlValue $Text 'draw_resolution_scale_x' '1'),
+                (Get-TomlValue $Text 'draw_resolution_scale_y' (Get-TomlValue $Text 'draw_resolution_scale_x' '1'))
             clear_memory_page_state = $clearPageState
             vsync = $vsyncEnabled
             host_present_fps_limit = $presentationFps
@@ -397,6 +406,14 @@ switch ($Action) {
         }
         if ($bound.ContainsKey('TreasureMap')) {
             $text = Set-TomlValue $text 'pinyon_shift_dlc_treasure_map' $TreasureMap
+        }
+        if ($bound.ContainsKey('Vr')) {
+            $text = Set-TomlValue $text 'xr_enabled' $Vr
+            if ($Vr -eq 'true') {
+                $scaleX, $scaleY = $VrScale -split 'x'
+                $text = Set-TomlValue $text 'draw_resolution_scale_x' $scaleX
+                $text = Set-TomlValue $text 'draw_resolution_scale_y' $scaleY
+            }
         }
         if ($bound.ContainsKey('OutputScaling')) {
             $text = Set-TomlValue $text 'present_effect' ('"' + $OutputScaling + '"')
