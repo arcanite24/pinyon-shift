@@ -316,7 +316,8 @@ float AspectScale() {
 bool HidesHud() {
   Latched& l = L();
   std::lock_guard lock(l.mutex);
-  return LayersCurrent(l) && REXCVAR_GET(xr_hide_hud);
+  return LayersCurrent(l) && REXCVAR_GET(xr_hide_hud) &&
+         !rex::ui::vulkan::openxr::HudPanelWanted();
 }
 
 }  // namespace pinyon_shift::vr

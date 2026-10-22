@@ -51,7 +51,8 @@ bool StereoConfigured();
 double PairStep(double seconds);
 
 // Whether the HUD is hidden for VR stereo (xr_hide_hud): drawn at the same
-// place for both eyes, it would float at the wrong depth.
+// place for both eyes, it would float at the wrong depth. Not while the
+// headset shows it on a panel of its own (xr_hud_panel).
 bool HidesHud();
 
 // In VR stereo, the main view's aspect scale (the viewport aspect hook's) for
