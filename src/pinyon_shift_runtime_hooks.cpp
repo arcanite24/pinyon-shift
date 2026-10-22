@@ -8245,7 +8245,8 @@ void PinyonShiftImmersiveCameraLayer(PPCRegister& r1, PPCRegister& r31) {
     return;
   }
   const size_t index = size_t(nearest) - 1;
-  const double scale = scales[index];
+  // VR drops the shake group (vr_camera.h).
+  const double scale = index == 2 && !pinyon_shift::vr::KeepsCameraShake() ? 0.0 : scales[index];
   if (scale == 1.0) return;
   // Once per group, so a log shows the layers were found.
   static std::atomic<uint32_t> reported{};
