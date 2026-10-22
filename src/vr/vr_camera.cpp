@@ -51,6 +51,10 @@ REXCVAR_DEFINE_BOOL(xr_hide_hud, true, "Display",
                     "Hide the game's HUD in VR stereo: it is drawn at the same place for "
                     "both eyes, so it floats at the wrong depth")
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+REXCVAR_DEFINE_BOOL(xr_camera_shake, false, "Display",
+                    "Keep the immersive camera's speed shake and braking vibration in VR: "
+                    "the headset did not make that motion, so it reads as the world shaking")
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
 
 REXCVAR_DECLARE(bool, xr_enabled);
 REXCVAR_DECLARE(bool, xr_simulate);
@@ -235,6 +239,10 @@ void NoteLayersApplied() {
 
 bool StereoConfigured() {
   return (REXCVAR_GET(xr_enabled) || REXCVAR_GET(xr_simulate)) && REXCVAR_GET(xr_stereo);
+}
+
+bool KeepsCameraShake() {
+  return !StereoConfigured() || REXCVAR_GET(xr_camera_shake);
 }
 
 bool InStereo() {
