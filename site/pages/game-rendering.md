@@ -62,3 +62,9 @@ The D3D runtime's own functions (command buffer execution, the ring writer, reso
 The game's shaders are compiled Xenos microcode, in `media/shaders/**/*.fxobj` and inside `default.xex`; a few are generated at run time. No resolve writes a block-compressed format, and texture assets are mostly DXT.
 
 {{findings:rendering/Shaders, textures and models}}
+
+## Light glows
+
+Lamp, outpost and headlight glows are additive sprites that only the depth test hides behind geometry. Right after the player's car the game stamps the nearest depth over the car's stencil, so glows and smoke drawn later cannot cover it. Some lamp and headlight glows ask for an `ALWAYS` depth test and showed through the car and the terrain in the port; the host depth-tests them like the others ([#531](https://github.com/arcanite24/pinyon-shift/issues/531)).
+
+{{findings:rendering/Light glows}}
