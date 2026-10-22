@@ -43,6 +43,11 @@ bool InStereo();
 // InStereo: the right eye's short step made it a smear across the frame.
 bool StereoConfigured();
 
+// Whether the immersive camera's shake group (speed shake, braking
+// vibration) applies: off for the whole of a VR run unless xr_camera_shake,
+// also on the VR screen's cameras, so it does not come and go with the view.
+bool KeepsCameraShake();
+
 // The simulation step (the title's delta, in seconds) for VR stereo's paired
 // eyes (xr_paired_steps): the step a right eye's frame is rendered from takes
 // the title's smallest step, and the next one makes up the time, so each left
