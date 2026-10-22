@@ -48,6 +48,11 @@
 #include <rex/ui/upscaler.h>
 
 #include "pinyon_shift_diagnostics.h"
+#include "head_tracking/head_tracking.h"
+#include "vr/vr_camera.h"
+#if REX_HAS_VULKAN
+#include <rex/ui/vulkan/openxr.h>
+#endif
 #include "fh1_guest_address.h"
 #include "camera_tuning.h"
 #include "platform/host_platform.h"
@@ -179,6 +184,12 @@ REXCVAR_DEFINE_DOUBLE(pinyon_shift_step_backpressure_max_hold_ms, 50.0, "Pinyon 
                       "render thread before it runs anyway (ms)")
     .range(5.0, 250.0)
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+REXCVAR_DEFINE_BOOL(pinyon_shift_step_count_drawn, true, "Pinyon Shift",
+                    "With pinyon_shift_step_backpressure, count the simulation's lead from the "
+                    "step the title's render thread last drew instead of its swaps, so the "
+                    "simulation computes the next step while the render thread draws one "
+                    "instead of the two taking turns (base game)")
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
 REXCVAR_DEFINE_BOOL(pinyon_shift_step_pacing_log, false, "Pinyon Shift",
                     "Log each second how many simulation steps ran between the title's "
                     "frames and how far their game time strays from wall time (#381)")
@@ -192,6 +203,11 @@ REXCVAR_DEFINE_BOOL(pinyon_shift_release_late_swaps, true, "Pinyon Shift",
                     "Show a frame that misses its vblank as soon as it is ready instead of at "
                     "the next guest vblank (4.17 ms later at the 120 limit); frames on time "
                     "keep their vblank alignment")
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+REXCVAR_DEFINE_INT32(xr_capture_request, 0, "Display",
+                     "Testing: save the next this many VR stereo frames, as the VR capture "
+                     "key does (logs/xr-capture-*); goes back to 0")
+    .range(0, 64)
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
 REXCVAR_DEFINE_BOOL(disable_motion_blur, true, "Pinyon Shift",
                     "Disable Forza Horizon motion blur");
@@ -709,8 +725,12 @@ static std::string PinyonShiftReadGuestAscii(uint32_t address,
 // A temporal upscaler keeps its own history; the game's motion blur and
 // depth of field smear what it accumulates, so both stay off while one runs
 // (UPSCALING_BACKLOG.md UP-1.6).
+// VR stereo's eyes take turns frame by frame, which the blur reads as camera
+// motion. The title reads this switch once, as it sets up post-processing
+// (sub_82D78810), so VR goes by its configuration, not the current frame.
 bool PinyonShiftDisableMotionBlur() {
-  return REXCVAR_GET(disable_motion_blur) || rex::ui::IsTemporalUpscalerActive();
+  return REXCVAR_GET(disable_motion_blur) || rex::ui::IsTemporalUpscalerActive() ||
+         pinyon_shift::vr::StereoConfigured();
 }
 
 // sub_82C7E0B0 borrows a decoded buffer and length for its memory stream.
@@ -884,7 +904,8 @@ void PinyonShiftBloomScale(PPCRegister& r1) {
 }
 
 bool PinyonShiftDisableDepthOfField(PPCRegister& r11) {
-  if (!REXCVAR_GET(disable_depth_of_field) && !rex::ui::IsTemporalUpscalerActive()) {
+  if (!REXCVAR_GET(disable_depth_of_field) && !rex::ui::IsTemporalUpscalerActive() &&
+      !pinyon_shift::vr::InStereo()) {
     return false;
   }
   r11.u64 = 0;
@@ -6781,6 +6802,22 @@ void PinyonShiftTraceFrameTelemetry(PPCRegister& r28, PPCRegister& r31) {
   }
   QueueRallyRaceTrace();
   QueueCarTelemetry();
+  pinyon_shift::head_tracking::Update();
+  pinyon_shift::vr::Update();
+#if REX_HAS_VULKAN
+  // xr_capture_request: the VR capture key's capture, for scripted runs.
+  if (const int frames = REXCVAR_GET(xr_capture_request); frames > 0) {
+    rex::cvar::SetFlagByName("xr_capture_request", "0");
+    const auto stamp = std::chrono::system_clock::now().time_since_epoch();
+    const std::filesystem::path directory =
+        pinyon_shift::diagnostics::StateRoot() / "logs" /
+        ("xr-capture-" +
+         std::to_string(std::chrono::duration_cast<std::chrono::seconds>(stamp).count()));
+    std::error_code error;
+    std::filesystem::create_directories(directory, error);
+    rex::ui::vulkan::openxr::RequestCapture(rex::path_to_utf8(directory), frames);
+  }
+#endif
   // frame.tick for mods: their guest tasks, then the hook.
   pinyon_shift::mod::RunGuestTasks();
   if (pinyon_shift::mod::HasSubscribers(PINYON_HOOK_FRAME_TICK)) {
@@ -7518,8 +7555,10 @@ std::atomic<uint64_t> g_simulation_steps{0};
 std::atomic<int64_t> g_simulation_step_ns{0};
 std::atomic<uint64_t> g_title_swaps{0};
 // The step gate holds a raise of the step event (the vblank thread sets it,
-// the render thread's swap or the next vblank clears it).
+// the render thread's swap or idle wait, or the next vblank clears it).
 std::atomic<bool> g_step_raise_held{false};
+// Held raises the render thread's idle wait released (PinyonShiftNoteRenderIdle).
+std::atomic<uint64_t> g_step_idle_raises{0};
 // Steps minus swaps when they last lined up (the vblank thread and the swap,
 // under g_step_gate_mutex).
 std::mutex g_step_gate_mutex;
@@ -7532,6 +7571,56 @@ constexpr uint32_t kStepVblankCount = FH1_ADDR(0x832E126Cu);
 int64_t StepLead() {
   return int64_t(g_simulation_steps.load(std::memory_order_acquire)) -
          int64_t(g_title_swaps.load(std::memory_order_acquire)) - g_step_gate_base;
+}
+
+// The render thread's frame object (sub_8259F3E8's r31: +2380 holds the index
+// of the step it last drew), and the title's step index minus our step count
+// (the index of the newest step started, r22 there, against
+// g_simulation_steps), both from its idle wait (PinyonShiftNoteRenderIdle).
+std::atomic<uint32_t> g_render_frame_object{0};
+std::atomic<int64_t> g_step_index_offset{0};
+int64_t g_step_index_offset_candidate = INT64_MIN;  // Render thread only.
+
+// Steps started past the one the render thread last drew. Counting swaps
+// instead drifts: the frame drawing a step swaps before it stores the step's
+// index, and a frame that skips a step still swaps once, and in free roam in VR
+// stereo the swap count stayed a step high, so the gate held each next step
+// until the swap of the frame before it and the threads took turns. False
+// until the render thread has waited once (and on v4, whose frame function is
+// not mapped).
+//
+// Only while the render thread is drawing steps: in loading and paused screens
+// its frame function draws none, so its index stands still while the
+// simulation steps (the lead climbed to 9 and every step waited out the
+// hold limit). An index that has not moved for 100 ms falls back to swaps.
+bool DrawnLead(int64_t& lead) {
+  const uint32_t object = g_render_frame_object.load(std::memory_order_acquire);
+  if (!object || !REXCVAR_GET(pinyon_shift_step_count_drawn) || rex::session_probe::Enabled()) {
+    return false;
+  }
+  // Read from the vblank, render and (tracing) simulation threads.
+  static std::mutex moved_mutex;
+  static uint32_t last_index = 0;
+  static std::chrono::steady_clock::time_point moved{};
+  const uint32_t index = LoadGuestU32(object + 2380);
+  const auto now = std::chrono::steady_clock::now();
+  {
+    std::lock_guard moved_lock(moved_mutex);
+    if (index != last_index) {
+      last_index = index;
+      moved = now;
+    }
+    if (now - moved > std::chrono::milliseconds(100)) return false;
+  }
+  const int64_t drawn = int64_t(index) - g_step_index_offset.load(std::memory_order_acquire);
+  lead = int64_t(g_simulation_steps.load(std::memory_order_acquire)) - drawn;
+  return true;
+}
+
+// The gate's lead: against the step drawn where known, else against swaps.
+int64_t GateLead() {
+  int64_t lead;
+  return DrawnLead(lead) ? lead : StepLead();
 }
 
 // Raises the title's step event as its vblank callback does: restart the
@@ -7549,6 +7638,44 @@ void RaiseStepEvent() {
 }
 }  // namespace
 
+// The render thread's frame function waits: the newest step started (r22) is
+// no newer than the one it drew, or still being computed. It has just stored
+// the step it drew, so the gate's lead is current here: a raise held while
+// the simulation is less than two steps past that step (the trace showed it
+// held with only the awaited step in progress) is released.
+void PinyonShiftNoteRenderIdle(uint32_t frame_object, uint32_t newest_step) {
+  if (!REXCVAR_GET(pinyon_shift_step_backpressure) ||
+      !REXCVAR_GET(pinyon_shift_step_count_drawn) || rex::session_probe::Enabled()) {
+    return;
+  }
+  // The newest step's index against our count. A step starting between the
+  // two reads would put it one low, so a change is only taken when seen twice.
+  const int64_t offset =
+      int64_t(newest_step) - int64_t(g_simulation_steps.load(std::memory_order_acquire));
+  if (offset != g_step_index_offset.load(std::memory_order_relaxed)) {
+    if (offset != g_step_index_offset_candidate) {
+      g_step_index_offset_candidate = offset;
+      return;
+    }
+    g_step_index_offset.store(offset, std::memory_order_release);
+  }
+  g_render_frame_object.store(frame_object, std::memory_order_release);
+  if (!g_step_raise_held.load(std::memory_order_acquire)) return;
+  bool raise = false;
+  {
+    std::lock_guard lock(g_step_gate_mutex);
+    if (g_step_raise_held.load(std::memory_order_relaxed) && GateLead() < 2) {
+      g_step_raise_held.store(false, std::memory_order_release);
+      raise = true;
+    }
+  }
+  // Raise after unlocking, as PinyonShiftNoteTitleSwap does.
+  if (raise) {
+    g_step_idle_raises.fetch_add(1, std::memory_order_relaxed);
+    RaiseStepEvent();
+  }
+}
+
 // Pacing diagnostic (pinyon_shift_step_pacing_log): how many steps started
 // between consecutive title swaps (0 shows a frame again, 2 or more skip
 // steps) and how far the game time they cover strays from the wall time
@@ -7561,7 +7688,7 @@ void PinyonShiftNoteTitleSwap() {
     // vblank, so a frame that missed its vblank pair still gets its step.
     {
       std::lock_guard lock(g_step_gate_mutex);
-      if (g_step_raise_held.load(std::memory_order_relaxed) && StepLead() < 2) {
+      if (g_step_raise_held.load(std::memory_order_relaxed) && GateLead() < 2) {
         g_step_raise_held.store(false, std::memory_order_release);
         raise = true;
       }
@@ -7576,7 +7703,12 @@ void PinyonShiftNoteTitleSwap() {
     g_step_raise_held.store(bool(rex::session_probe::Scalar(rex::session_probe::Kind::kHostHook, UINT64_C(0x8247C6F100000002), g_step_raise_held.load(), true)));
     g_step_gate_base = int64_t(rex::session_probe::Scalar(rex::session_probe::Kind::kHostHook, UINT64_C(0x8247C6F100000003), uint64_t(g_step_gate_base), true));
   }
-  if (raise) RaiseStepEvent();
+  if (raise) {
+    if (rex::perf::CriticalPathTraceEnabled()) {
+      rex::perf::TraceCriticalPath("step_swap_raise", 0, GateLead());
+    }
+    RaiseStepEvent();
+  }
   if (!REXCVAR_GET(pinyon_shift_step_pacing_log)) {
     return;
   }
@@ -7632,8 +7764,10 @@ void PinyonShiftNoteTitleSwap() {
 // frame over two guest vblanks), it skips steps, and a frame that falls
 // between two raises gets none: frames show 0 or 2 steps of motion at a flat
 // frame rate (#381). With pinyon_shift_step_backpressure the raise (r11) is
-// held while the main loop is two steps ahead of the render thread's swaps;
-// the next swap raises the event itself (PinyonShiftNoteTitleSwap). Steps
+// held while the main loop is two steps past the step the render thread last
+// drew (DrawnLead; its swaps where that is not known); the next swap or the
+// render thread's wait raises the event itself (PinyonShiftNoteTitleSwap,
+// PinyonShiftNoteRenderIdle). Steps
 // that keep up stay on the vblank, so each step's time matches the vblank its
 // frame is shown on.
 void PinyonShiftGateSimulationStep(PPCRegister& r11) {
@@ -7664,8 +7798,10 @@ void PinyonShiftGateSimulationStep(PPCRegister& r11) {
     }
     bool hold = false;
     if (REXCVAR_GET(pinyon_shift_step_backpressure)) {
-      int64_t lead = StepLead();
-      if (lead < 0) {
+      int64_t lead = 0;
+      const bool drawn_known = DrawnLead(lead);
+      if (!drawn_known) lead = StepLead();
+      if (!drawn_known && lead < 0) {
         // Frames swapped without a step (loading, paused): start level.
         g_step_gate_base += lead;
         lead = 0;
@@ -7681,12 +7817,15 @@ void PinyonShiftGateSimulationStep(PPCRegister& r11) {
         } else {
           // The render thread is not taking steps: run this one and count
           // from the usual one step ahead.
-          g_step_gate_base += lead - 1;
+          if (!drawn_known) g_step_gate_base += lead - 1;
           ++timeouts;
         }
       }
     }
     g_step_raise_held.store(hold, std::memory_order_release);
+    if (rex::perf::CriticalPathTraceEnabled()) {
+      rex::perf::TraceCriticalPath(hold ? "step_hold" : "step_raise", 0, GateLead());
+    }
     if (hold) {
       r11.u64 = 0;
     } else {
@@ -7709,6 +7848,7 @@ void PinyonShiftGateSimulationStep(PPCRegister& r11) {
                                               {"holds", fmt::format("{}", holds)},
                                               {"swap_raises", fmt::format("{}", swap_raises)},
                                               {"timeouts", fmt::format("{}", timeouts)},
+                                              {"idle_raises", fmt::format("{}", g_step_idle_raises.exchange(0))},
                                               {"held_ms", fmt::format("{:.1f}", held_ms)}});
     }
     report = now;
@@ -7718,7 +7858,10 @@ void PinyonShiftGateSimulationStep(PPCRegister& r11) {
 }
 
 void PinyonShiftObserveSimulationDelta(PPCRegister& f31) {
-  g_simulation_steps.fetch_add(1, std::memory_order_release);
+  const uint64_t step = g_simulation_steps.fetch_add(1, std::memory_order_release) + 1;
+  if (rex::perf::CriticalPathTraceEnabled()) {
+    rex::perf::TraceCriticalPath("step_start", 0, int64_t(step), GateLead());
+  }
   double seconds = f31.f64;
   if (!std::isfinite(seconds) || seconds < 0.0 || seconds > 0.25) {
     PROFILE_SIMULATION_DELTA_INVALID();
@@ -7742,6 +7885,11 @@ void PinyonShiftObserveSimulationDelta(PPCRegister& f31) {
   // The trainer's game speed (NP-8.1) scales the delta the title stores.
   if (const double scale = pinyon_shift::cheats::TimeScale(); scale != 1.0) {
     seconds *= scale;
+    f31.f64 = seconds;
+  }
+  // VR stereo's paired eyes (FB-12.15) see one moment of the game.
+  if (const double paired = pinyon_shift::vr::PairStep(seconds); paired != seconds) {
+    seconds = paired;
     f31.f64 = seconds;
   }
   g_simulation_step_ns.fetch_add(int64_t(std::llround(seconds * 1e9)), std::memory_order_release);
@@ -8046,6 +8194,9 @@ void PinyonShiftSetViewportAspectScale(float scale) {
 void PinyonShiftCameraFieldOfView(PPCRegister& f1) {
   const double scale = REXCVAR_GET(pinyon_shift_fov_scale);
   if (scale != 1.0) f1.f64 = double(float(f1.f64 * scale));
+  // VR stereo: the frame's tag in the field of view (vr_camera.h).
+  const double tagged = pinyon_shift::vr::TagFieldOfView(f1.f64);
+  if (tagged != f1.f64) f1.f64 = double(float(tagged));
 }
 
 // sub_82857B00 (v4 sub_82907F88) updates one camera physics layer at r31
@@ -8055,13 +8206,9 @@ void PinyonShiftCameraFieldOfView(PPCRegister& f1) {
 // tools/build-immersive-camera.py writes them. No stock layer has such a
 // fraction. Scaling the factor eases a sprung layer to its new strength.
 void PinyonShiftImmersiveCameraLayer(PPCRegister& r1, PPCRegister& r31) {
-  const double scales[] = {REXCVAR_GET(pinyon_shift_camera_gforce),
-                           REXCVAR_GET(pinyon_shift_camera_lean),
-                           REXCVAR_GET(pinyon_shift_camera_shake),
-                           REXCVAR_GET(pinyon_shift_camera_head)};
-  if (std::all_of(std::begin(scales), std::end(scales), [](double s) { return s == 1.0; })) {
-    return;
-  }
+  const double scales[] = {
+      REXCVAR_GET(pinyon_shift_camera_gforce), REXCVAR_GET(pinyon_shift_camera_lean),
+      REXCVAR_GET(pinyon_shift_camera_shake), REXCVAR_GET(pinyon_shift_camera_head)};
   const uint32_t layer = r31.u32;
   // Sprung (+248), SpringK (+252); NoiseSeed (+156).
   const float tagged = LoadGuestF32(layer + (LoadGuestU8(layer + 248) ? 252u : 156u));
@@ -8069,9 +8216,29 @@ void PinyonShiftImmersiveCameraLayer(PPCRegister& r1, PPCRegister& r31) {
   const double fraction = double(tagged) - std::floor(double(tagged));
   const double group = (fraction - 0.0419) / 0.0002;
   const double nearest = std::round(group);
-  if (nearest < 1.0 || nearest > 4.0 || std::abs(group - nearest) > 0.25) return;
+  if (nearest < 1.0 || nearest > 10.0 || std::abs(group - nearest) > 0.25)
+    return;
+  if (nearest >= 5.0) {
+    // Head tracking (#489): groups 5-10 are unit offsets for yaw, pitch,
+    // roll (degrees) and x, y, z (metres), held at 0 while it is off.
+    // FH1 pitches and rolls the other way from the pose (look up, tilt right).
+    static constexpr float kSigns[] = {1.0f, -1.0f, -1.0f, 1.0f, 1.0f, 1.0f};
+    const size_t axis = size_t(nearest) - 5;
+    // Once, so a log shows the camera physics has the head layers.
+    static std::atomic<bool> seen{};
+    if (!seen.exchange(true, std::memory_order_relaxed)) {
+      pinyon_shift::diagnostics::RecordEvent("camera.head_tracking.layers", {});
+    }
+    // VR stereo adds this frame's eye (vr_camera.h).
+    pinyon_shift::vr::NoteLayersApplied();
+    const float value = pinyon_shift::head_tracking::Current()[axis] +
+                        pinyon_shift::vr::CameraOffset()[axis];
+    StoreGuestF32(r1.u32 + 96u, value * kSigns[axis]);
+    return;
+  }
   const size_t index = size_t(nearest) - 1;
-  const double scale = scales[index];
+  // VR drops the shake group (vr_camera.h).
+  const double scale = index == 2 && !pinyon_shift::vr::KeepsCameraShake() ? 0.0 : scales[index];
   if (scale == 1.0) return;
   // Once per group, so a log shows the layers were found.
   static std::atomic<uint32_t> reported{};
@@ -8093,7 +8260,9 @@ void PinyonShiftViewportAspect(PPCContext& context, [[maybe_unused]] uint8_t* ba
   constexpr uint32_t kMapProjectionReturn = pinyon_shift::fh1::kTitleUpdateV4 ? 0x826E30A8u : 0x8263AE18u;
   // The gameplay camera's view (sub_829A4860, v4 sub_82A58DA0).
   constexpr uint32_t kGameProjectionReturn = pinyon_shift::fh1::kTitleUpdateV4 ? 0x82A58E34u : 0x829A48F4u;
-  const float scale = g_viewport_aspect_scale.load(std::memory_order_relaxed);
+  // VR stereo renders the headset eye's shape instead (vr_camera.h).
+  const float vr_scale = pinyon_shift::vr::AspectScale();
+  const float scale = vr_scale > 0.0f ? vr_scale : g_viewport_aspect_scale.load(std::memory_order_relaxed);
   if (uint32_t(context.lr) == kGameProjectionReturn) {
     g_game_view_frame.store(g_title_frames.load(std::memory_order_relaxed), std::memory_order_relaxed);
   }

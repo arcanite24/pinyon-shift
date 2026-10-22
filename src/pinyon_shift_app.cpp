@@ -9,6 +9,8 @@
 #include "guest_native/retire_code.h"
 #include "dlc/rally_pace_notes.h"
 
+#include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
@@ -38,6 +40,7 @@
 #include <rex/ui/overlay/debug_overlay.h>
 #include <rex/ui/presenter.h>
 #if REX_HAS_VULKAN
+#include <rex/ui/vulkan/openxr.h>
 #include <rex/ui/vulkan/provider.h>
 #endif
 #include <rex/ui/windowed_app_context.h>
@@ -1271,6 +1274,61 @@ void PinyonShiftApp::OnPostSetup() {
   });
   rex::ui::RegisterBind("bind_hud", pinyon_shift::config::kHudKeys,
                         "Hide or show the HUD (for screenshots)", [] { pinyon_shift::hud::Toggle(); });
+#if REX_HAS_VULKAN
+  rex::ui::RegisterBind("bind_vr_capture", pinyon_shift::config::kVrCaptureKeys,
+                        "VR: save what the next 8 frames sent to each eye, for checking", [] {
+    const auto stamp = std::chrono::system_clock::now().time_since_epoch();
+    const std::filesystem::path directory =
+        pinyon_shift::diagnostics::StateRoot() / "logs" /
+        ("xr-capture-" + std::to_string(std::chrono::duration_cast<std::chrono::seconds>(stamp).count()));
+    std::error_code error;
+    std::filesystem::create_directories(directory, error);
+    rex::ui::vulkan::openxr::RequestCapture(rex::path_to_utf8(directory), 8);
+    // With a dump file set (fh1_frame_dump_path, read at start), the next
+    // whole frame is recorded too, for an offline replay of what was seen.
+    if (!rex::cvar::GetFlagByName("fh1_frame_dump_path").empty()) {
+      rex::cvar::SetFlagByName("fh1_frame_dump_frame", "-1");
+    }
+  });
+  rex::ui::RegisterBind("bind_vr_recenter", pinyon_shift::config::kVrRecenterKeys,
+                        "VR: make where your head is now the driver's seat",
+                        [] { rex::ui::vulkan::openxr::Recenter(); });
+  // In VR the headset takes its own copy of every frame and the window is a
+  // mirror: presenting it on one frame in eight keeps its present call (about
+  // 2.5 ms of the GPU-bound frame at 3x) off the others (simulated stereo at
+  // 3x, visible window: 124 fps every other frame, 134 one in eight). A value
+  // set in the config or on the command line wins.
+  if (rex::cvar::GetFlagByName("xr_enabled") == "true" &&
+      rex::cvar::GetFlagSource("present_window_interval") == rex::cvar::Source::kDefault) {
+    rex::cvar::SetFlagByName("present_window_interval", "8");
+    pinyon_shift::diagnostics::RecordEvent("present.window_interval",
+                                           {{"interval", "8"}, {"reason", "vr_default"}});
+  }
+  // VR's DLSS (xr_upscaler) samples textures for the headset's size, not the
+  // render size, as DLSS asks: a mip bias of log2(render / output). A value
+  // set in the config or on the command line wins.
+  if ((rex::cvar::GetFlagByName("xr_enabled") == "true" ||
+       rex::cvar::GetFlagByName("xr_simulate") == "true") &&
+      rex::cvar::GetFlagByName("xr_upscaler") == "dlss" &&
+      rex::cvar::GetFlagSource("texture_mip_lod_bias") == rex::cvar::Source::kDefault) {
+    const double ratio =
+        std::clamp(std::atof(rex::cvar::GetFlagByName("xr_upscale_ratio").c_str()), 1.0, 3.0);
+    const std::string bias = fmt::format("{:.3f}", -std::log2(ratio));
+    rex::cvar::SetFlagByName("texture_mip_lod_bias", bias);
+    pinyon_shift::diagnostics::RecordEvent("texture.mip_lod_bias",
+                                           {{"bias", bias}, {"reason", "vr_dlss"}});
+  }
+  // For comparing in the headset: not saved, the config's value returns on
+  // the next launch.
+  rex::ui::RegisterBind("bind_window_interval", pinyon_shift::config::kWindowIntervalKeys,
+                        "VR: present the desktop window every frame or one frame in eight",
+                        [] {
+    const bool every = rex::cvar::GetFlagByName("present_window_interval") != "1";
+    rex::cvar::SetFlagByName("present_window_interval", every ? "1" : "8");
+    pinyon_shift::diagnostics::RecordEvent("present.window_interval",
+                                           {{"interval", every ? "1" : "8"}});
+  });
+#endif
   rex::ui::RegisterBind("bind_music_next", pinyon_shift::config::kMusicNextKeys,
                         "Your music: next track", [] { pinyon_shift::music::Next(); });
   rex::ui::RegisterBind("bind_music_previous", pinyon_shift::config::kMusicPreviousKeys,

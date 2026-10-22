@@ -202,6 +202,7 @@ class SettingsPages : public std::enable_shared_from_this<SettingsPages> {
   std::unique_ptr<MenuScreen> Audio();
   std::unique_ptr<MenuScreen> Controls();
   std::unique_ptr<MenuScreen> Wheel();
+  std::unique_ptr<MenuScreen> HeadTracking();
   std::unique_ptr<MenuScreen> DualSense();
   std::unique_ptr<MenuScreen> Hud();
   std::unique_ptr<MenuScreen> Gameplay();
@@ -1887,6 +1888,32 @@ std::unique_ptr<MenuScreen> SettingsPages::Wheel() {
   return screen;
 }
 
+// Head tracking (#489): the cockpit and hood cameras follow OpenTrack's UDP
+// output through the immersive camera mod's head layers. All apply at once.
+std::unique_ptr<MenuScreen> SettingsPages::HeadTracking() {
+  std::vector<MenuRow> rows;
+  rows.push_back(Toggle("HEAD TRACKING", "head_tracking"));
+  std::vector<Choice> ports;
+  for (int port : {4242, 4243, 5555}) {
+    ports.push_back({std::to_string(port), {{"head_tracking_port", std::to_string(port)}}});
+  }
+  rows.push_back(Setting("UDP PORT", std::move(ports)));
+  rows.push_back(Setting("REVERSE", {{"NONE", {{"head_tracking_invert", "\"\""}}},
+                                     {"YAW", {{"head_tracking_invert", "\"yaw\""}}},
+                                     {"PITCH", {{"head_tracking_invert", "\"pitch\""}}},
+                                     {"YAW AND PITCH", {{"head_tracking_invert", "\"yaw,pitch\""}}},
+                                     {"ROLL", {{"head_tracking_invert", "\"roll\""}}}}));
+  const bool installed = BuiltinModInstalled("immersive_camera");
+  auto screen = std::make_unique<MenuScreen>("HEAD TRACKING", std::move(rows));
+  screen->set_body(
+      installed
+          ? "Turns and moves the cockpit and hood cameras with your head. In OpenTrack, choose "
+            "the output UDP over network, address 127.0.0.1 and the port here, and any tracker "
+            "(TrackIR, a webcam, a phone or a VR headset). Its curves set how far the view turns."
+          : "Needs the built-in immersive camera mod, which the launcher installs.");
+  return screen;
+}
+
 // DualSense (#561): adaptive triggers, lightbar and tilt steering through
 // SDL's PS5 driver. All of it applies at once; the triggers follow the
 // title's brake and throttle wherever pad_remap puts them.
@@ -1953,6 +1980,7 @@ std::unique_ptr<MenuScreen> SettingsPages::Controls() {
   map.activate = [this] { host_ui_.Push(MapController()); };
   rows.push_back(std::move(map));
   rows.push_back(Page("RACING WHEEL", &SettingsPages::Wheel));
+  rows.push_back(Page("HEAD TRACKING", &SettingsPages::HeadTracking));
   // Only when a DualSense (or Steam's stand-in for one) is here, or its
   // settings were changed, so other players never see it.
   {

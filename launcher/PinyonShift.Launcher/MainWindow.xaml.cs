@@ -2437,6 +2437,8 @@ public partial class MainWindow : Window
             "-GraphicsApi", "vulkan",
             "-OutputScaling", SelectedTag(OutputScalingComboBox),
             "-TreasureMap", TreasureMapCheckBox.IsChecked == true ? "true" : "false",
+            "-Vr", VrCheckBox.IsChecked == true ? "true" : "false",
+            "-VrScale", SelectedTag(VrScaleComboBox),
             "-Json"
         }) startInfo.ArgumentList.Add(argument);
         // An in-game preset applies over the panel's choices (LS-1.7).
@@ -2471,8 +2473,28 @@ public partial class MainWindow : Window
         SelectTag(OutputScalingComboBox, string.IsNullOrWhiteSpace(result.Settings.OutputScaling)
             ? "bilinear" : result.Settings.OutputScaling);
         TreasureMapCheckBox.IsChecked = result.Settings.TreasureMap;
+        VrCheckBox.IsChecked = result.Settings.Vr;
+        SelectTag(VrScaleComboBox, result.Settings.VrScale ?? "2x4");
+        if (VrScaleComboBox.SelectedItem is null) SelectTag(VrScaleComboBox, "2x4");
+        UpdateVrControls();
         UpdateResolutionLine();
         UpdateRecommendationText();
+    }
+
+    private void VrCheckBox_Changed(object sender, RoutedEventArgs e)
+    {
+        UpdateVrControls();
+        UpdateResolutionLine();
+    }
+
+    // In VR the headset's render size replaces the internal resolution.
+    private void UpdateVrControls()
+    {
+        if (VrScaleComboBox is null || ResolutionComboBox is null) return;
+        var vr = VrCheckBox.IsChecked == true;
+        var enabled = VrCheckBox.IsEnabled;
+        ResolutionComboBox.IsEnabled = enabled && !vr;
+        VrScaleComboBox.IsEnabled = enabled && vr;
     }
 
     private GraphicsSettings? _graphicsSettings;
@@ -2498,6 +2520,16 @@ public partial class MainWindow : Window
     private void UpdateResolutionLine()
     {
         if (ResolutionLineText is null) return;
+        if (VrCheckBox?.IsChecked == true)
+        {
+            var size = (VrScaleComboBox.SelectedItem as ComboBoxItem)?.Tag?.ToString()?.Split('x');
+            if (size is [var x, var y] && int.TryParse(x, out var scaleX) && int.TryParse(y, out var scaleY))
+            {
+                ResolutionLineText.Text =
+                    $"Renders {1280 * scaleX} × {720 * scaleY} for each eye in the headset.";
+                return;
+            }
+        }
         var scale = int.TryParse((ResolutionComboBox.SelectedItem as ComboBoxItem)?.Tag?.ToString(), out var value)
             ? value : 1;
         var (renderWidth, renderHeight) = (1280 * scale, 720 * scale);
@@ -2631,9 +2663,10 @@ public partial class MainWindow : Window
 
     private void SetGraphicsControlsEnabled(bool enabled)
     {
-        ResolutionComboBox.IsEnabled = enabled;
         OutputScalingComboBox.IsEnabled = enabled;
         TreasureMapCheckBox.IsEnabled = enabled;
+        VrCheckBox.IsEnabled = enabled;
+        UpdateVrControls();
         SaveGraphicsButton.IsEnabled = enabled;
         ResetGraphicsButton.IsEnabled = enabled;
         RestoreGraphicsButton.IsEnabled = enabled;
@@ -2686,5 +2719,7 @@ public partial class MainWindow : Window
         [property: JsonPropertyName("letterbox")] bool Letterbox,
         [property: JsonPropertyName("treasure_map")] bool TreasureMap,
         [property: JsonPropertyName("clear_memory_page_state")] bool ClearMemoryPageState,
-        [property: JsonPropertyName("vsync")] bool Vsync);
+        [property: JsonPropertyName("vsync")] bool Vsync,
+        [property: JsonPropertyName("vr")] bool Vr = false,
+        [property: JsonPropertyName("vr_scale")] string? VrScale = null);
 }

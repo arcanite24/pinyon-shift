@@ -73,6 +73,15 @@ source = """docs/native-renderer/NATIVE_FRAME_CONTRACT.md Primitives, front buff
 
 [[finding]]
 group = """Frame structure and views"""
+name = """name tags among the HUD draws"""
+what = """Other racers' name tags are the first draws of the HUD pass (into the front buffer's `2_10_10_10_AS_10_10_10_10` view), before the map: a backing plate, then one draw per letter. They are placed at their car's projected position: vertex constant c3 holds it in clip space, with w the car's depth (1021 for a car ahead), and the vertex shader offsets the glyphs from it. The HUD's own draws put a screen position in c3 with w = 1, or do not read c3. The HUD-hidden byte (`0x833023C1`) hides the HUD's elements but not the name tags."""
+how = """A frame dump with one name tag, replayed with HUD draws skipped by index (draws 0-4 removed exactly the tag) and their state logged: the rule "the vertex shader reads c3 and c3.w is not 1" matched those 5 of the frame's 67 HUD draws, and none of 89 in a festival frame. VR's HUD panel keeps these draws in the eyes' images."""
+confidence = """confirmed"""
+note = """Seen with one tag in free roam; tags of several racers, race HUD and other world-anchored markers were not dumped."""
+source = """ShiftGlue src/graphics/vulkan/fh1_native_executor.cpp IsWorldAnchoredHudDraw; fh1_debug_skip_hud_draws, fh1_debug_log_hud_draws"""
+
+[[finding]]
+group = """Frame structure and views"""
 name = """occlusion queries only while loading"""
 what = """The game's occlusion queries use `EVENT_WRITE_ZPD`: 1,056 events over 48 report addresses, all in two windows, the title-to-free-roam load and the event menus. Race, free roam, map, pause, photo and movie frames issue none in those censuses; the measured gameplay windows add no draws inside a legacy query. The race frame has 24 indirect point draws that write nothing, possibly query probes. At startup one query is ended in a later command buffer than the one it began in."""
 how = """Frame census; an Android counter of query ends (0 in the race); a Vulkan validation message at startup. In an October 18, 2026 exploratory two-minute night run on the Odin 2 Portal (0.5.1 v4, SDK 71e09d4), the cumulative `draw_in_occlusion_query` count remained at one through the driving window, including an oncoming car. This bounds the legacy host-query path in that sample, not shader-based depth visibility or all traffic-light rendering."""
@@ -166,7 +175,7 @@ base = """0x8284EF94, sub_8284EF90"""
 v4 = """0x828FF264"""
 name = """camera vertical field of view"""
 what = """`sub_8284EF90` returns a camera's vertical field of view in radians, read from the camera at +304, to the frustum and projection code, for every camera. The default comes from data (`CameraSettings.ini` in `camera.zip`, for example 48.5 degrees for the low chase camera)."""
-how = """Mid-function hook at the return scaling f1 live (90 to 130 %)."""
+how = """Mid-function hook at the return scaling f1 live (90 to 130 %); VR stereo sets it per frame and reads it back from the frame's world-view-projection (exact to 1e-7 rad), so the value reaches the projection unsmoothed."""
 confidence = """confirmed"""
 note = """The v4 address is the hook site at the return."""
 source = """docs/NATIVE_PORT_BACKLOG.md NP-4.4; config/rexglue/analysis/main-xex.toml midasm_hook 0x8284EF94; src/pinyon_shift_runtime_hooks.cpp PinyonShiftCameraFieldOfView"""
@@ -197,12 +206,30 @@ source = """docs/UPSCALING_BACKLOG.md UP-1.3"""
 
 [[finding]]
 group = """Frame structure and views"""
+base = """vertex c0-c3, c47, c60-c127, c128-c131, c158, c162, c208-c211, c213, c241-c245; pixel c24, c59, c158, c162, c168"""
+name = """camera-dependent constants between the eyes"""
+what = """Between the two frames of a VR stereo pair (the camera moved 6.4 cm sideways, the world 0.1 ms apart), the float constants that differ are almost all functions of that one offset. The scene's `c128`-`c131` in 1,846 of 1,863 draws change by a single clip-space matrix (x' = x + 0.455 (w - z), with the field of view tag's 0.1 % scale), as do the cars' `c0`-`c3`, the blocks at `c208`-`c211` and `c241`-`c245`, and the skinning matrices of the driver's arms at `c60`-`c127`. Camera positions move by one world offset (6.44 cm along the car's right) in vertex `c47` and `c158` and pixel `c24`, `c59`, `c158` and `c168` (the last negated: a vector to the camera), in about 900 draws; vertex `c162` and `c213` and pixel `c162` change only in w, as a plane's distance from the camera would. About two dozen draws a frame change in other ways (vertex `c140`-`c142` and `c148`, pixel `c6` and `c115`-`c125`: differences up to about 100 and of 4.7 and 0.5, likely screen-space effects computed on the CPU). Time-driven constants (vertex `c214`, `c215`, `c241`, `c242`, pixel `c196`, `c197`, `c221`, `c251`) change from one pair to the next but not between its eyes. Replaying one frame's commands for both eyes with transformed camera constants therefore looks possible apart from those few effects."""
+how = """Four consecutive stereo frames recorded in one run (`fh1_frame_dump_count`), parked in free roam with the simulated head still, replayed with every draw's used float constants logged (`fh1_debug_draw_constants_path`); draws of a left and a right frame lined up by shader pair (3,355 of 3,356 matched), each changed register tested as part of an invertible 4-register block whose transform, B times A inverse or A inverse times B, is shared by at least 8 draws, or as a vector whose change is the same across draws; frames of the same eye a pair apart as the control."""
+confidence = """probable"""
+source = """docs/FEATURE_BACKLOG.md FB-12.15"""
+
+[[finding]]
+group = """Frame structure and views"""
 name = """scene turned 180 degrees with reversed depth"""
 what = """The main scene is drawn turned 180 degrees: its clip x and y are the screen's negated, so a screen pixel's scene depth is at the opposite pixel of the 1280x720 surface, and a later pass turns the picture back. Its stored depth is reversed (1 near, 0 at the far plane), but the matrix's clip z is the usual D3D depth; the reversal is 1 minus it, so it comes from the depth range, not the projection. The scene depth is the 1280-pitch `D24FS8` area at EDRAM base `0x400`, one 256-row band per predicated tile."""
 how = """Copying each tile's depth band at its resolve and comparing it with the frame: it matches only turned 180 degrees. Motion vectors from the matrices are right only with the clip x and y negated and z = 1 - stored depth."""
 confidence = """confirmed"""
 note = """The register setting that reverses the depth range was not looked up; "comes from the depth range" is inferred from the matrix."""
 source = """docs/UPSCALING_BACKLOG.md UP-1.3; ShiftGlue src/graphics/vulkan/command_processor.cpp kSwapCameraSource"""
+
+[[finding]]
+group = """Frame structure and views"""
+name = """cockpit drawn at the near depth limit"""
+what = """In the cockpit camera the cockpit is stored at depth 1, the reversed depth's near limit, wherever it covers the screen, while the world-view-projection constants it is drawn with put it at its real distance in front of the camera. Its stored depth therefore never matches the depth its draw's matrix gives at that pixel, so motion vectors that pick a pixel's draw by matching depth find none for the cockpit, and it moves with the camera's reprojection instead."""
+how = """Dumping the DLSS inputs (`xr_upscale_inputs_dir`) on a simulated cockpit drive and comparing each pixel's stored depth with the depth its object slot's matrix gives: the world and other cars match, the cockpit reads 1 throughout. Trusting the cockpit's slots without the depth match made its motion worse in simulation."""
+confidence = """confirmed"""
+note = """Whether the depth range or the shader pins the cockpit's depth was not looked up."""
+source = """docs/UPSCALING_BACKLOG.md UP-2.2 in VR; docs/FEATURE_BACKLOG.md FB-12.15; ShiftGlue src/graphics/vulkan/fh1_camera.cpp"""
 
 # ---------------------------------------------------------------------------
 # Render targets and EDRAM
@@ -267,6 +294,14 @@ how = """Draw hook at the GPU boundary with register and vertex inspection; a fu
 confidence = """confirmed"""
 note = """The CPU routine that emits these packets was not identified. The shader key is our translator's hash."""
 source = """docs/native-renderer/archive/OWNED_DEPTH_CHAIN_CONTRACT.md Boundary and identity; docs/native-renderer/SHADER_PACK_FORMAT.md Runtime gate"""
+
+[[finding]]
+group = """Render targets and EDRAM"""
+name = """color, depth and stencil rectangle clear"""
+what = """Besides the depth-only clear, the game clears color, depth and stencil together with one draw: a single rectangle (a three-vertex rectangle list) with depth test ALWAYS and depth write on, stencil ALWAYS with REPLACE, every channel of every bound color target written (`RB_COLOR_MASK` 0xFFFF) and no blending (`RB_BLENDCONTROL0` 0x00010001, ONE and ZERO). It runs where a target takes over EDRAM tiles another surface held, in the scene, post and shadow-mask passes, so the earlier contents of those tiles are never read. Six of the ten costliest EDRAM transfers in a free-roam frame end in such a clear."""
+how = """A per-transfer trace of the claiming draw's registers (`fh1_debug_trace_transfers`) and replays of two recorded free-roam frames with each transfer skipped (`fh1_debug_skip_transfers`): the skipped ones left the image bit-identical."""
+confidence = """confirmed"""
+source = """thirdparty/shiftglue-sdk/src/graphics/vulkan/fh1_native_executor.cpp fh1_color_overwrite_claims; site/pages/gpu-optimizations.md Renderings and clears"""
 
 # ---------------------------------------------------------------------------
 # Resolves
@@ -438,7 +473,7 @@ group = """Post effects"""
 base = """0x82D7894C, 0x8245B494, 0x8245846C, 0x8245849C"""
 v4 = """0x82E3A924, 0x8248AB7C, 0x82487B54, 0x82487B84"""
 name = """motion blur and depth of field switches"""
-what = """Skipping the instruction at `0x82D7894C` disables motion blur. Loading zero into r11 instead of the original load at `0x8245B494`, `0x8245846C` and `0x8245849C` disables depth of field at each of its decision points."""
+what = """Skipping the instruction at `0x82D7894C` disables motion blur. That instruction stores the blur's value at +80 of the object `sub_82D78810` sets up with the post-processing settings, so the switch takes effect when that runs, at start: changing it later in a run does nothing. Loading zero into r11 instead of the original load at `0x8245B494`, `0x8245846C` and `0x8245849C` disables depth of field at each of its decision points."""
 how = """Xenia Canary game patches (hash prefix `D48ABF1704CE5C4A`) reproduced as mid-function hooks and checked in game."""
 confidence = """confirmed"""
 source = """config/rexglue/analysis/fh1-post-processing.toml; src/pinyon_shift_runtime_hooks.cpp PinyonShiftDisableDepthOfField"""
@@ -719,8 +754,8 @@ group = """D3D inside the game"""
 base = """0x829EFEB8, sub_829EFB30, sub_823E91F0"""
 v4 = """0x82AACE28"""
 name = """present path"""
-what = """The render thread presents through `sub_829EFB30`: it requests the system command buffer (`VdGetSystemCommandBuffer` at `0x829EFD80`), inserts a fence and kicks the ring, then calls `VdSwap` at `0x829EFEB8`, the title's only call to it and so the end of each title frame. `sub_823E91F0` then waits for the previous present's fence, so the title runs at most one frame ahead of the GPU; swaps are throttled at 15 pending. After a fence passes, the title reuses its dynamic vertex and index memory."""
-how = """Xref of `VdSwap`; reading the generated code and SDK; WPR and thread-sampler profiles."""
+what = """The render thread presents through `sub_829EFB30`: it requests the system command buffer (`VdGetSystemCommandBuffer` at `0x829EFD80`), inserts a fence and kicks the ring, then calls `VdSwap` at `0x829EFEB8`, the title's only call to it and so the end of each title frame. `sub_823E91F0` then waits for the previous present's fence, so the title runs at most one frame ahead of the GPU; swaps are throttled at 15 pending. The image a swap presents is the frame drawn before the draws that end at that swap: per-frame data taken from a frame's draws (the camera from its world-view-projection) goes with the next swap's image. After a fence passes, the title reuses its dynamic vertex and index memory."""
+how = """Xref of `VdSwap`; reading the generated code and SDK; WPR and thread-sampler profiles; for the image's frame, VR stereo with the eyes 1 m apart (`xr_simulate`), where the image at each swap showed the eye of the previous frame's camera."""
 confidence = """confirmed"""
 source = """docs/PERFORMANCE_BACKLOG.md PB-4, PB-2.11, PB-6.4; config/rexglue/analysis/main-xex.toml midasm_hook 0x829EFEB8; docs/native-renderer/archive/RENDER_PASS_CENSUS.md Verified inventory; docs/native-renderer/XENOS_RETIREMENT_BACKLOG.md Target architecture"""
 
@@ -836,8 +871,8 @@ source = """docs/TITLE_UPDATE_V4_BACKLOG.md TU-4"""
 [[finding]]
 group = """Shaders, textures and models"""
 name = """alpha to coverage and late depth"""
-what = """Foliage, flags, cables and signs use alpha to coverage with the console's per-pixel dither offset, which needs four samples to average. Of 1.43 million depth-writing draws, 917,000 run with late depth (alpha to coverage, alpha test or pixel kills), and none uses an EQUAL depth test. The costliest per-frame pixel shader is one fetch and 8 ALU instructions over about 210 small alpha-to-mask draws a frame."""
-how = """Draw census of depth and coverage state; per-shader GPU profile."""
+what = """Foliage, flags, cables and signs use alpha to coverage. Most of these draws set the same offset for all four pixels of a quad (`RB_COLORCONTROL` bits 24-31 = 0xAA, no dither); only the distant crowd figures use per-pixel dither offsets (0x87), which need four samples to average (about 11 % of the alpha-to-coverage draws in two free-roam frames). Of 1.43 million depth-writing draws, 917,000 run with late depth (alpha to coverage, alpha test or pixel kills), and none uses an EQUAL depth test. The costliest per-frame pixel shader is one fetch and 8 ALU instructions over about 210 small alpha-to-mask draws a frame. Which objects each technique draws, from replayed frames with each one skipped: alpha to coverage draws the trees and bushes, the crowds, the barriers and fences, the wind turbines, the stage trusses and the soft edges where roads blend into the ground (27 to 34 % of a free-roam frame's draws, two thirds of them at 4x MSAA); the painted road lines are opaque (they stay with all three skipped); the alpha test draws the cockpit (wheel, arms, mirror) and the in-world signs and HUD; pixel kills draw light glows. In a headset at 2x, distant cables and road lines shimmer and break into regular dashes. That is probably not the dither: none of the thin objects in the recorded frames (turbine blades, fences, trusses) uses it, and removing the crowd's changed only the crowd: a line thinner than the spacing of the samples covers some and misses others, so only more samples (a higher resolution scale) or temporal anti-aliasing smooth it."""
+how = """Draw census of depth and coverage state; per-shader GPU profile. For the objects: `fh1_debug_draw_state_path` (per-draw coverage state) and replays of two recorded free-roam frames (festival lot, and a free-camera view over the festival and its road) with `fh1_debug_skip_coverage=a2c`, `a2cdither`, `alphatest` and `kill`, compared with the full frame, and the per-draw offsets in the CSV; the player's headset captures for the shimmer."""
 confidence = """confirmed"""
 issue = """#413"""
 source = """docs/ANDROID_ODIN_BACKLOG.md Player reports on SMOOTH 60, EDRAM passes rebuilt for Turnip, Hand-edited hot shaders"""
