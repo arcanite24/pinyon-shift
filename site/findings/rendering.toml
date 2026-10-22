@@ -74,6 +74,15 @@ source = """docs/native-renderer/NATIVE_FRAME_CONTRACT.md Primitives, front buff
 
 [[finding]]
 group = """Frame structure and views"""
+name = """name tags among the HUD draws"""
+what = """Other racers' name tags are the first draws of the HUD pass (into the front buffer's `2_10_10_10_AS_10_10_10_10` view), before the map: a backing plate, then one draw per letter. They are placed at their car's projected position: vertex constant c3 holds it in clip space, with w the car's depth (1021 for a car ahead), and the vertex shader offsets the glyphs from it. The HUD's own draws put a screen position in c3 with w = 1, or do not read c3. The HUD-hidden byte (`0x833023C1`) hides the HUD's elements but not the name tags."""
+how = """A frame dump with one name tag, replayed with HUD draws skipped by index (draws 0-4 removed exactly the tag) and their state logged: the rule "the vertex shader reads c3 and c3.w is not 1" matched those 5 of the frame's 67 HUD draws, and none of 89 in a festival frame. VR's HUD panel keeps these draws in the eyes' images."""
+confidence = """confirmed"""
+note = """Seen with one tag in free roam; tags of several racers, race HUD and other world-anchored markers were not dumped."""
+source = """ShiftGlue src/graphics/vulkan/fh1_native_executor.cpp IsWorldAnchoredHudDraw; fh1_debug_skip_hud_draws, fh1_debug_log_hud_draws"""
+
+[[finding]]
+group = """Frame structure and views"""
 name = """occlusion queries only while loading"""
 what = """The game's occlusion queries use `EVENT_WRITE_ZPD`: 1,056 events over 48 report addresses, all in two windows, the title-to-free-roam load and the event menus. Race, free roam, map, pause, photo and movie frames issue none in those censuses; the measured gameplay windows add no draws inside a legacy query. The race frame has 24 indirect point draws that write nothing, possibly query probes. At startup one query is ended in a later command buffer than the one it began in."""
 how = """Frame census; an Android counter of query ends (0 in the race); a Vulkan validation message at startup. In an October 18, 2026 exploratory two-minute night run on the Odin 2 Portal (0.5.1 v4, SDK 71e09d4), the cumulative `draw_in_occlusion_query` count remained at one through the driving window, including an oncoming car. This bounds the legacy host-query path in that sample, not shader-based depth visibility or all traffic-light rendering."""
