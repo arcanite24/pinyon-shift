@@ -1284,6 +1284,11 @@ void PinyonShiftApp::OnPostSetup() {
     std::error_code error;
     std::filesystem::create_directories(directory, error);
     rex::ui::vulkan::openxr::RequestCapture(rex::path_to_utf8(directory), 8);
+    // With a dump file set (fh1_frame_dump_path, read at start), the next
+    // whole frame is recorded too, for an offline replay of what was seen.
+    if (!rex::cvar::GetFlagByName("fh1_frame_dump_path").empty()) {
+      rex::cvar::SetFlagByName("fh1_frame_dump_frame", "-1");
+    }
   });
   rex::ui::RegisterBind("bind_vr_recenter", pinyon_shift::config::kVrRecenterKeys,
                         "VR: make where your head is now the driver's seat",
