@@ -8209,9 +8209,12 @@ void PinyonShiftImmersiveCameraLayer(PPCRegister& r1, PPCRegister& r31) {
   const double scales[] = {
       REXCVAR_GET(pinyon_shift_camera_gforce), REXCVAR_GET(pinyon_shift_camera_lean),
       REXCVAR_GET(pinyon_shift_camera_shake), REXCVAR_GET(pinyon_shift_camera_head)};
-  // The head layers' noise range is 0 to 0, so they are still without us.
+  // The head layers' noise range is 0 to 0, so they are still without us
+  // unless head tracking or VR stereo (the eye's offset, the shake dropped)
+  // drives them.
   const bool head_tracking = REXCVAR_GET(head_tracking);
-  if (!head_tracking &&
+  const bool vr = pinyon_shift::vr::StereoConfigured();
+  if (!head_tracking && !vr &&
       std::all_of(std::begin(scales), std::end(scales), [](double s) { return s == 1.0; })) {
     return;
   }
@@ -8228,7 +8231,7 @@ void PinyonShiftImmersiveCameraLayer(PPCRegister& r1, PPCRegister& r31) {
     // Head tracking (#489): groups 5-10 are unit offsets for yaw, pitch,
     // roll (degrees) and x, y, z (metres), 0 unless it is on.
     // FH1 pitches and rolls the other way from the pose (look up, tilt right).
-    if (!head_tracking)
+    if (!head_tracking && !vr)
       return;
     static constexpr float kSigns[] = {1.0f, -1.0f, -1.0f, 1.0f, 1.0f, 1.0f};
     const size_t axis = size_t(nearest) - 5;
