@@ -40,6 +40,7 @@ REXCVAR_DEFINE_UINT32(pinyon_shift_render_idle_sleep_us, 200, "Pinyon Shift",
                       "draw, instead of yielding and polling again (#431; 0 = the title's own "
                       "spin)")
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+REXCVAR_DECLARE(bool, pinyon_shift_step_count_drawn);
 
 namespace pinyon_shift::guest_native {
 namespace {
@@ -71,8 +72,12 @@ bool SleepIdle(PPCContext& ctx, uint8_t* base) {
   return false;
 }
 
-// Also without the sleep: the step gate needs to see the render thread wait.
-bool SleepEnabled() { return true; }
+// Also without the sleep when the step gate counts the drawn step: it needs to
+// see the render thread wait.
+bool SleepEnabled() {
+  return REXCVAR_GET(pinyon_shift_render_idle_sleep_us) != 0 ||
+         REXCVAR_GET(pinyon_shift_step_count_drawn);
+}
 
 Replacement sleep_replacement = {
     .name = "title.sleep_ex",
