@@ -116,6 +116,16 @@ Latched& L() {
   return latched;
 }
 
+// VR stereo has run in this process (an eye was requested). Until then every
+// call below returns its flat result without taking the mutex: they run on
+// hot paths (every camera's field of view, every simulation step, every
+// frame's HUD and aspect) for players who never turn VR on.
+std::atomic<bool> g_engaged{false};
+
+bool Engaged() {
+  return g_engaged.load(std::memory_order_relaxed);
+}
+
 // The layers applied an eye in this frame (before its tick) or the last:
 // cockpit and hood cameras; other cameras' frames stay untagged.
 bool LayersCurrent(const Latched& l) {
@@ -148,8 +158,10 @@ void Update() {
     static uint32_t frames = 0;
     if (++frames % 300 == 0) std::this_thread::sleep_for(std::chrono::milliseconds(hitch));
   }
+  if (!Engaged() && !StereoConfigured()) return;
   rex::ui::vulkan::openxr::EyeRequest request;
   const bool active = rex::ui::vulkan::openxr::NextEye(request);
+  if (active) g_engaged.store(true, std::memory_order_relaxed);
   Latched& l = L();
   std::lock_guard lock(l.mutex);
   ++l.ticks;
@@ -182,6 +194,7 @@ void Update() {
 }
 
 head_tracking::Pose CameraOffset() {
+  if (!Engaged()) return {};
   Latched& l = L();
   std::lock_guard lock(l.mutex);
   if (!l.active) return {};
@@ -206,6 +219,7 @@ head_tracking::Pose CameraOffset() {
 }
 
 double TagFieldOfView(double fov_y) {
+  if (!Engaged()) return fov_y;
   Latched& l = L();
   std::lock_guard lock(l.mutex);
   if (!LayersCurrent(l) || std::abs(fov_y - kCubeFov) < 0.01) return fov_y;
@@ -222,6 +236,7 @@ double TagFieldOfView(double fov_y) {
 }
 
 void NoteLayersApplied() {
+  if (!Engaged()) return;
   Latched& l = L();
   std::lock_guard lock(l.mutex);
   if (!l.active || (l.applied && l.applied_tick == l.ticks)) return;
@@ -246,12 +261,14 @@ bool KeepsCameraShake() {
 }
 
 bool InStereo() {
+  if (!Engaged()) return false;
   Latched& l = L();
   std::lock_guard lock(l.mutex);
   return LayersCurrent(l);
 }
 
 double PairStep(double seconds) {
+  if (!Engaged()) return seconds;
   const double in = seconds;
   const double out = PairStepImpl(seconds);
   static int32_t last_setting = 0, remaining = 0;
@@ -305,6 +322,7 @@ static double PairStepImpl(double seconds) {
 }
 
 float AspectScale() {
+  if (!Engaged()) return 0.0f;
   {
     Latched& l = L();
     std::lock_guard lock(l.mutex);
@@ -322,6 +340,7 @@ float AspectScale() {
 }
 
 bool HidesHud() {
+  if (!Engaged()) return false;
   Latched& l = L();
   std::lock_guard lock(l.mutex);
   return LayersCurrent(l) && REXCVAR_GET(xr_hide_hud) &&
