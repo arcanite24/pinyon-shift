@@ -1994,7 +1994,10 @@ std::unique_ptr<MenuScreen> SettingsPages::Controls() {
   map.activate = [this] { host_ui_.Push(MapController()); };
   rows.push_back(std::move(map));
   rows.push_back(Page("RACING WHEEL", &SettingsPages::Wheel));
+  // OpenTrack runs on the same PC, so not on Android.
+#if !defined(__ANDROID__)
   rows.push_back(Page("HEAD TRACKING", &SettingsPages::HeadTracking));
+#endif
   // Always listed so players can find it; the page greys its options out while no
   // DualSense is connected and says why in its status line.
   rows.push_back(Page("DUALSENSE", &SettingsPages::DualSense));
