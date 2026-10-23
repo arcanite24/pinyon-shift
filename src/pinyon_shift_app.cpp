@@ -896,6 +896,18 @@ void PinyonShiftApp::OnPreSetup(rex::RuntimeConfig& config) {
     pinyon_shift::diagnostics::RecordEvent("config.gpu_backend_defaulted",
                                            {{"from", "any"}, {"to", "vulkan"}});
   }
+  // VR renders FH1's 4x views of its 1x surfaces into the 1x storage
+  // (fh1_share_msaa_aliases), off by default since it was measured only on an
+  // RTX 3090: in simulated stereo at 2x with 4x MSAA it took a frame from
+  // 8.3 to 6.5 ms. Before the renderer starts, which reads it once. A value
+  // set in the config or on the command line wins.
+  if ((rex::cvar::GetFlagByName("xr_enabled") == "true" ||
+       rex::cvar::GetFlagByName("xr_simulate") == "true") &&
+      rex::cvar::GetFlagSource("fh1_share_msaa_aliases") == rex::cvar::Source::kDefault) {
+    rex::cvar::SetFlagByName("fh1_share_msaa_aliases", "true");
+    pinyon_shift::diagnostics::RecordEvent("gpu.share_msaa_aliases",
+                                           {{"value", "true"}, {"reason", "vr_default"}});
+  }
   pinyon_shift::fh1_render_test::Configure(config);
   pinyon_shift::rally::ConfigureAudioProbe(config);
   // WINDOWS HDR: before the swapchain is made, so the presenter is offered
