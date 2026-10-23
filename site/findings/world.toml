@@ -226,10 +226,10 @@ group = """Collision and cameras"""
 base = """sub_82857B00, 0x82857C98"""
 v4 = """sub_82907F88, 0x82908120"""
 name = """camera physics layer"""
-what = """`sub_82857B00` updates one camera physics layer (r31) and stores the factor for its `Param` at r1+96 after running the input through the layer's curve and noise. A layer is sprung when its byte at +248 (`Sprung`) is set, with `SpringK` at +252; noise layers have `NoiseSeed` at +156."""
-how = """Midasm hook at `0x82857C98` reading the stored factor, and scaling it for tagged layers of a built-in immersive camera."""
+what = """`sub_82857B00` updates one camera physics layer (r31) and stores the factor for its `Param` at r1+96 after running the input through the layer's curve and noise. A layer is sprung when its byte at +248 (`Sprung`) is set, with `SpringK` at +252; noise layers have `NoiseSeed` at +156. A layer whose `NoiseType` is `None` keeps no `NoiseSeed` (it reads 0 there). The factor scales the layer's `Param`: for `CarSpaceYPROffset`, x is yaw in degrees (positive turns the view right), y pitch (positive looks down) and z roll (positive tilts left); for `CarSpaceXYZOffset`, x, y and z move the eye right, up and forward in metres. A 90-degree yaw from the cockpit is not clamped."""
+how = """Midasm hook at `0x82857C98` reading the stored factor, and scaling it for tagged layers of a built-in immersive camera; for head tracking (#489), captures of the cockpit camera with the factor of one unit layer per axis set to fixed values."""
 confidence = """confirmed"""
-issue = """#443"""
+issue = """#443 #489"""
 source = """config/rexglue/analysis/main-xex.toml midasm_hook 0x82857C98; src/pinyon_shift_runtime_hooks.cpp PinyonShiftImmersiveCameraLayer"""
 
 [[finding]]
