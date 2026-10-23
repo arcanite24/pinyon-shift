@@ -10,6 +10,7 @@
 #include "dlc/rally_pace_notes.h"
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
@@ -23,6 +24,7 @@
 #include <toml++/toml.hpp>
 
 #include <rex/cvar.h>
+#include <rex/platform/env.h>
 #include <rex/filesystem.h>
 #include <rex/kernel/xboxkrnl/io.h>
 #include <rex/logging.h>
@@ -879,6 +881,24 @@ void PinyonShiftApp::OnPostInitLogging() {
                         {"perf_csv", perf_csv}});
 }
 
+// Sets a GPU plugin's flag before the plugin loads. Its flags register when
+// it does, after OnPreSetup, so a value set by name now finds no flag and is
+// lost. The environment (REX_<NAME>) is replayed as each flag registers, over
+// the config file and under the command line. A flag already registered (a
+// build with the renderer linked in) is set directly, unless the command line
+// set it.
+static void SetPluginFlagBeforeLoad(std::string_view name, std::string_view value) {
+  if (rex::cvar::GetFlagInfo(name)) {
+    if (rex::cvar::GetFlagSource(name) != rex::cvar::Source::kCommandLine) {
+      rex::cvar::SetFlagByName(name, value);
+    }
+    return;
+  }
+  std::string variable = "REX_";
+  for (const char c : name) variable += char(std::toupper(static_cast<unsigned char>(c)));
+  rex::platform::env::set(variable, value);
+}
+
 void PinyonShiftApp::OnPreSetup(rex::RuntimeConfig& config) {
   rex::system::SetHostGpuLossHandler(&OnHostGpuLoss);
   // The window title and the F3 overlay name this release and its commits.
@@ -896,15 +916,17 @@ void PinyonShiftApp::OnPreSetup(rex::RuntimeConfig& config) {
     pinyon_shift::diagnostics::RecordEvent("config.gpu_backend_defaulted",
                                            {{"from", "any"}, {"to", "vulkan"}});
   }
+  // VR's settings for the GPU plugin (fh1_share_msaa_aliases, the draw
+  // resolution scale), which registers its flags when it loads, after this:
+  // a value set here would be lost (SetPluginFlagBeforeLoad).
+  const bool vr_configured = rex::cvar::GetFlagByName("xr_enabled") == "true" ||
+                             rex::cvar::GetFlagByName("xr_simulate") == "true";
   // VR renders FH1's 4x views of its 1x surfaces into the 1x storage
   // (fh1_share_msaa_aliases), off by default since it was measured only on an
   // RTX 3090: in simulated stereo at 2x with 4x MSAA it took a frame from
-  // 8.3 to 6.5 ms. Before the renderer starts, which reads it once. A value
-  // set in the config or on the command line wins.
-  if ((rex::cvar::GetFlagByName("xr_enabled") == "true" ||
-       rex::cvar::GetFlagByName("xr_simulate") == "true") &&
-      rex::cvar::GetFlagSource("fh1_share_msaa_aliases") == rex::cvar::Source::kDefault) {
-    rex::cvar::SetFlagByName("fh1_share_msaa_aliases", "true");
+  // 8.3 to 6.5 ms. A value in the config or on the command line wins.
+  if (vr_configured && !(host_config_ && host_config_->Get("fh1_share_msaa_aliases"))) {
+    SetPluginFlagBeforeLoad("fh1_share_msaa_aliases", "true");
     pinyon_shift::diagnostics::RecordEvent("gpu.share_msaa_aliases",
                                            {{"value", "true"}, {"reason", "vr_default"}});
   }
@@ -913,14 +935,11 @@ void PinyonShiftApp::OnPreSetup(rex::RuntimeConfig& config) {
   // flat one back. A scale given on the command line wins.
   if (rex::cvar::GetFlagByName("xr_enabled") == "true") {
     const std::string scale = rex::cvar::GetFlagByName("xr_render_scale");
-    const size_t cross = scale.find('x');
-    const bool valid = scale.size() == 3 && cross == 1 && scale[0] >= '1' && scale[0] <= '4' &&
-                       scale[2] >= '1' && scale[2] <= '4';
-    if (valid &&
-        rex::cvar::GetFlagSource("draw_resolution_scale_x") != rex::cvar::Source::kCommandLine &&
-        rex::cvar::GetFlagSource("draw_resolution_scale_y") != rex::cvar::Source::kCommandLine) {
-      rex::cvar::SetFlagByName("draw_resolution_scale_x", scale.substr(0, 1));
-      rex::cvar::SetFlagByName("draw_resolution_scale_y", scale.substr(2, 1));
+    const bool valid = scale.size() == 3 && scale[1] == 'x' && scale[0] >= '1' &&
+                       scale[0] <= '4' && scale[2] >= '1' && scale[2] <= '4';
+    if (valid) {
+      SetPluginFlagBeforeLoad("draw_resolution_scale_x", scale.substr(0, 1));
+      SetPluginFlagBeforeLoad("draw_resolution_scale_y", scale.substr(2, 1));
       pinyon_shift::diagnostics::RecordEvent("vr.render_scale", {{"scale", scale}});
     }
   }
@@ -1321,6 +1340,14 @@ void PinyonShiftApp::OnPostSetup() {
   const bool vr = rex::cvar::GetFlagByName("xr_enabled") == "true" ||
                   rex::cvar::GetFlagByName("xr_simulate") == "true";
   if (vr) {
+    // The settings VR runs with, as the GPU plugin took them (OnPreSetup).
+    pinyon_shift::diagnostics::RecordEvent(
+        "vr.render_settings",
+        {{"draw_resolution_scale_x", rex::cvar::GetFlagByName("draw_resolution_scale_x")},
+         {"draw_resolution_scale_y", rex::cvar::GetFlagByName("draw_resolution_scale_y")},
+         {"fh1_share_msaa_aliases", rex::cvar::GetFlagByName("fh1_share_msaa_aliases")},
+         {"pinyon_shift_step_count_drawn",
+          rex::cvar::GetFlagByName("pinyon_shift_step_count_drawn")}});
     rex::ui::RegisterBind("bind_vr_capture", pinyon_shift::config::kVrCaptureKeys,
                           "VR: save what the next 8 frames sent to each eye, for checking", [] {
       const auto stamp = std::chrono::system_clock::now().time_since_epoch();
