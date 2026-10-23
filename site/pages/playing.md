@@ -143,7 +143,7 @@ To set it up:
 
 Pinyon Shift applies the pose one to one: yaw, pitch and roll in degrees, and movement in centimetres. The view can turn a full 90 degrees to the side. **REVERSE** flips yaw, pitch or roll for a tracker that reports them the other way. Large upward or sideways head movement can take the view through the roof or the door, so keep OpenTrack's position limits small.
 
-If OpenTrack stops sending, the view holds for a second, then eases back to centre. It works through the built-in immersive camera mod, so on the base game only (the v4 title update reads its own camera file). It was checked with fixed poses on the cockpit camera, not yet with a tracker.
+If OpenTrack stops sending, the view holds for a second, then eases back to centre. It works through the built-in immersive camera mod, whose camera files for the base game and the v4 title update both carry the head layers. It was checked with fixed poses on the cockpit camera of the base game, not yet with a tracker or on v4.
 
 ### DualSense
 

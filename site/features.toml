@@ -273,7 +273,7 @@ cells = [
 feature = "Head tracking"
 link = "playing.md#head-tracking"
 cells = [
-  "partly: cockpit and hood cameras from OpenTrack (TrackIR, webcams, VR headsets); base game only ([#489](https://github.com/arcanite24/pinyon-shift/issues/489))",
+  "partly: cockpit and hood cameras from OpenTrack (TrackIR, webcams, VR headsets); checked on the base game with fixed poses, not yet with a tracker or on v4 ([#489](https://github.com/arcanite24/pinyon-shift/issues/489))",
   "partly: as on Windows, untested on this platform ([#489](https://github.com/arcanite24/pinyon-shift/issues/489))",
   "partly: as on Windows, untested on this platform ([#489](https://github.com/arcanite24/pinyon-shift/issues/489))",
   "n/a",
