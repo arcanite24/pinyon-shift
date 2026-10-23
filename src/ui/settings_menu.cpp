@@ -1980,7 +1980,10 @@ std::unique_ptr<MenuScreen> SettingsPages::Controls() {
   map.activate = [this] { host_ui_.Push(MapController()); };
   rows.push_back(std::move(map));
   rows.push_back(Page("RACING WHEEL", &SettingsPages::Wheel));
+  // OpenTrack runs on the same PC, so not on Android.
+#if !defined(__ANDROID__)
   rows.push_back(Page("HEAD TRACKING", &SettingsPages::HeadTracking));
+#endif
   // Only when a DualSense (or Steam's stand-in for one) is here, or its
   // settings were changed, so other players never see it.
   {
