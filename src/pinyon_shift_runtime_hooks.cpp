@@ -8060,6 +8060,12 @@ void PinyonShiftImmersiveCameraLayer(PPCRegister& r1, PPCRegister& r31) {
   const double scales[] = {
       REXCVAR_GET(pinyon_shift_camera_gforce), REXCVAR_GET(pinyon_shift_camera_lean),
       REXCVAR_GET(pinyon_shift_camera_shake), REXCVAR_GET(pinyon_shift_camera_head)};
+  // The head layers' noise range is 0 to 0, so they are still without us.
+  const bool head_tracking = REXCVAR_GET(head_tracking);
+  if (!head_tracking &&
+      std::all_of(std::begin(scales), std::end(scales), [](double s) { return s == 1.0; })) {
+    return;
+  }
   const uint32_t layer = r31.u32;
   // Sprung (+248), SpringK (+252); NoiseSeed (+156).
   const float tagged = LoadGuestF32(layer + (LoadGuestU8(layer + 248) ? 252u : 156u));
@@ -8071,8 +8077,10 @@ void PinyonShiftImmersiveCameraLayer(PPCRegister& r1, PPCRegister& r31) {
     return;
   if (nearest >= 5.0) {
     // Head tracking (#489): groups 5-10 are unit offsets for yaw, pitch,
-    // roll (degrees) and x, y, z (metres), held at 0 while it is off.
+    // roll (degrees) and x, y, z (metres), 0 unless it is on.
     // FH1 pitches and rolls the other way from the pose (look up, tilt right).
+    if (!head_tracking)
+      return;
     static constexpr float kSigns[] = {1.0f, -1.0f, -1.0f, 1.0f, 1.0f, 1.0f};
     const size_t axis = size_t(nearest) - 5;
     // Once, so a log shows the camera physics has the head layers.

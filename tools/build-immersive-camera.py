@@ -22,8 +22,8 @@ Head tracking (#489) adds one layer per axis to the cockpit and hood
 cameras, groups 5 to 10 (yaw, pitch, roll in degrees, then x, y, z in
 metres): a constant input with a unit offset, unsprung so it never lags,
 tagged through the NoiseSeed of a still sine (the game drops the seed of a
-layer without noise). The hook sets each layer's factor to the head pose,
-and to 0 while head tracking is off.
+layer without noise). The sine's output range is 0 to 0, so a layer gives
+nothing unless the hook sets its factor to the head pose.
 
   build-immersive-camera.py [output]
 
@@ -72,10 +72,11 @@ def layer(group, input_type, output, param, points=None, clamp=None, noise=None,
         a["InputClampMin"], a["InputClampMax"] = f(clamp[0]), f(clamp[1])
     a["InputMagAttackDecay"] = "0"
     if noise:
-        _, freq, seed = noise
+        _, freq, seed, *output_range = noise
+        low, high = output_range[0] if output_range else (-1, 1)
         a["InputToNoiseFreqMapping"] = "Linear"
         a["NoiseFreq"], a["NoiseSeed"] = f(freq), f(math.floor(seed) + tag)
-        a["NoiseOutputRangeMin"], a["NoiseOutputRangeMax"] = f(-1), f(1)
+        a["NoiseOutputRangeMin"], a["NoiseOutputRangeMax"] = f(low), f(high)
     if points is None:
         a["InputToParamMapping"] = "ConstantOne" if input_type == "ConstantOne" else "Linear"
     else:
@@ -139,7 +140,7 @@ def head_tracking_layers():
             (HEAD_X, "CarSpaceXYZOffset", (1, 0, 0)),
             (HEAD_Y, "CarSpaceXYZOffset", (0, 1, 0)),
             (HEAD_Z, "CarSpaceXYZOffset", (0, 0, 1)))
-    return [layer(group, "ConstantOne", output, param, noise=("Sin", 0.0, 0.0))
+    return [layer(group, "ConstantOne", output, param, noise=("Sin", 0.0, 0.0, (0, 0)))
             for group, output, param in axes]
 
 
