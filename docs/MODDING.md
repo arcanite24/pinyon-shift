@@ -176,7 +176,10 @@ its `SpringK` or `NoiseSeed`, and the game's per-frame layer update scales
 the group by `pinyon_shift_camera_gforce`, `_lean`, `_shake` and `_head`
 (0 to 2, applied at once). F6 > DISPLAY > IMMERSIVE CAMERA sets all four
 (OFF 0, SUBTLE 0.5, DEFAULT 1, STRONG 1.5), and the four CAMERA rows below it
-set each one (CUSTOM). The v4 update has a separate merge under
+set each one (CUSTOM). The cockpit and hood cameras also get six head
+tracking layers (#489, groups 5 to 10, one per axis). Their noise output
+range is 0 to 0, so they are still unless head tracking sets their factor
+(verified with cockpit captures). The v4 update has a separate merge under
 `merge-update/media.zip/camera/cameraphysics.xml`: its chase cameras have
 80/75 stock layers rather than the disc's 74/69. The generator writes both
 variants. Update merges build into the generated mod's `update/` overlay;
