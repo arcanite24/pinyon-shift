@@ -1287,24 +1287,40 @@ void PinyonShiftApp::OnPostSetup() {
   rex::ui::RegisterBind("bind_hud", pinyon_shift::config::kHudKeys,
                         "Hide or show the HUD (for screenshots)", [] { pinyon_shift::hud::Toggle(); });
 #if REX_HAS_VULKAN
-  rex::ui::RegisterBind("bind_vr_capture", pinyon_shift::config::kVrCaptureKeys,
-                        "VR: save what the next 8 frames sent to each eye, for checking", [] {
-    const auto stamp = std::chrono::system_clock::now().time_since_epoch();
-    const std::filesystem::path directory =
-        pinyon_shift::diagnostics::StateRoot() / "logs" /
-        ("xr-capture-" + std::to_string(std::chrono::duration_cast<std::chrono::seconds>(stamp).count()));
-    std::error_code error;
-    std::filesystem::create_directories(directory, error);
-    rex::ui::vulkan::openxr::RequestCapture(rex::path_to_utf8(directory), 8);
-    // With a dump file set (fh1_frame_dump_path, read at start), the next
-    // whole frame is recorded too, for an offline replay of what was seen.
-    if (!rex::cvar::GetFlagByName("fh1_frame_dump_path").empty()) {
-      rex::cvar::SetFlagByName("fh1_frame_dump_frame", "-1");
-    }
-  });
-  rex::ui::RegisterBind("bind_vr_recenter", pinyon_shift::config::kVrRecenterKeys,
-                        "VR: make where your head is now the driver's seat",
-                        [] { rex::ui::vulkan::openxr::Recenter(); });
+  // VR's keys only while VR is on: F12 is Steam's screenshot key, and F5
+  // makes a capture folder each press.
+  const bool vr = rex::cvar::GetFlagByName("xr_enabled") == "true" ||
+                  rex::cvar::GetFlagByName("xr_simulate") == "true";
+  if (vr) {
+    rex::ui::RegisterBind("bind_vr_capture", pinyon_shift::config::kVrCaptureKeys,
+                          "VR: save what the next 8 frames sent to each eye, for checking", [] {
+      const auto stamp = std::chrono::system_clock::now().time_since_epoch();
+      const std::filesystem::path directory =
+          pinyon_shift::diagnostics::StateRoot() / "logs" /
+          ("xr-capture-" + std::to_string(std::chrono::duration_cast<std::chrono::seconds>(stamp).count()));
+      std::error_code error;
+      std::filesystem::create_directories(directory, error);
+      rex::ui::vulkan::openxr::RequestCapture(rex::path_to_utf8(directory), 8);
+      // With a dump file set (fh1_frame_dump_path, read at start), the next
+      // whole frame is recorded too, for an offline replay of what was seen.
+      if (!rex::cvar::GetFlagByName("fh1_frame_dump_path").empty()) {
+        rex::cvar::SetFlagByName("fh1_frame_dump_frame", "-1");
+      }
+    });
+    rex::ui::RegisterBind("bind_vr_recenter", pinyon_shift::config::kVrRecenterKeys,
+                          "VR: make where your head is now the driver's seat",
+                          [] { rex::ui::vulkan::openxr::Recenter(); });
+    // For comparing in the headset: not saved, the config's value returns on
+    // the next launch.
+    rex::ui::RegisterBind("bind_window_interval", pinyon_shift::config::kWindowIntervalKeys,
+                          "VR: present the desktop window every frame or one frame in eight",
+                          [] {
+      const bool every = rex::cvar::GetFlagByName("present_window_interval") != "1";
+      rex::cvar::SetFlagByName("present_window_interval", every ? "1" : "8");
+      pinyon_shift::diagnostics::RecordEvent("present.window_interval",
+                                             {{"interval", every ? "1" : "8"}});
+    });
+  }
   // In VR the headset takes its own copy of every frame and the window is a
   // mirror: presenting it on one frame in eight keeps its present call (about
   // 2.5 ms of the GPU-bound frame at 3x) off the others (simulated stereo at
@@ -1330,16 +1346,6 @@ void PinyonShiftApp::OnPostSetup() {
     pinyon_shift::diagnostics::RecordEvent("texture.mip_lod_bias",
                                            {{"bias", bias}, {"reason", "vr_dlss"}});
   }
-  // For comparing in the headset: not saved, the config's value returns on
-  // the next launch.
-  rex::ui::RegisterBind("bind_window_interval", pinyon_shift::config::kWindowIntervalKeys,
-                        "VR: present the desktop window every frame or one frame in eight",
-                        [] {
-    const bool every = rex::cvar::GetFlagByName("present_window_interval") != "1";
-    rex::cvar::SetFlagByName("present_window_interval", every ? "1" : "8");
-    pinyon_shift::diagnostics::RecordEvent("present.window_interval",
-                                           {{"interval", every ? "1" : "8"}});
-  });
 #endif
   rex::ui::RegisterBind("bind_music_next", pinyon_shift::config::kMusicNextKeys,
                         "Your music: next track", [] { pinyon_shift::music::Next(); });
