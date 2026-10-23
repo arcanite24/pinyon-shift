@@ -77,7 +77,7 @@ name = """occlusion queries only while loading"""
 what = """The game's occlusion queries use `EVENT_WRITE_ZPD`: 1,056 events over 48 report addresses, all in two windows, the title-to-free-roam load and the event menus. Race, free roam, map, pause, photo and movie frames issue none in those censuses; the measured gameplay windows add no draws inside a legacy query. The race frame has 24 indirect point draws that write nothing, possibly query probes. At startup one query is ended in a later command buffer than the one it began in."""
 how = """Frame census; an Android counter of query ends (0 in the race); a Vulkan validation message at startup. In an October 18, 2026 exploratory two-minute night run on the Odin 2 Portal (0.5.1 v4, SDK 71e09d4), the cumulative `draw_in_occlusion_query` count remained at one through the driving window, including an oncoming car. This bounds the legacy host-query path in that sample, not shader-based depth visibility or all traffic-light rendering."""
 confidence = """confirmed"""
-note = """That the point draws are query probes is a guess."""
+note = """That the point draws are query probes is a guess. The night free-roam frame's single-point draws (vertex shader B6C9863F710683EC) only output a constant position and write nothing, with no query around them. Viz queries are not used either: see "light glows have no visibility test"."""
 source = """docs/native-renderer/NATIVE_FRAME_CONTRACT.md Primitives, front buffer, side effects; docs/native-renderer/XENOS_RETIREMENT_BACKLOG.md XR-06; docs/ANDROID_60FPS_BACKLOG.md A60-E10; docs/RECORDER_PER_DRAW_BACKLOG.md Validation; docs/native-renderer/HEADLIGHT_FLICKER.md Evidence and remaining gate"""
 
 [[finding]]
@@ -869,3 +869,40 @@ how = """`gpu_log_register_reads=true` logs the first guest read of each registe
 confidence = """confirmed"""
 negative = true
 source = """docs/NEXT_LEVEL_RESEARCH.md NL-5"""
+
+# ---------------------------------------------------------------------------
+# Light glows
+# ---------------------------------------------------------------------------
+
+[[finding]]
+group = """Light glows"""
+name = """light glow sprites"""
+what = """Street lamps, outpost lights and car headlights are camera-facing sprites drawn into the 4x main scene, in each predicated tile, after the opaque world: pixel shaders E6A37477D3491A43 (lamps; vertex shaders FB9E8663EA73E066 and F1663100A698025F) and 36ADB4C3E44F265F (headlights), blending `SRC_ALPHA`/`ONE` (`RB_BLENDCONTROL0` 0x01060106). The vertex shader moves each sprite a little toward the camera and takes its brightness from the vertex data; the pixel shader multiplies a sprite texture by a 1D colour ramp. Occlusion is the per-pixel depth test alone: `GREATER_EQUAL` without depth writes against the scene's reversed depth (viewport z scale -1, offset 1)."""
+how = """A night frame's draw log with every draw's textures and depth and stencil state; hiding one blended pixel shader at a time in a live drive; the vertex shaders' translated microcode."""
+confidence = """confirmed"""
+source = """docs/native-renderer/HEADLIGHT_FLICKER.md Lights through the car and terrain"""
+
+[[finding]]
+group = """Light glows"""
+name = """car depth stamp"""
+what = """After the player's car (drawn with stencil reference 0x15, `REPLACE` on pass), a depth-only draw of eight rectangles (vertex shader 18EA40EB...) with viewport z scale 0 and offset 1 writes depth 1.0, the nearest value, wherever the stencil is not 0. Depth-tested glows, smoke and other blended effects drawn later then fail on the car's pixels in cockpit and chase views."""
+how = """Draw log of the stencil and viewport registers; making the stamp ignore the stencil hid every later depth-tested draw on the whole screen."""
+confidence = """confirmed"""
+source = """docs/native-renderer/HEADLIGHT_FLICKER.md Lights through the car and terrain"""
+
+[[finding]]
+group = """Light glows"""
+name = """glows with an ALWAYS depth test"""
+what = """Some of the lamp glows (vertex shader F1663100A698025F) and of the headlight glows (pixel shader 36ADB4C3E44F265F) are drawn with the depth test enabled but its function `ALWAYS` (`RB_DEPTHCONTROL` 0x087087F2 or 0x08700272) and hi-Z off (`RB_HIZCONTROL` 0x10, against 0x12 for the tested glows). They showed through the player's car pillars and roof, through terrain and through buildings. In the logged night frames these are the only glow draws without a working depth test. The host gives them the other glows' `GREATER_EQUAL` test (`fh1_glow_depth_test`, on by default)."""
+how = """Draw logs of three night frames; hiding, then depth-testing, the ALWAYS glows in a live drive: a street lamp and oncoming headlights behind the A-pillar were hidden behind it and stayed visible in view."""
+confidence = """confirmed"""
+note = """What hides these glows on the console is not known (see "light glows have no visibility test"); that it does is from players' reports of the port, not console captures."""
+source = """docs/native-renderer/HEADLIGHT_FLICKER.md Lights through the car and terrain"""
+
+[[finding]]
+group = """Light glows"""
+name = """light glows have no visibility test"""
+what = """At night in free roam the game issues no viz queries (no `PM4_VIZ_QUERY` packets, no draws under `PA_SC_VIZ_QUERY`, no draw packets with the conditional bit of their viz query word), no occlusion queries and no `REG_TO_MEM` copies, and the guest CPU reads none of the resolved ranges, including the per-frame 1280x720 depth resolve. No GPU result reaches the glows' vertex data, and nothing in the GPU state of the ALWAYS glows hides them."""
+how = """Counters of viz query packets, probe draws, conditional draws and `REG_TO_MEM` registers over 600-frame windows, parked and driving at 23:00; guest CPU access traps on every resolved range (`fh1_trace_resolve_cpu_accesses`)."""
+confidence = """confirmed"""
+source = """docs/native-renderer/HEADLIGHT_FLICKER.md Lights through the car and terrain"""

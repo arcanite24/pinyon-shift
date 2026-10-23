@@ -132,3 +132,38 @@ and depth/resolve inputs are identified, and a correction survives a
 two-minute oncoming-traffic drive on current desktop and Android builds.
 The sparse scene captures and the shadows-off headlight-pool check do not
 meet that gate.
+
+## Lights through the car and terrain
+
+A separate symptom, reported in #531 on October 19, 2026: at night, street
+lamp, outpost and oncoming headlight glows showed through the player's own
+car (A-pillars, roof) and through hills. Desktop Vulkan, RTX 3090, 2x2 and
+2x3, cockpit view; also with `vulkan_fh1_native_executor=false`, so not
+specific to the executor.
+
+**Glows.** Lamps are pixel shader E6A37477D3491A43 and headlights
+36ADB4C3E44F265F, both blending `SRC_ALPHA`/`ONE`. Most of their draws test
+depth (`GREATER_EQUAL`, no writes, reversed depth) and were hidden
+correctly, including behind the depth stamp the game draws over the player
+car's stencil. Some draws of both shaders have the depth test enabled with
+an `ALWAYS` function; those were the ones showing through.
+
+**Ruled out.** In 600-frame windows at 23:00, parked and driving, the game
+issued no viz queries (packets, probe draws or conditional draws), no
+occlusion queries and no `REG_TO_MEM`, and its CPU read no resolved range.
+Rectangle culling, the stamp's stencil test and polygon offset were each
+tested and are not the cause.
+
+**Fix.** `fh1_glow_depth_test` (ShiftGlue, on by default) gives additive
+`SRC_ALPHA`/`ONE` draws whose guest depth control is enabled, not writing
+and `ALWAYS` the `GREATER_EQUAL` test. Parked at the free-roam spawn at
+night, a street lamp behind the roof lining is hidden with it and back
+without it; in a player drive, street lamps and oncoming headlights stayed
+hidden behind the A-pillar and visible in view. D3D12 builds with the same
+call but was not run. How the console hides these glows is not known:
+nothing in the GPU stream does.
+
+**Flicker.** This does not establish a fix for the flicker above. If a
+car's glow switches between its depth-tested and `ALWAYS` draws as the car
+approaches, the two used to differ behind geometry and now do not; that is
+untested.

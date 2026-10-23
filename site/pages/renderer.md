@@ -105,6 +105,8 @@ Fast paths sit on top. A resolve also stores directly into textures that are alr
 
 **Predicated tiling.** The game draws its 720p scene as three bands of 256, 256 and 208 rows, the Xbox 360 technique for fitting a frame into EDRAM. Merging them was rejected for the desktop because the game culls per band. An option draws the scene once and resolves the bands; it is on by default only on Android. The later bands' draws are then skipped; the command processor checks for that right after the draw's copy dispatch, before it derives the rest of the draw: on the Odin race that took the decoder's time per decoded draw down 7-8 % (about 0.7 ms a frame, in-run A/B).
 
+**Light glows.** A few of the game's street lamp and headlight glows are drawn with the depth test set to `ALWAYS`, so they showed through the player's car and the hills. `fh1_glow_depth_test` (on by default, both backends) gives those additive draws the `GREATER_EQUAL` test the game's other glows use; the [rendering findings](game-rendering.md#light-glows) have the detail.
+
 **MSAA.** The game's 2x and 4x surfaces can be stored with fewer host samples: one per pixel (the desktop default) or two for the game's 4x. Resolves average samples 0–3 or take sample 0, as the guest asks.
 
 ## Textures
