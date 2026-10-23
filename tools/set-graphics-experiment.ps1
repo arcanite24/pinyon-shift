@@ -16,7 +16,7 @@ param(
     [ValidateSet('true', 'false')]
     [string]$TreasureMap = 'true',
     # FB-12.15: start in a VR headset (xr_enabled), rendering each eye at
-    # VrScale (across x down), which replaces ResolutionScale while on.
+    # VrScale (across x down, xr_render_scale), over ResolutionScale while on.
     [ValidateSet('true', 'false')]
     [string]$Vr = 'false',
     [ValidateSet('2x3', '2x4', '3x3')]
@@ -311,8 +311,7 @@ function Get-SettingsResult([string]$Text, [string]$BackupPath, [string]$Operati
             # The game turns the Treasure Map on unless the file says false.
             treasure_map = (Get-TomlValue $Text 'pinyon_shift_dlc_treasure_map' 'true') -eq 'true'
             vr = (Get-TomlValue $Text 'xr_enabled' 'false') -eq 'true'
-            vr_scale = '{0}x{1}' -f (Get-TomlValue $Text 'draw_resolution_scale_x' '1'),
-                (Get-TomlValue $Text 'draw_resolution_scale_y' (Get-TomlValue $Text 'draw_resolution_scale_x' '1'))
+            vr_scale = Get-TomlValue $Text 'xr_render_scale' '2x4'
             clear_memory_page_state = $clearPageState
             vsync = $vsyncEnabled
             host_present_fps_limit = $presentationFps
@@ -407,12 +406,15 @@ switch ($Action) {
         if ($bound.ContainsKey('TreasureMap')) {
             $text = Set-TomlValue $text 'pinyon_shift_dlc_treasure_map' $TreasureMap
         }
+        # The game applies xr_render_scale over the resolution scale while VR
+        # is on, so the flat one is kept; a file that never had VR on gets no
+        # VR lines (pinyon_config.py does the same).
         if ($bound.ContainsKey('Vr')) {
-            $text = Set-TomlValue $text 'xr_enabled' $Vr
+            if ($Vr -eq 'true' -or (Get-TomlValue $text 'xr_enabled' '') -ne '') {
+                $text = Set-TomlValue $text 'xr_enabled' $Vr
+            }
             if ($Vr -eq 'true') {
-                $scaleX, $scaleY = $VrScale -split 'x'
-                $text = Set-TomlValue $text 'draw_resolution_scale_x' $scaleX
-                $text = Set-TomlValue $text 'draw_resolution_scale_y' $scaleY
+                $text = Set-TomlValue $text 'xr_render_scale' ('"' + $VrScale + '"')
             }
         }
         if ($bound.ContainsKey('OutputScaling')) {
