@@ -908,6 +908,22 @@ void PinyonShiftApp::OnPreSetup(rex::RuntimeConfig& config) {
     pinyon_shift::diagnostics::RecordEvent("gpu.share_msaa_aliases",
                                            {{"value", "true"}, {"reason", "vr_default"}});
   }
+  // VR's render size (xr_render_scale, which the launcher writes) replaces
+  // the flat draw resolution scale for this run, so turning VR off brings the
+  // flat one back. A scale given on the command line wins.
+  if (rex::cvar::GetFlagByName("xr_enabled") == "true") {
+    const std::string scale = rex::cvar::GetFlagByName("xr_render_scale");
+    const size_t cross = scale.find('x');
+    const bool valid = scale.size() == 3 && cross == 1 && scale[0] >= '1' && scale[0] <= '4' &&
+                       scale[2] >= '1' && scale[2] <= '4';
+    if (valid &&
+        rex::cvar::GetFlagSource("draw_resolution_scale_x") != rex::cvar::Source::kCommandLine &&
+        rex::cvar::GetFlagSource("draw_resolution_scale_y") != rex::cvar::Source::kCommandLine) {
+      rex::cvar::SetFlagByName("draw_resolution_scale_x", scale.substr(0, 1));
+      rex::cvar::SetFlagByName("draw_resolution_scale_y", scale.substr(2, 1));
+      pinyon_shift::diagnostics::RecordEvent("vr.render_scale", {{"scale", scale}});
+    }
+  }
   // VR paces two frames a headset frame, and the step gate counting the
   // drawn step (pinyon_shift_step_count_drawn) let the simulation and render
   // threads overlap there: simulated stereo 6.9 to 6.0-6.3 ms a frame on an

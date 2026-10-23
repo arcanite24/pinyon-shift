@@ -51,6 +51,11 @@ REXCVAR_DEFINE_BOOL(xr_hide_hud, true, "Display",
                     "Hide the game's HUD in VR stereo: it is drawn at the same place for "
                     "both eyes, so it floats at the wrong depth")
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+REXCVAR_DEFINE_STRING(xr_render_scale, "", "Display",
+                      "The draw resolution scale while VR is on (xr_enabled), across x down "
+                      "such as 2x4; it replaces draw_resolution_scale_x and _y for the run, so "
+                      "the flat resolution stays as it was. Empty: draw_resolution_scale_x and _y")
+    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 REXCVAR_DEFINE_BOOL(xr_camera_shake, false, "Display",
                     "Keep the immersive camera's speed shake and braking vibration in VR: "
                     "the headset did not make that motion, so it reads as the world shaking")
