@@ -70,7 +70,8 @@ try {
             'pinyon_shift_telemetry_tests',
             'pinyon_shift_overlay_device_tests',
             'pinyon_shift_shader_override_tests',
-            'pinyon_shift_fh1_edram_tiles_tests')) {
+            'pinyon_shift_fh1_edram_tiles_tests',
+            'pinyon_shift_head_tracking_tests')) {
         $exe = Join-Path $BuildDirectory "$test.exe"
         Write-Host "== $test"
         & $exe
