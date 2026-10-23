@@ -184,11 +184,12 @@ REXCVAR_DEFINE_DOUBLE(pinyon_shift_step_backpressure_max_hold_ms, 50.0, "Pinyon 
                       "render thread before it runs anyway (ms)")
     .range(5.0, 250.0)
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
-REXCVAR_DEFINE_BOOL(pinyon_shift_step_count_drawn, true, "Pinyon Shift",
+REXCVAR_DEFINE_BOOL(pinyon_shift_step_count_drawn, false, "Pinyon Shift",
                     "With pinyon_shift_step_backpressure, count the simulation's lead from the "
                     "step the title's render thread last drew instead of its swaps, so the "
                     "simulation computes the next step while the render thread draws one "
-                    "instead of the two taking turns (base game)")
+                    "instead of the two taking turns (base game). On by default only in VR "
+                    "(xr_enabled), where it was measured")
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
 REXCVAR_DEFINE_BOOL(pinyon_shift_step_pacing_log, false, "Pinyon Shift",
                     "Log each second how many simulation steps ran between the title's "

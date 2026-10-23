@@ -908,6 +908,19 @@ void PinyonShiftApp::OnPreSetup(rex::RuntimeConfig& config) {
     pinyon_shift::diagnostics::RecordEvent("gpu.share_msaa_aliases",
                                            {{"value", "true"}, {"reason", "vr_default"}});
   }
+  // VR paces two frames a headset frame, and the step gate counting the
+  // drawn step (pinyon_shift_step_count_drawn) let the simulation and render
+  // threads overlap there: simulated stereo 6.9 to 6.0-6.3 ms a frame on an
+  // RTX 3090. Measured only there, so on by default only in VR, before the
+  // title's waits are hooked. A value set in the config or on the command
+  // line wins.
+  if ((rex::cvar::GetFlagByName("xr_enabled") == "true" ||
+       rex::cvar::GetFlagByName("xr_simulate") == "true") &&
+      rex::cvar::GetFlagSource("pinyon_shift_step_count_drawn") == rex::cvar::Source::kDefault) {
+    rex::cvar::SetFlagByName("pinyon_shift_step_count_drawn", "true");
+    pinyon_shift::diagnostics::RecordEvent("step_gate.count_drawn",
+                                           {{"value", "true"}, {"reason", "vr_default"}});
+  }
   pinyon_shift::fh1_render_test::Configure(config);
   pinyon_shift::rally::ConfigureAudioProbe(config);
   // WINDOWS HDR: before the swapchain is made, so the presenter is offered
