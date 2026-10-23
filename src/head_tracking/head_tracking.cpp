@@ -52,14 +52,16 @@ void CloseSocket(Socket s) {
 }
 #endif
 
+// One thread, started the first time head tracking is on, follows the port
+// the game thread asks for (0: none), so the game never waits on it.
 struct Receiver {
   std::mutex mutex;
   Pose pose{};
   std::chrono::steady_clock::time_point received{};
   bool have_pose = false;
+  std::atomic<int> port{0};
   std::atomic<bool> stop{false};
   std::thread thread;
-  int port = 0;
   ~Receiver() {
     stop.store(true, std::memory_order_relaxed);
     if (thread.joinable())
@@ -72,32 +74,25 @@ Receiver& Shared() {
   return receiver;
 }
 
-void Listen(Receiver* receiver, int port) {
-#if defined(_WIN32)
-  static const bool started = [] {
-    WSADATA data;
-    return WSAStartup(MAKEWORD(2, 2), &data) == 0;
-  }();
-  if (!started)
-    return;
-#endif
+// A UDP socket on this PC only (OpenTrack runs beside the game, which also
+// keeps the firewall from asking), waking every 100 ms to follow changes.
+Socket Open(int port, bool report) {
   const Socket s = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
   if (s == kNoSocket) {
-    REXLOG_WARN("Head tracking: cannot open a UDP socket");
-    return;
+    if (report)
+      REXLOG_WARN("Head tracking: cannot open a UDP socket");
+    return kNoSocket;
   }
   sockaddr_in address{};
   address.sin_family = AF_INET;
   address.sin_port = htons(uint16_t(port));
-  // This PC only (OpenTrack runs beside the game), which also keeps the
-  // firewall from asking.
   address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
   if (bind(s, reinterpret_cast<const sockaddr*>(&address), sizeof(address)) != 0) {
-    REXLOG_WARN("Head tracking: UDP port {} is in use", port);
+    if (report)
+      REXLOG_WARN("Head tracking: UDP port {} is in use, trying again every second", port);
     CloseSocket(s);
-    return;
+    return kNoSocket;
   }
-  // Wake every 100 ms to notice a stop.
 #if defined(_WIN32)
   const DWORD timeout = 100;
 #else
@@ -105,9 +100,47 @@ void Listen(Receiver* receiver, int port) {
 #endif
   setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&timeout), sizeof(timeout));
   REXLOG_INFO("Head tracking: listening for OpenTrack on UDP port {}", port);
+  return s;
+}
+
+void Listen(Receiver* receiver) {
+#if defined(_WIN32)
+  WSADATA data;
+  if (WSAStartup(MAKEWORD(2, 2), &data) != 0)
+    return;
+#endif
+  using namespace std::chrono_literals;
+  Socket s = kNoSocket;
+  int bound = 0;
+  // A port that would not bind is tried again each second, quietly.
+  int failed = 0;
+  auto retry = std::chrono::steady_clock::time_point{};
   uint8_t buffer[256];
   bool logged = false;
   while (!receiver->stop.load(std::memory_order_relaxed)) {
+    const int port = receiver->port.load(std::memory_order_relaxed);
+    if (s != kNoSocket && port != bound) {
+      CloseSocket(s);
+      s = kNoSocket;
+      bound = 0;
+    }
+    if (port != failed)
+      failed = 0;
+    if (s == kNoSocket) {
+      if (port == 0 || std::chrono::steady_clock::now() < retry) {
+        std::this_thread::sleep_for(100ms);
+        continue;
+      }
+      s = Open(port, port != failed);
+      if (s == kNoSocket) {
+        failed = port;
+        retry = std::chrono::steady_clock::now() + 1s;
+        continue;
+      }
+      bound = port;
+      failed = 0;
+      logged = false;
+    }
     const auto size = recv(s, reinterpret_cast<char*>(buffer), int(sizeof(buffer)), 0);
     if (size <= 0)
       continue;
@@ -123,16 +156,11 @@ void Listen(Receiver* receiver, int port) {
     receiver->received = std::chrono::steady_clock::now();
     receiver->have_pose = true;
   }
-  CloseSocket(s);
-}
-
-void StopReceiver(Receiver& receiver) {
-  if (!receiver.thread.joinable())
-    return;
-  receiver.stop.store(true, std::memory_order_relaxed);
-  receiver.thread.join();
-  receiver.stop.store(false, std::memory_order_relaxed);
-  receiver.port = 0;
+  if (s != kNoSocket)
+    CloseSocket(s);
+#if defined(_WIN32)
+  WSACleanup();
+#endif
 }
 
 std::optional<Pose> ParseTestPose(const std::string& text) {
@@ -212,13 +240,9 @@ Pose Current() {
 void Update() {
   auto& receiver = Shared();
   const bool wanted = REXCVAR_GET(head_tracking) && REXCVAR_GET(head_tracking_test_pose).empty();
-  const int port = REXCVAR_GET(head_tracking_port);
-  if (!wanted || port != receiver.port)
-    StopReceiver(receiver);
-  if (wanted && !receiver.thread.joinable()) {
-    receiver.port = port;
-    receiver.thread = std::thread(Listen, &receiver, port);
-  }
+  receiver.port.store(wanted ? REXCVAR_GET(head_tracking_port) : 0, std::memory_order_relaxed);
+  if (wanted && !receiver.thread.joinable())
+    receiver.thread = std::thread(Listen, &receiver);
 }
 
 }  // namespace pinyon_shift::head_tracking
