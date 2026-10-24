@@ -41,6 +41,16 @@ The sun's shadow map is the 1280-wide depth-only pass at the start of the frame;
 
 {{findings:rendering/Shadows}}
 
+### Alpha-tested shadow casters
+
+Enabled alpha-test or alpha-to-coverage register bits do not, by themselves,
+identify foliage in FH1's shadow targets. Some flagged draws execute without
+a pixel shader. A target-filtered experiment that removed all of them also
+removed the player car's self-shadowing, restored when the filter was switched
+off again. Count raw flags separately from draws whose effective pixel shader
+uses alpha coverage. The [R03 experiment](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/PERFORMANCE_BACKLOG.md#r03-alpha-tested-shadow-casters)
+records the selectors, measurements and image checks.
+
 ## Post effects
 
 Bloom and luminance are built by reducing the scene to 320x192, 64x32 and 32x32 levels; the final pass applies motion blur and the colour grade from a 16x16x16 lookup texture. Every post group changes the frame, so none of it is dead work.

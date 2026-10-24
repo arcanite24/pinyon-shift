@@ -371,8 +371,9 @@ group = """Shadows"""
 name = """sun shadow map"""
 what = """The race's 1280-wide 1x depth-only pass at EDRAM base 0 is the sun shadow map: skipping it removes every shadow. It holds about 18 % of race draws, all cheap depth-only draws, interleaved with its own resolves. The 1040-pitch `D24S8` depth pass (EDRAM tile 720, resolved to 1024x1024) holds another 11 %. One shadow epoch of 80 draws was 64 draws of one dominant family, then four repeats of three secondary draws and one tertiary draw."""
 how = """Skipping each pass in turn; per-target draw counts; ordered-draw census of a shadow epoch."""
+note = """R03 (2026-10-24): enabled alpha-test or alpha-to-mask register bits alone are not a foliage selector. A target-filtered prototype also removed the player car's self-shadowing in stock/skip/stock daytime captures. Most raw alpha-flagged candidates had no effective pixel shader. Requiring a pixel shader whose coverage depends on alpha selected about 38/47 draws per race frame on the two targets and 30/45 in free roam; it saved only 0.12/0.08 ms GPU on an RTX 4080 at 3x, below the 0.5 ms gate. Both filters were removed. The Odin was unreachable, so no mobile result is claimed. See the R03 experiment in the performance backlog."""
 confidence = """confirmed"""
-source = """docs/PERFORMANCE_BACKLOG.md Fidelity trades, PB-1.10; docs/native-renderer/RESEARCH.md Vehicles and shadow epochs"""
+source = """docs/PERFORMANCE_BACKLOG.md Fidelity trades, PB-1.10, R03 alpha-tested shadow casters; docs/native-renderer/RESEARCH.md Vehicles and shadow epochs"""
 
 [[finding]]
 group = """Shadows"""
@@ -389,9 +390,10 @@ group = """Shadows"""
 name = """headlights need the shadow passes"""
 what = """With `SkipShadowMapUnlessCockpit` set, the player car's headlights no longer light the road at night: the light sprites and tail lights still draw, but the pool of light on the road and roadside is gone, in the chase view at 23:00. So the headlights' projected light runs through the passes that setting skips. The track's `SwitchOnLights` curve (`TimeOfDayA.xml`, minutes since midnight) is above zero before 08:02 and after 18:50, so the setting is only safe in between; shadows off now applies only then (#532)."""
 how = """`cheat_time_of_day` 23 with `pinyon_shift_fh1_shadows` true and false, parked at the Gauntlet start, chase captures; then the fix at 23:00 and 13:00 (shadows skipped by day)."""
+note = """R03's experimental target-filtered alpha-caster skips kept the projected road-headlight pool in stock/skip/stock captures at 23:00, unlike skipping all shadow passes. Eligible alpha casters were still omitted at night, so identical headlight occlusion or roadside lighting is not established. Both experimental filters were removed; the existing OFF BY DAY behavior is unchanged."""
 confidence = """confirmed"""
 issue = """#532"""
-source = """src/native_renderer/graphics_hooks.cpp CarLightsOn"""
+source = """src/native_renderer/graphics_hooks.cpp CarLightsOn; docs/PERFORMANCE_BACKLOG.md R03 alpha-tested shadow casters"""
 
 [[finding]]
 group = """Shadows"""

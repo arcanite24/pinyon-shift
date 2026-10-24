@@ -298,6 +298,82 @@ on captures rather than by byte-identical replays.
    the 1040-pitch pass 0.2 ms), which is PB-1.10's case for rendering it at
    1x, the console's own shadow resolution.
 
+### R03 alpha-tested shadow casters
+
+The first R03 prototype (2026-10-24) counted depth-writing draws without
+color writes on the recorded 1x shadow targets: pitch 1280 at depth tile 0,
+and pitch 1040 at tile 720 with D24S8. It treated either enabled alpha test
+or alpha-to-mask as a candidate. That is too broad: many candidates have no
+effective pixel shader, and stock/skip/stock captures at the Gauntlet start
+showed the player car losing its self-shadowing too. Raw alpha flags do not
+identify just trees, bushes and fences.
+
+On multivac (Ryzen 7 5800X, RTX 4080, Windows driver 32.0.15.8108), with
+shadows on, 3x resolution and MSAA off, two toggle orders of the pinned
+`fh1-race-start-wait` route saved a median 0.44 ms GPU per frame (comparison
+range: 0.69 ms saved to 0.10 ms slower). The `fh1-hitch-drive` free-roam drive
+saved 0.28 ms (0.06–0.72 ms saved). Each route supplied ten disjoint ABA/BAB
+comparisons after discarding 30 settling frames per window. GPU time came
+from timestamp sums divided by valid samples; decoded draw counts were
+checked alongside CPU and GPU time. The prototype did not reach the desktop
+0.5 ms gate, and its broader image change is not a foliage-only option.
+
+The refined trial required a pixel shader and coverage that actually depends
+on alpha. Its median paired GPU savings were **0.12 ms in the race** (range:
+0.20 ms slower to 0.31 ms saved) and **0.08 ms in free roam** (0.32 ms slower
+to 0.37 ms saved), with ten disjoint comparisons per route. Regressing window
+means on decoded draw count with an intercept per run reduced the estimated
+savings to 0.05 and 0.07 ms. Neither reaches the 0.5 ms desktop gate.
+
+Paired CPU savings in ms per rendered frame (positive means less CPU):
+
+| Route | Decoder, median [range] | Recorder, median [range] | Process, median [range] |
+| --- | --- | --- | --- |
+| Race | 0.10 [-0.38, 0.38] | 0.43 [-0.39, 1.25] | 1.59 [-1.71, 4.43] |
+| Free roam | 0.02 [-0.39, 0.46] | -0.004 [-0.48, 0.74] | 0.13 [-1.77, 2.10] |
+
+Scene load varied within the routes: paired decoded-draw differences ranged
+from -551 to +269 in the race and -461 to +176 in free roam. After the same
+draw-count adjustment, decoder/recorder savings were 0.03/0.15 ms and
+0.03/0.08 ms respectively. Desktop process CPU is not the acceptance gate.
+
+The refined census counts input triangle equivalents, including rectangle
+and quad primitives, without removing degenerates. Values below are medians
+per rendered frame over complete 300-swap census intervals inside the timed
+sections: 30 race intervals and 52 free-roam intervals across both orders.
+"Flagged" means either enabled alpha-test or alpha-to-mask register bit;
+"effective" additionally needs the pixel shader and alpha-dependent coverage.
+
+| Route / target | Draws: total / flagged / effective | Triangles: total / flagged / effective |
+| --- | --- | --- |
+| Race, 1280 / tile 0 | 534.6 / 252.1 / 37.7 | 214,641 / 99,673 / 14,547 |
+| Race, 1040 / tile 720 | 222.7 / 137.2 / 46.8 | 123,925 / 54,394 / 6,913 |
+| Free roam, 1280 / tile 0 | 395.8 / 192.9 / 29.5 | 154,627 / 70,880 / 13,223 |
+| Free roam, 1040 / tile 720 | 197.9 / 139.2 / 44.5 | 98,195 / 52,188 / 5,522 |
+
+The race alternated every 300 output frames; hitch-drive retained its 60 Hz
+wall-clock route and alternated every 300 route frames. Both used sixteen
+windows per run in both orders, with captures outside the measured windows.
+The hot filter was off by default and preserved memory exports and active
+occlusion queries; neither trial was adopted. No player setting or preset
+change is shipped.
+
+Stock/skip/stock captures at the tree-lined Gauntlet start cover daytime and
+23:00. The projected headlight pool remains on the road with either filter;
+unlike `SkipShadowMapUnlessCockpit`, these trials do not drop every shadow
+pass. They still omit eligible alpha casters at night, so this does not prove
+identical headlight occlusion or roadside lighting. Traffic, foliage animation
+and the idle chase camera also vary between captures; the stock repeat is
+retained as a control, and no bit-exact image claim is made.
+
+The refined Android APK built, but the Odin could not be identified over ADB:
+no matching device or mDNS service was visible, its saved port refused the
+connection, and bounded service discovery at the recorded address found no
+listener. No APK or player state was changed. **Odin CPU/GPU savings remain
+unverified**, so the mobile 0.5 ms gate has not been met; this is not a negative
+measurement of the Odin. A mobile retry needs reachable hardware, and any
+broader caster filter needs a selector that preserves opaque car shadows.
+
 ## PB-0 Measure and instrument
 
 Everything below is a prerequisite for judging the items after it; each is
