@@ -1,10 +1,14 @@
 package studio.deimos.pinyonshift;
 
+import android.content.Context;
 import android.content.Intent;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.SystemClock;
+import android.os.VibrationEffect;
+import android.os.Vibrator;
 import android.provider.OpenableColumns;
 import android.provider.Settings;
 import android.system.ErrnoException;
@@ -399,6 +403,64 @@ public class PinyonShiftActivity extends SDLActivity {
                 Toast.makeText(PinyonShiftActivity.this, text, Toast.LENGTH_LONG).show();
             }
         });
+    }
+
+    private int lastRumbleLeft = -1;
+    private int lastRumbleRight = -1;
+    private long lastRumbleTimeMs = 0;
+
+    public void onRumble(final int left, final int right) {
+        if (left == 0 && right == 0) {
+            if (lastRumbleLeft == 0 && lastRumbleRight == 0) return;
+            lastRumbleLeft = 0;
+            lastRumbleRight = 0;
+            return;
+        }
+
+        final long now = SystemClock.uptimeMillis();
+        // Rate-limit haptic calls to at most once per 40ms unless motor intensity shifted substantially (>20%).
+        final boolean intensityChanged = Math.abs(left - lastRumbleLeft) > 13000
+                || Math.abs(right - lastRumbleRight) > 13000;
+        if (!intensityChanged && (now - lastRumbleTimeMs < 40)) {
+            return;
+        }
+
+        lastRumbleLeft = left;
+        lastRumbleRight = right;
+        lastRumbleTimeMs = now;
+
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                pulseHaptic((left > 32768 || right > 32768) ? 0 : 3);
+            }
+        });
+    }
+
+    public void pulseHaptic(int constant) {
+        if (mLayout != null) {
+            mLayout.setHapticFeedbackEnabled(true);
+            mLayout.performHapticFeedback(constant, 3);
+        }
+        try {
+            Vibrator v = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
+            if (v != null && v.hasVibrator()) {
+                if (Build.VERSION.SDK_INT >= 29) {
+                    VibrationEffect eff = VibrationEffect.createPredefined(
+                            constant == 0 ? VibrationEffect.EFFECT_HEAVY_CLICK : VibrationEffect.EFFECT_CLICK);
+                    try {
+                        Object b = Class.forName("android.os.VibrationAttributes$Builder").getDeclaredConstructor().newInstance();
+                        b.getClass().getMethod("setUsage", int.class).invoke(b, 33);
+                        Object attr = b.getClass().getMethod("build").invoke(b);
+                        v.getClass().getMethod("vibrate", VibrationEffect.class, Class.forName("android.os.VibrationAttributes")).invoke(v, eff, attr);
+                    } catch (Throwable t) {
+                        v.vibrate(eff);
+                    }
+                } else {
+                    v.vibrate(constant == 0 ? 30 : 15);
+                }
+            }
+        } catch (Throwable ignored) {}
     }
 
     private static void setDefaultEnvironment(String name, String value) {
