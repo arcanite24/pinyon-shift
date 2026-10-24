@@ -33,6 +33,11 @@ class PinyonShiftApp final : public rex::ReXApp {
   static std::unique_ptr<rex::ui::WindowedApp> Create(
       rex::ui::WindowedAppContext& context);
 
+  static PinyonShiftApp* Instance();
+  void TriggerPhoto();
+  void ToggleGameMenu();
+  void UpdateHorPlus();
+
  protected:
   void OnConfigurePaths(rex::PathConfig& paths) override;
   std::optional<rex::PathConfig> OnFinalizePaths(
@@ -65,7 +70,6 @@ class PinyonShiftApp final : public rex::ReXApp {
 
  private:
   void RecordShutdownOnce();
-  void ToggleGameMenu();
   // Opens the settings screen unless it is open; UI thread.
   void OpenSettingsMenu();
   // Creates the host UI and installs its XAM dialogs once presentation is
