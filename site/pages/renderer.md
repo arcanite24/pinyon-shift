@@ -119,6 +119,20 @@ The texture cache reuses the Xenia-derived core over the executor's mirror. A te
 
 **Invalidation.** CPU writes are found with page write-watches; GPU writes are marked by resolves. Ranges are told apart by a write generation per allocation, not by address. One setting mattered: clearing every touched page's state each frame re-uploaded memory that hadn't changed, and keeping it cut vertex uploads over a route from 41.6 GB to 0.42 GB.
 
+**Capacity.** Write-watch ranges and nodes grow in 8,192-entry pool chunks and
+recycle released entries. A synthetic test holds 16,385 watches, cancels and
+replaces half, and checks exactly one invalidation per live watch. A 30-minute
+race-start stability soak on the RTX 4080 peaked at 2,599 live ranges and 2,630
+nodes. Transfer and resolve specialization used 47/256 and 48/256 entries, with
+zero capacity fallbacks. The car stopped at the barrier, so this measures
+repeated-scene stability rather than thirty minutes of world streaming. The optional
+draw-program mark table now reclaims expired entries; lookup expiration alone
+had left its 4,096 slots occupied. Specialization-cache occupancy and full-cache
+fallbacks are recorded in the perf CSV, with first-occurrence warnings for
+generic pipeline fallback, sampler capacity waits and the owned index arena.
+See the [capacity audit](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/native-renderer/CACHE_CAPACITY_AUDIT.md)
+for the inventory and long-route measurements.
+
 **Size cap.** TEXTURE SIZE (`vulkan_texture_max_size`) gives a mipmapped texture larger than the cap a host image that starts at the first level that fits, so the larger levels are never untiled, uploaded or stored. Shaders address textures in normalized coordinates and the translator divides unnormalized fetches by the guest size, so a smaller image samples correctly, as texture replacements of another size already do. Resolve targets have no mips and keep their size. On a free-roam drive (RTX 4080, 1x) a cap of 256 took the texture cache from 110 to 85 MB and the device memory the renderer allocates from 882 to 756 MB, with no change in frame time.
 
 **Gamma.** The console converts gamma textures with a piecewise-linear curve. The default reproduces it in the shader. TEXTURE GAMMA FAST samples through sRGB views instead, which is cheaper and slightly darker in the midtones.

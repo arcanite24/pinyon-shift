@@ -38,6 +38,16 @@ after memory reuse. Requiring all stored base and mip pages to belong to resolve
 fixed the reproduced corruption; a synthetic mixed-ownership test failed before
 the change. A valid cache key needs a valid source for every stored subresource.
 
+Expiration must free admission as well as invalidate lookups. The optional
+draw-program mark table ignored marks older than eight swaps but never reused
+their slots: filling its 4,096 entries permanently blocked new list marks.
+A synthetic saturation test failed before expired entries were reclaimed and
+passes with reclamation. Separately, 16,385 simultaneous write watches and
+cancel/reuse testing confirm that FH1's watch allocator grows beyond its
+8,192-entry pool chunks. Audit the full branch before borrowing another
+renderer's reset strategy; make slow fallbacks visible in counters.
+[Capacity inventory and soak method](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/native-renderer/CACHE_CAPACITY_AUDIT.md).
+
 ## Waits are performance
 
 The largest CPU savings outside the renderer came from how the host waits, not from translated code:
