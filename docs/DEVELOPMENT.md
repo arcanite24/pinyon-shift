@@ -49,9 +49,11 @@ mirror. No Xenos render target cache or EDRAM emulation is linked
 (`e5dc399`). The [frame contract](native-renderer/NATIVE_FRAME_CONTRACT.md)
 lists what it covers.
 
-- **Resolution scale:** symmetric 1x, 2x and 3x. Any other scale fails
+- **Resolution scale:** symmetric 1x, 2x, 3x and 4x. Any other scale fails
   graphics setup with an error naming the requested scale; there is no
-  fallback renderer. Each scale needs its own shader pack.
+  fallback renderer. Each scale needs its own shader pack. Rendering below
+  1x remains architectural work; the [feasibility study](native-renderer/SUB_1X_RENDER_SCALE.md)
+  maps the integer assumptions and the provisional Odin GPU prize.
 - **Shader packs:** shipping builds cannot translate shaders; a draw whose
   shader is missing from the pack is dropped. Each miss is recorded under the
   state's `cache/fh1-shader-misses`, and the next launch's graphics
