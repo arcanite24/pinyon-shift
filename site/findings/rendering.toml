@@ -226,6 +226,17 @@ source = """docs/ANDROID_ODIN_BACKLOG.md Predicated tiling rendered once; docs/n
 
 [[finding]]
 group = """Render targets and EDRAM"""
+base = """embedded shader containers: sky 0x82155780, stars 0x82157518, sun 0x82157388, cloud cover 0x82156BA8, lit clouds 0x821564E0; sky VS 12BA4E86B158D049 / PS CAE25D74AD7B16CB"""
+name = """main-scene sky already tests populated depth"""
+what = """The gradient/haze sky is a 9,300-index draw after scene depth writers in each predicated band, not a first draw over empty depth. In one recorded 5,210-draw Odin race frame, sky indices 2127/3973/4832 follow 422/1757/585 depth-writing draws in their contiguous band runs, all using the sky's scene depth. State 087087E3 enables GREATER_EQUAL depth testing, disables depth writes, and enables front/back stencil ALWAYS with REPLACE on depth pass; 00FFFF00 supplies reference zero and full stencil masks. The gradient is opaque (blend 00010001), but its immediate successor is the alpha-blended stars shader 4D035A14CD31FC2D (StarPowers, image +0x157518). The sun CF453BD52292E8E8 (SunMap/SunColour, +0x157388), cloud-cover 90CAB86BE8159DA8 (+0x156BA8) and lit-cloud FD9976C9E5DB9BB0 (+0x1564E0) layers also blend against the background. Deferral to the first blend boundary crosses zero draws. No deferral cvar is justified by this frame."""
+how = """Embedded shader constant names (TopColour, BottomColour, HazeColour, StarPowers, SunMap and cloud controls), matched to the disc corpus by microcode hash; container addresses from corpus image offsets plus the PE header's 0x82000000 base. Offline register/bin-predication inspection of the Odin race frame, checked against all 5,210 entries of its independent retained draw log."""
+confidence = """confirmed"""
+negative = true
+note = """Bounded ordering/state evidence; not a fragment-invocation count, GPU timing A/B or day/dusk image-equivalence result. The sun shader also occurs in reflection passes; shader identity alone is insufficient for reordering. No v4 mapping was tested."""
+source = """docs/native-renderer/SKY_DRAW_ORDER.md"""
+
+[[finding]]
+group = """Render targets and EDRAM"""
 name = """per-band culling"""
 what = """The game culls per tile. In one census race window the three bands issued 17,401, 30,145 and 44,864 draws with 35, 36 and 54 shader pairs, only 30 in common. Running the bands once into a full surface cannot reproduce the frame, and replaying every band's list unclipped redraws objects that span bands."""
 how = """Census of the race window at frames 4801-4860; a band-merge experiment, not kept."""

@@ -27,6 +27,13 @@ The 10 MB of EDRAM never holds a full 1280x720 4x MSAA frame, so the main scene 
 
 The depth at base tile 0, pitch 16, has both a 1280x720 single-sample view and a 640x360 four-sample view. The four samples of one pixel in the smaller view occupy four pixels in the larger view: both address the same 720 tiles. Reinterpreting those words does not establish that drawing at a different pixel rate is equivalent. The color-writing draw using this depth reads an interpolator, and the four alias draws in the current race trace do not use an ordered depth comparison. The [depth-alias research](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/DEPTH_ALIAS_RESEARCH.md) separates those observed states from the earlier transparency hypothesis.
 
+The main-scene sky already follows depth-writing geometry in each tile. It
+tests the populated scene depth, writes stencil, and is followed immediately
+by blended stars, then sun and cloud layers. Moving it later therefore does
+not have the simple image-preservation argument of an opaque sky drawn over
+empty depth. The [sky-order study](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/native-renderer/SKY_DRAW_ORDER.md)
+records the shader identities and measured ordering.
+
 {{findings:rendering/Render targets and EDRAM}}
 
 ## Resolves
