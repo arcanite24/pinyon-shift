@@ -33,6 +33,8 @@ The scripted race (`fh1-race-sync`) is the heaviest route. Measured over its bus
 
 At a 60 fps limit, 2x with MSAA holds a 16.66 ms median (p95 17.04 ms).
 
+At 3x with full 4x MSAA, the Vulkan depth-alias optimization saves a median 1.092 ms of executor GPU time on this RTX 4080, range 0.798–1.321 ms across 12 disjoint in-run blocks in both toggle orders. It is enabled automatically; MSAA-off and two-host-sample storage keep their existing path. The advanced setting `fh1_shared_depth_alias = false` in `pinyon_shift.toml` restores the previous path. [Conditions and image checks](renderer.md#edram-and-resolves).
+
 ## The title update build
 
 The v4 build players use for Rally and the 1000 Club, with a player's settings: 2x internal resolution, shadows, DLSS to a 3840 × 2160 window, no frame limit and no vsync. The route loads a pinned save into the open world and stands at the Gauntlet's start with traffic passing, for 90 seconds on a wall clock so it plays the same at any frame rate; the last 60 seconds are measured. The game paces its steps to the display's 120 Hz, so every build's median is 8.33 ms and the differences show in CPU time and the slow frames. Four interleaved runs a build (October 2026).

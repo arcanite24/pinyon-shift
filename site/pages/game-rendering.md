@@ -25,6 +25,8 @@ Average draws per frame range from about 50 at boot and 841 in the menus to 3,22
 
 The 10 MB of EDRAM never holds a full 1280x720 4x MSAA frame, so the main scene is drawn in three predicated tiles of up to 256 rows, each replaying the same command buffers with a different bin select. Surfaces never use more than one colour target.
 
+The depth at base tile 0, pitch 16, has both a 1280x720 single-sample view and a 640x360 four-sample view. The four samples of one pixel in the smaller view occupy four pixels in the larger view: both address the same 720 tiles. Reinterpreting those words does not establish that drawing at a different pixel rate is equivalent. The color-writing draw using this depth reads an interpolator, and the four alias draws in the current race trace do not use an ordered depth comparison. The [depth-alias research](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/DEPTH_ALIAS_RESEARCH.md) separates those observed states from the earlier transparency hypothesis.
+
 {{findings:rendering/Render targets and EDRAM}}
 
 ## Resolves
