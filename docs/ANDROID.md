@@ -95,6 +95,12 @@ uploaded. The repository refuses Android packages, libraries and signing keys
   about 8 GB free, on the same network as the PC. USB debugging is needed only
   for the adb commands.
 
+The native libraries target ARMv8.2-A. The
+[minimum-requirements audit](android/MINIMUM_REQUIREMENTS.md) traces the CPU,
+Vulkan and Android floors, the work needed to lower them and the hardware
+still needed to qualify broader support. The shipped requirements above
+remain in force.
+
 ## From the PC to the device
 
 The launcher's source ZIP includes `config/performance/symbol-order-base.txt`
