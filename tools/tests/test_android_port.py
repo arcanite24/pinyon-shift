@@ -2,6 +2,7 @@
 
 import json
 import re
+import shutil
 import subprocess
 import sys
 import unittest
@@ -31,11 +32,14 @@ class AndroidPortTest(unittest.TestCase):
             self.assertIn(f"'{extension}'", launcher)
 
     def test_boundary_check_rejects_a_renamed_elf_library(self):
+        ps = shutil.which("powershell") or shutil.which("pwsh")
+        if not ps:
+            self.skipTest("powershell is not available on this host")
         stray = ROOT / "android" / f"stray-{uuid.uuid4().hex}.bin"
         stray.write_bytes(b"\x7fELF\x02\x01\x01" + bytes(64))
         try:
             check = subprocess.run(
-                ["powershell", "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+                [ps, "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
                  str(ROOT / "tools" / "check-repository-boundary.ps1"), "-Json"],
                 capture_output=True, text=True, cwd=ROOT)
         finally:
