@@ -21,6 +21,9 @@ param(
     [string]$Vr = 'false',
     [ValidateSet('2x3', '2x4', '3x3')]
     [string]$VrScale = '2x4',
+    # The HUD on the headset's panel (xr_hud_panel); false hides it in VR.
+    [ValidateSet('true', 'false')]
+    [string]$VrHud = 'true',
     [ValidateSet('custom', 'shipping_1x', 'experimental_2x', 'experimental_3x')]
     [string]$Preset = 'custom',
     # The in-game GRAPHICS PRESET rows (src/ui/settings_menu.cpp); applied
@@ -312,6 +315,7 @@ function Get-SettingsResult([string]$Text, [string]$BackupPath, [string]$Operati
             treasure_map = (Get-TomlValue $Text 'pinyon_shift_dlc_treasure_map' 'true') -eq 'true'
             vr = (Get-TomlValue $Text 'xr_enabled' 'false') -eq 'true'
             vr_scale = Get-TomlValue $Text 'xr_render_scale' '2x4'
+            vr_hud = (Get-TomlValue $Text 'xr_hud_panel' 'true') -eq 'true'
             clear_memory_page_state = $clearPageState
             vsync = $vsyncEnabled
             host_present_fps_limit = $presentationFps
@@ -415,6 +419,15 @@ switch ($Action) {
             }
             if ($Vr -eq 'true') {
                 $text = Set-TomlValue $text 'xr_render_scale' ('"' + $VrScale + '"')
+            }
+        }
+        # Hide the HUD in VR (xr_hud_panel = false): written while VR is on,
+        # or once the file has it (pinyon_config.py does the same).
+        if ($bound.ContainsKey('VrHud')) {
+            $vrOn = if ($bound.ContainsKey('Vr')) { $Vr -eq 'true' }
+                    else { (Get-TomlValue $text 'xr_enabled' 'false') -eq 'true' }
+            if ($vrOn -or (Get-TomlValue $text 'xr_hud_panel' '') -ne '') {
+                $text = Set-TomlValue $text 'xr_hud_panel' $VrHud
             }
         }
         if ($bound.ContainsKey('OutputScaling')) {

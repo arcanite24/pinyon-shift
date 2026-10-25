@@ -487,6 +487,7 @@
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="1.3*"/>
@@ -562,7 +563,17 @@
                                 </TextBlock>
                             </CheckBox>
                         </DockPanel>
-                        <DockPanel Grid.Row="6" Grid.ColumnSpan="5" Margin="0,22,0,0">
+                        <!-- The HUD in VR: on a panel in front of the seat, or off for the run
+                             (xr_hud_panel = false; F2 flips it while playing). -->
+                        <CheckBox Grid.Row="6" Grid.ColumnSpan="5" x:Name="VrHideHudCheckBox" Margin="24,8,0,0"
+                                  FontFamily="Bahnschrift" FontSize="13" IsEnabled="False"
+                                  AutomationProperties.Name="Hide the HUD in VR">
+                            <TextBlock TextWrapping="Wrap" Foreground="{StaticResource FogBrush}">
+                                <Run Text="Hide the HUD"/><Run Foreground="{StaticResource MutedBrush}"
+                                     Text=" · No speedometer, map, skill chain or banners in the headset. F2 shows or hides it while you play."/>
+                            </TextBlock>
+                        </CheckBox>
+                        <DockPanel Grid.Row="7" Grid.ColumnSpan="5" Margin="0,22,0,0">
                             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
                                 <Button x:Name="RestoreGraphicsButton" Content="Restore backup" Style="{StaticResource LinkButton}"
                                         VerticalAlignment="Center" Click="RestoreGraphicsButton_Click"/>

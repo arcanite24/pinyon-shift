@@ -372,6 +372,8 @@ def settings_result(text: str, config: Path, backup: str | None, operation: str)
             "treasure_map": flag("pinyon_shift_dlc_treasure_map", "true"),
             "vr": flag("xr_enabled", "false"),
             "vr_scale": get_value(text, "xr_render_scale", "2x4"),
+            # The HUD on the headset's panel; false hides it for the VR run.
+            "vr_hud": flag("xr_hud_panel", "true"),
             "clear_memory_page_state": flag("clear_memory_page_state", "false"),
             "vsync": vsync,
             "host_present_fps_limit": to_int(get_value(text, "host_present_fps_limit", "0")),
@@ -438,6 +440,13 @@ def apply_settings(text: str, options: dict) -> str:
             text = set_value(text, "xr_enabled", options["vr"])
         if options["vr"] == "true":
             text = set_value(text, "xr_render_scale", f'"{options.get("vr_scale") or "2x4"}"')
+    # Hide the HUD in VR (xr_hud_panel = false: no panel, and the game's HUD
+    # off for the run). Written while VR is on, or once the file has it.
+    if options.get("vr_hud") is not None:
+        vr_on = options.get("vr") == "true" or (
+            options.get("vr") is None and get_value(text, "xr_enabled", "false") == "true")
+        if vr_on or get_value(text, "xr_hud_panel", "") != "":
+            text = set_value(text, "xr_hud_panel", options["vr_hud"])
     if options.get("output_scaling") is not None:
         text = set_value(text, "present_effect", f'"{options["output_scaling"]}"')
     if options.get("anisotropy") is not None:
@@ -497,7 +506,7 @@ def run(args: argparse.Namespace) -> dict:
         else:
             options = {name: getattr(args, name) for name in (
                 "anisotropy", "post_effect", "resolution_scale", "output_scaling",
-                "treasure_map", "vr", "vr_scale", "preset", "game_preset", "presentation_fps",
+                "treasure_map", "vr", "vr_scale", "vr_hud", "preset", "game_preset", "presentation_fps",
                 "render_fps",
                 "disable_bloom", "disable_motion_blur", "disable_depth_of_field")}
         backup = backup_config(config)
@@ -525,6 +534,7 @@ def add_parser(commands) -> None:
     apply.add_argument("--treasure-map", choices=booleans)
     apply.add_argument("--vr", choices=booleans)
     apply.add_argument("--vr-scale", choices=("2x3", "2x4", "3x3"))
+    apply.add_argument("--vr-hud", choices=booleans)
     apply.add_argument("--preset", choices=("custom", "shipping_1x", "experimental_2x",
                                             "experimental_3x"))
     apply.add_argument("--game-preset", choices=tuple(GAME_PRESETS))

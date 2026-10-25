@@ -283,7 +283,7 @@ cells = [
 feature = "VR headsets"
 link = "playing.md#vr-headsets"
 cells = [
-  "partly: experimental, off by default, a switch in the launcher's settings; OpenXR on Vulkan; the cockpit in alternate-eye 3D, other views on a screen; the HUD on a panel of its own; DLSS per eye; base game only",
+  "partly: experimental, off by default, a switch in the launcher's settings; OpenXR on Vulkan; the cockpit in alternate-eye 3D, other views on a screen; the HUD on a panel of its own, or hidden; DLSS per eye; base game only",
   "not yet",
   "not yet",
   "n/a",

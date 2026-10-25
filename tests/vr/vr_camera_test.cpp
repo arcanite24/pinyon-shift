@@ -128,6 +128,14 @@ int main() {
     Check(rex::ui::vulkan::openxr::LensEye(float(tagged)) == eye,
           "the frame's tag names the eye its layers drew");
   }
+  // The HUD: on the headset's panel (xr_hud_panel) it stays drawn; with
+  // the panel off it is hidden, and the HUD key flips the panel in VR.
+  Check(vr::InVr(), "simulate: in VR");
+  Check(!vr::HidesHud(), "stereo with the panel: HUD drawn");
+  rex::cvar::SetFlagByName("xr_hud_panel", "false");
+  Check(vr::HidesHud(), "stereo without the panel: HUD hidden");
+  rex::cvar::SetFlagByName("xr_hud_panel", "true");
+  Check(!vr::HidesHud(), "panel back: HUD drawn");
   // A camera without head layers (a chase camera): the frame after still
   // counts, two later the frames are untagged and shown on the screen.
   vr::Update();
