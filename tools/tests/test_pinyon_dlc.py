@@ -99,7 +99,7 @@ class PinyonDlcTests(unittest.TestCase):
         self.assertEqual(result["result"], "ok")
         self.assertEqual([p["package_id"] for p in result["packages"]], [dlc.UDLC, dlc.TRAFFIC])
         for package in result["packages"]:
-            self.assertEqual(set(package), {"package_id", "display_name", "enabled", "status", "source"})
+            self.assertEqual(set(package), {"package_id", "display_name", "enabled", "status", "source", "author"})
             self.assertTrue(package["enabled"])
             self.assertEqual(package["source"], "community")
             self.assertEqual(package["status"], "gameplay_unverified")

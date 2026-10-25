@@ -370,6 +370,8 @@ def list_content(state: Path) -> list[dict]:
                                 status="metadata_invalid", source=source))
             continue
         record["source"] = source
+        if packages.get(id, {}).get("author"):
+            record["author"] = packages[id]["author"]
         record.setdefault("display_name", packages.get(id, {}).get("display_name", id))
         record["enabled"] = enabled.is_dir()
         record["status"] = ("conflict" if enabled.exists() and disabled.exists() else

@@ -136,8 +136,8 @@ def run_udlc(args: argparse.Namespace) -> dict:
     dlc.set_enabled(state, UDLC, True)
     if TRAFFIC in archives:
         dlc.set_enabled(state, TRAFFIC, True)
-    keys = ("package_id", "display_name", "enabled", "status", "source")
-    return {"result": "ok", "packages": [{key: p[key] for key in keys}
+    keys = ("package_id", "display_name", "enabled", "status", "source", "author")
+    return {"result": "ok", "packages": [{key: p[key] for key in keys if key in p}
             for p in dlc.list_content(state) if p["package_id"] in UDLC_ARCHIVES]}
 
 

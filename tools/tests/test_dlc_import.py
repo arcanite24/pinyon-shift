@@ -17,7 +17,7 @@ SPEC.loader.exec_module(dlc)
 class DlcImportTests(unittest.TestCase):
     def community_fixture(self, root):
         source, manifest, package = self.fixture(root)
-        package.update(package_id=dlc.UDLC, source="community")
+        package.update(package_id=dlc.UDLC, source="community", author="Warshack4874")
         data = bytearray(source.read_bytes())
         data[0x32C] = 1
         traffic = package | dict(package_id=dlc.TRAFFIC, content_id=data[0x32C:0x340].hex().upper(),
@@ -53,6 +53,7 @@ class DlcImportTests(unittest.TestCase):
                 rows = dlc.import_content(archive, state, root / "extractor")
                 self.assertEqual([(p["source"], p["enabled"]) for p in rows],
                                  [("community", False), ("community", False)])
+                self.assertEqual([p["author"] for p in rows], ["Warshack4874"] * 2)
                 with self.assertRaisesRegex(ValueError, "requires.*enable it first.*also disables"):
                     dlc.set_enabled(state, dlc.TRAFFIC, True)
                 dlc.set_enabled(state, dlc.UDLC, True)
