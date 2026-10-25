@@ -37,6 +37,18 @@ uint8_t* HiddenByte() {
 namespace pinyon_shift::hud {
 
 void Toggle() {
+  // In VR the HUD is on the headset's panel or hidden (vr_camera.h), so the
+  // key turns the panel off and on for the run; the launcher's choice
+  // (xr_hud_panel in the config) returns at the next start.
+  if (vr::InVr()) {
+    const bool shown = !REXCVAR_GET(hud_hidden) && !vr::HidesHud();
+    rex::cvar::SetFlagByName("xr_hud_panel", shown ? "false" : "true");
+    rex::cvar::SetFlagByName("hud_hidden", "false");
+    // A config that keeps the HUD in the eyes (xr_hide_hud = false) hides
+    // it the flat way.
+    if (shown && !vr::HidesHud()) rex::cvar::SetFlagByName("hud_hidden", "true");
+    return;
+  }
   rex::cvar::SetFlagByName("hud_hidden", REXCVAR_GET(hud_hidden) ? "false" : "true");
 }
 

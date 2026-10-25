@@ -2588,6 +2588,7 @@ public partial class MainWindow : Window
             "-TreasureMap", TreasureMapCheckBox.IsChecked == true ? "true" : "false",
             "-Vr", VrCheckBox.IsChecked == true ? "true" : "false",
             "-VrScale", SelectedTag(VrScaleComboBox),
+            "-VrHud", VrHideHudCheckBox.IsChecked == true ? "false" : "true",
             "-Json"
         }) startInfo.ArgumentList.Add(argument);
         // An in-game preset applies over the panel's choices (LS-1.7).
@@ -2625,6 +2626,7 @@ public partial class MainWindow : Window
         VrCheckBox.IsChecked = result.Settings.Vr;
         SelectTag(VrScaleComboBox, result.Settings.VrScale ?? "2x4");
         if (VrScaleComboBox.SelectedItem is null) SelectTag(VrScaleComboBox, "2x4");
+        VrHideHudCheckBox.IsChecked = !result.Settings.VrHud;
         UpdateVrControls();
         UpdateResolutionLine();
         UpdateRecommendationText();
@@ -2639,11 +2641,12 @@ public partial class MainWindow : Window
     // In VR the headset's render size replaces the internal resolution.
     private void UpdateVrControls()
     {
-        if (VrScaleComboBox is null || ResolutionComboBox is null) return;
+        if (VrScaleComboBox is null || ResolutionComboBox is null || VrHideHudCheckBox is null) return;
         var vr = VrCheckBox.IsChecked == true;
         var enabled = VrCheckBox.IsEnabled;
         ResolutionComboBox.IsEnabled = enabled && !vr;
         VrScaleComboBox.IsEnabled = enabled && vr;
+        VrHideHudCheckBox.IsEnabled = enabled && vr;
     }
 
     private GraphicsSettings? _graphicsSettings;
@@ -2874,5 +2877,6 @@ public partial class MainWindow : Window
         [property: JsonPropertyName("clear_memory_page_state")] bool ClearMemoryPageState,
         [property: JsonPropertyName("vsync")] bool Vsync,
         [property: JsonPropertyName("vr")] bool Vr = false,
-        [property: JsonPropertyName("vr_scale")] string? VrScale = null);
+        [property: JsonPropertyName("vr_scale")] string? VrScale = null,
+        [property: JsonPropertyName("vr_hud")] bool VrHud = true);
 }
