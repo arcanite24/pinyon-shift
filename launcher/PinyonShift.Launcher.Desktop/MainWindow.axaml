@@ -220,6 +220,23 @@
                         </WrapPanel>
 
                         <Border Height="1" Background="{StaticResource LineBrush}" Margin="0,4,0,4"/>
+                        <StackPanel Spacing="3">
+                            <TextBlock Text="UDLC Pack" FontSize="14"/>
+                            <TextBlock x:Name="UdlcStatusText" FontSize="12" TextWrapping="Wrap"
+                                       Foreground="{StaticResource MutedBrush}" Text="Checking…"/>
+                            <StackPanel x:Name="UdlcControls" Spacing="3" Margin="0,6,0,0">
+                                <WrapPanel>
+                                    <Button x:Name="UdlcDownloadButton" Classes="quiet" Content="Download from ModDB"
+                                            AutomationProperties.Name="Download UDLC from ModDB"
+                                            Click="UdlcDownload_Click" Margin="0,0,10,8"/>
+                                    <Button x:Name="UdlcInstallButton" Classes="quiet" Content="Install UDLC"
+                                            Click="UdlcInstall_Click" Margin="0,0,10,8"/>
+                                </WrapPanel>
+                                <CheckBox x:Name="UdlcTrafficCheck" Content="Also install the Traffic Car Unlocker" FontSize="12"
+                                          ToolTip.Tip="Lets you buy the game's traffic cars. Needs UDLC."/>
+                            </StackPanel>
+                        </StackPanel>
+                        <Border Height="1" Background="{StaticResource LineBrush}" Margin="0,4,0,4"/>
                         <!-- Optional FH1 v4 title update (TITLE_UPDATE_V4_BACKLOG TU-2). -->
                         <StackPanel Spacing="3">
                             <TextBlock Text="FH1 title update v4" FontSize="14"/>
