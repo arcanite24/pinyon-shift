@@ -7,7 +7,7 @@ description: Import your own Forza Horizon DLC packages and build the optional t
 
 # DLC and title update
 
-DLC comes from your own Xbox 360 packages. The launcher (on Windows, Linux and macOS) verifies each one against a pinned catalog of 21 *Forza Horizon* packages, then imports it. Imports start disabled, and each package is enabled separately. Close the game before changing DLC.
+DLC comes from your own Xbox 360 packages or the community downloads below. The launcher (on Windows, Linux and macOS) verifies each one against a pinned catalog of 21 official *Forza Horizon* packages plus UDLC v1.2 and its Traffic Car Unlocker, then imports it. Ordinary imports start disabled, and each package is enabled separately. Close the game before changing DLC.
 
 ## Supported packages
 
@@ -30,9 +30,68 @@ has a private initial-placement probe for developers; it is not a player option.
 
 - The original package files: no file extension, beginning with `LIVE`, `CON` or `PIRS`. A folder or ZIP holding them works too. ZIPs that can't be read (Deflate64, which Windows uses for large ZIPs, or encrypted ones) are skipped and named; extract them first.
 - Packages are listed by the name in their header, not by the file's name. A file shared as "2006 Ford GTX1" is the December IGN Car Pack and shows under that name. After importing, enable the package; its cars are bought in the Autoshow.
-- A package outside the 21 is skipped with its header name and the reason: not one of the 21 the importer can verify, or a content type other than Marketplace DLC (an offer or licence package holds no cars to import).
+- A package outside the verified catalog is refused with its header name and the reason. Content types other than Marketplace DLC, such as an offer or licence package, hold no cars to import.
 - Horizon Rally: one widely shared copy of the standalone Rally Expansion Pack is damaged (three dirt-track terrain files are corrupt) and is refused with that reason. Use another copy of the package, such as the one in the full DLC set.
 - DLC already installed in Xenia: choose Xenia's content folder for the game, `4D5309C9`, which holds `00000002` and `Headers` (on Windows usually `Documents\Xenia\content\<profile>\4D5309C9`, or `content\0000000000000000\4D5309C9` in older builds). Each unpacked package is verified by its files and by the licence in its header; Xenia's copy isn't changed. A package folder without its `Headers` entry can't be verified: import the original package instead.
+
+## Community UDLC
+
+[UDLC v1.2](https://www.moddb.com/mods/forza-horizon-udlc-pack/downloads/udlcv12)
+by Warshack4874 adds cars from the Xbox 360 versions of *Forza Horizon 2*
+and its *Fast & Furious* edition. The optional
+[Traffic Car Unlocker](https://www.moddb.com/mods/forza-horizon-udlc-pack/downloads/udlc-traffic-car-unlocker)
+(2026-01-13 release) adds traffic cars and requires UDLC. These are community
+packages, identified as community content in import records. Pinyon Shift does not
+redistribute them or download them automatically: download the ZIPs in your
+own browser from ModDB.
+
+Use the launcher's DLC panel, or leave the ZIPs in Downloads and run:
+
+```text
+python tools/pinyon.py dlc udlc --find
+python tools/pinyon.py dlc udlc --find --traffic
+```
+
+To open the pages and wait for your browser to finish downloading, add
+`--open-pages --wait 14400`. You can also give the downloaded ZIP paths
+directly. Add `--state-root DIR` to choose an installation's state folder.
+The command checks each ZIP's size and MD5, verifies the inner packages and
+extracted files against pinned SHA-256 values, imports them and enables
+UDLC and the imported unlocker. A first import with `dlc import` leaves them disabled.
+Turning UDLC off also turns its unlocker off; the unlocker cannot be enabled
+without UDLC. The older v1.11 ZIP is refused with a link to v1.2.
+
+On Windows with an RTX 4080 and Vulkan, the **2002 Acura RSX Type-S** was
+bought and driven on both the base and v4 builds. A fresh base launch
+reloaded the purchased car and drove it. Both builds showed its name in
+English and Mexican Spanish UI (the proper model name stays RSX Type-S).
+These scripted checks used private saves,
+test credits and an enlarged Autoshow trigger to reach the ordinary menu;
+they do not qualify every car or upgrade. Import and dependency handling
+were checked with the real v1.2 and Traffic ZIPs. With XE 1.01 enabled
+alongside both packages, the base build reached the Autoshow and displayed
+the RSX name. This does not qualify all combined content; see the
+[DLC backlog](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/DLC_BACKLOG.md#community-udlc-595).
+
+With the stock RSX selected, turning UDLC off on the tested base save
+loaded a fallback Corrado and preserved the owned garage. After turning
+UDLC on again, select the RSX in **Change Car**; it remained owned and
+could be selected without buying it again. Other cars and purchased UDLC
+upgrades have not been checked for safe removal. Keep a save backup.
+
+On Android, import and enable on the PC first, then copy the DLC group from
+the launcher's content share. It includes community and official packages
+through the same path. DLC is not embedded in the APK, and the USB
+`android push-data` command copies only the disc files; manual DLC transfer
+also needs the state folder's `user` content and `dlc` records. UDLC gameplay
+has not been tested on a phone.
+
+The pack has a paint-shop hang with the **2015 Dodge Charger F&F** and
+**2014 Maserati Ghibli F&F**, also reported on Xbox 360 hardware and Xenia.
+On v4, both purchased cars stayed on **Please wait** after entering Design
+Creator throughout an extended scripted check; the RSX control reached
+Paint Car and responded to body/mirror selection. Avoid painting the two
+F&F cars. No runtime workaround is applied for this known upstream issue.
 
 ## Title update v4
 

@@ -7,7 +7,7 @@ using Avalonia.Platform.Storage;
 
 namespace PinyonShift.Launcher.Desktop;
 
-// The DLC panel (DlcPanel on Windows): the 21 supported packages with what
+// The DLC panel (DlcPanel on Windows): the verified packages with what
 // is imported (pinyon.py dlc), title update v4 with 1000 Club offline
 // (pinyon.py title-update) and the Forza Horizon XE mod (pinyon.py xe).
 public partial class MainWindow

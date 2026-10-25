@@ -9,9 +9,9 @@ base = """ForzaProfile, PlayerDatabase, VersionFlags"""
 v4 = """same"""
 name = """profile directory files"""
 what = """A profile directory holds `ForzaProfile` plus companion `PlayerDatabase`, `VersionFlags`, livery and thumbnail files (12 files in the reference save). `PlayerDatabase` is an encrypted, deflated SQLite database: on the pinned base bus profile its decrypted body has a 12-byte prefix followed by raw DEFLATE (window bits -15), and the three big-endian words are uncompressed size, compressed size, uncompressed size (83,968, 8,202, 83,968). Each car is a `Career_Garage` row naming its livery file and holding its tune in 36 `Tuning_*` columns, and purchased parts are separate rows (122 in the reference save). Without the companions the title loads a fallback Corrado instead of the saved car and does not offer the expected Gauntlet activity."""
-how = """Experiment: a profile-only fixture against a complete profile copy; save audits; reading a seed save."""
+how = """Experiment: a profile-only fixture against a complete profile copy; save audits; reading a seed save. Native save snapshots before and after an ordinary UDLC RSX purchase confirm that Career_Garage.Id is the garage instance ID and CarId is the Data_Car model ID (instance 13, model 422 in that private fixture)."""
 confidence = """confirmed"""
-source = """docs/DLC_BACKLOG.md Complete saved garage fixture; Selected Rally car disable, save and restoration; docs/REVERSE_ENGINEERING.md@a72a92a5f215 Custom content"""
+source = """docs/DLC_BACKLOG.md Complete saved garage fixture; Selected Rally car disable, save and restoration; Community UDLC (#595); docs/REVERSE_ENGINEERING.md@a72a92a5f215 Custom content"""
 
 [[finding]]
 group = """Save files"""
@@ -36,10 +36,10 @@ source = """docs/TITLE_UPDATE_V4_BACKLOG.md TU-4, TU-5"""
 [[finding]]
 group = """Save files"""
 name = """missing DLC car falls back to Corrado"""
-what = """When the selected saved car belongs to a disabled DLC (the stock Rally Escort), the base game falls back to the original Corrado and keeps every garage record, purchased part and the credit balance. Re-enabling the DLC restores the car without a repurchase."""
-how = """Experiment: disable Rally with the Escort selected, play and save, re-enable and reload; save audit."""
+what = """With the stock Rally Escort or stock UDLC RSX selected, disabling its DLC on the tested base saves loads the original Corrado and preserves the owned garage. The Rally experiment also retained purchased parts and credits. In the UDLC experiment all 13 garage rows and the complete decrypted SQLite body were byte-identical before and after the disabled run. Re-enabling UDLC leaves the Corrado selected; Change Car offers the still-owned RSX and Get In Car restores it without repurchasing or repairing the save. This does not establish safe removal of purchased UDLC upgrades or every model."""
+how = """Experiment: disable Rally with the Escort selected, play and save, re-enable and reload; save audit. Repeat with an ordinarily purchased UDLC RSX on private base copies, audit native save snapshots, then re-enable and select its original garage instance through the ordinary workshop menu."""
 confidence = """confirmed"""
-source = """docs/DLC_BACKLOG.md Selected Rally car disable, save and restoration"""
+source = """docs/DLC_BACKLOG.md Selected Rally car disable, save and restoration; Community UDLC (#595)"""
 
 [[finding]]
 group = """Save files"""

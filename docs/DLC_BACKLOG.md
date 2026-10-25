@@ -61,6 +61,79 @@ that Marketplace packages work. Every package below remains **unqualified**.
 Online recognition, leaderboards and service-backed features must be assessed
 separately from local cars, events and progress.
 
+## Community UDLC (#595)
+
+UDLC v1.2 by Warshack4874 and the optional Traffic Car Unlocker use the
+same pinned import path as official packages. The catalog records their
+whole-package and extracted-payload SHA-256 values, file counts and sizes.
+Both import disabled with their original zero licence mask. The unlocker
+requires enabled UDLC; disabling UDLC disables the unlocker too.
+The browser helper is `python tools/pinyon.py dlc udlc --find --traffic`.
+It checks the ZIP size and MD5 before import and enables the imported packs.
+It never downloads from ModDB itself. The known v1.11 wrapper is refused
+with a link to v1.2; its inner packages are not accepted.
+
+Repository extraction and read-only inspection establish that UDLC registers
+113 `Data_Car` rows through `72900_merge.slt`, its ordinary `.puboffer` and
+localized `Data_Car`/`List_CarMake` string tables. The companion supplies
+31 car rows through `73200_merge.slt` and 15 thumbnail textures. See the
+[content finding](../site/findings/content.toml). No game assets are distributed.
+"Open" UDLC replaces the base database and is unsupported.
+
+2026-10-24–25 qualification on Windows 11, Ryzen 7 5800X / RTX 4080, Vulkan:
+the base and v4 builds buy the 2002 Acura RSX Type-S through the ordinary
+manufacturer/car/colour/confirmation screens, save it and return to free
+roam. The v4 route manoeuvres it in the festival; a fresh base launch
+reloads its saved garage car and drives it at 59 km/h. Both builds show its
+model name with English and Mexican Spanish UI (`user_language=5`,
+`user_country=71`); the proper name stays RSX Type-S.
+The base purchase creates garage car 13 and `Thumbnail_13.xdc`; the
+plaintext profile trace selects `Main/CareerCar=13` afterwards.
+
+The routes use private copies of pinned `i444-live` and `bugbash-1021-v4`,
+private test credits, and a private `udlc_autoshow_probe` asset mod that
+only enlarges `Colorado/autoshow.xml`'s `festival_01` trigger radius. It
+does not change any car, offer, licence, price or model. The initial map
+navigation attempt missed the icon and was terminated. The initial late
+merge wait missed the file-open history; the final route waits immediately
+after Start. Six-frame buy presses did not complete the purchase; 36-frame
+presses did. Those automation failures are not runtime crashes or proof of
+a pack defect. The reusable scenarios are
+[`fh1-udlc-buy-car`](../config/render-tests/fh1-udlc-buy-car.fh1test) and
+[`fh1-udlc-reload`](../config/render-tests/fh1-udlc-reload.fh1test).
+
+This is one-car driving qualification, not a full roster, upgrade or
+platform pass. On v4, the 2015 Charger F&F and 2014 Ghibli F&F were also
+bought and saved through their ordinary Autoshow flows. Both remain on
+`Please wait` after selecting Design Creator in the paint shop, including
+late captures at route frame 10000. The RSX control reaches Paint Car and
+responds to body/mirror selection with the same private paint-shop trigger
+probe. The renderer and route continue (exit 0); route completion does not
+mean the editor loaded. This matches the pack's reported upstream hang;
+no SDK or runtime workaround was attempted.
+
+With the stock purchased RSX selected, disabling UDLC (and its dependent
+unlocker) on a private base save loaded and drove the fallback Corrado.
+Native decrypted database snapshots retained all 13 garage rows, including
+the RSX's instance 13 / model 422, byte-for-byte; the complete SQLite body
+also had the same SHA-256 before and after the disabled run. Re-enabling
+UDLC left the Corrado selected, but Change Car still offered the owned
+RSX and Get In Car restored it without a purchase or save repair. This
+does not establish safe removal of purchased UDLC upgrades or every car.
+
+XE 1.01 and both community packages enabled together reached the ordinary
+Autoshow and displayed the RSX Type-S. The private fixture was copied from
+the pinned `xe-2026-10-09` seed and retained XE's separate `user-xe` profile.
+This is a startup/Autoshow coexistence check, not qualification of every
+XE/UDLC car or event. There is no evidence requiring a mutual exclusion.
+
+Android delivery review: `launcher/Shared/AndroidShareContent.cs:42` copies
+the complete imported content tree and its top-level JSON records, with no
+official/community filter. `tools/pinyon_android.py:499` packages code and
+driver assets, not DLC; `push_data` at line 534 copies only the disc. Use the
+launcher's DLC share or the manual state transfer documented in ANDROID.md.
+No APK build or phone deployment was needed for this static path check.
+
 ## Local inventory
 
 The local `Forza Horizon.zip` contains 21 distinct package filenames under

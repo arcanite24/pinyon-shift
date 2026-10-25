@@ -4,6 +4,18 @@
 # --- Game database --------------------------------------------------------
 
 [[finding]]
+group = "Game database"
+base = "UDLC Media/DLCZips/729_pri_99/Media/db/patch/72900_merge.slt"
+v4 = "same community package"
+name = "UDLC v1.2 registers cars through ordinary DLC content"
+what = "The pinned UDLC package uses a Marketplace content header, a media/729.puboffer offer and a merge SQLite database with 113 Data_Car rows. All rows set IsPurchased and IsInstalled; 99 set IsSelectable, and their ContentId values are 0 or 99. Its StringTables_pri_99729 tree supplies localized Data_Car and List_CarMake tables. The optional traffic package has a separate content identity, 31 Data_Car rows in 73200_merge.slt, and 15 thumbnail textures in its ZIP; it depends on the main pack's assets. Both original packages carry licence mask 00000000; importing preserves it rather than widening entitlement. This inventory establishes the content layout, not gameplay or missing-content save behavior."
+how = "Repository STFS extractor and payload_catalog on the verified player-provided v1.2 and Traffic_Unlocker.1 archives; read-only SQLite and fh1-strings.py inspection."
+confidence = "confirmed"
+source = "docs/DLC_BACKLOG.md#community-udlc-595"
+issue = "#595"
+note = "Windows Vulkan spot checks bought and drove the 2002 Acura RSX Type-S on base and v4, with its proper name shown under English and Mexican Spanish UI. On v4, purchased Charger 2015 F&F and Ghibli 2014 F&F cars remained on Please wait after entering Design Creator through late route captures, whereas the RSX control entered Paint Car and responded. This matches the pack's known upstream issue; no runtime workaround is applied. This does not qualify the entire roster or every upgrade."
+
+[[finding]]
 group = """Game database"""
 base = """media/db/gamedb.slt"""
 v4 = """update media.zip db/gamedb.slt"""

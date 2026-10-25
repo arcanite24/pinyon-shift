@@ -198,6 +198,20 @@ The archives are checked against ModDB's sizes and MD5s, and only the files that
 
 The archives are extracted with [7-Zip](https://www.7-zip.org) when it is installed, otherwise with the system `tar`. Some Windows `tar.exe` builds can't read XE's LZMA archives; the install then stops before extracting and asks you to install 7-Zip and choose **Install XE** again.
 
+## The UDLC pack
+
+[UDLC v1.2](https://www.moddb.com/mods/forza-horizon-udlc-pack/downloads/udlcv12)
+by Warshack4874 installs as a community DLC package. Download it yourself,
+then use the launcher's DLC panel or `python tools/pinyon.py dlc udlc --find`.
+The optional Traffic Car Unlocker needs UDLC. See
+[installation and qualification](dlc.md#community-udlc) for the verified
+versions and known paint-shop hangs. Pinyon Shift does not redistribute
+these downloads.
+
+["Open" UDLC](https://www.moddb.com/mods/forza-horizon-udlc-pack/downloads/open-udlc)
+replaces the game's database files for editing the DLC cars. It is not a
+DLC package and is not supported by the importer or the UDLC command.
+
 ## Native mods
 
 A native mod is a DLL built against [`include/pinyon_mod.h`](https://github.com/arcanite24/pinyon-shift/blob/dev/include/pinyon_mod.h). It exports two functions:
