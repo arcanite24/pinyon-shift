@@ -261,6 +261,10 @@ bool StereoConfigured() {
   return (REXCVAR_GET(xr_enabled) || REXCVAR_GET(xr_simulate)) && REXCVAR_GET(xr_stereo);
 }
 
+bool InVr() {
+  return REXCVAR_GET(xr_enabled) || REXCVAR_GET(xr_simulate);
+}
+
 bool KeepsCameraShake() {
   return !StereoConfigured() || REXCVAR_GET(xr_camera_shake);
 }
@@ -345,11 +349,12 @@ float AspectScale() {
 }
 
 bool HidesHud() {
-  if (!Engaged()) return false;
-  Latched& l = L();
-  std::lock_guard lock(l.mutex);
-  return LayersCurrent(l) && REXCVAR_GET(xr_hide_hud) &&
-         !rex::ui::vulkan::openxr::HudPanelWanted();
+  if (!InVr()) return false;
+  // With the panel off (xr_hud_panel: the launcher's "Hide the HUD" and the
+  // HUD key in VR) the HUD is hidden for the whole VR run, on the screen
+  // views too, so the one switch means one thing; with it on, the HUD is on
+  // the panel in stereo and in the screen's image elsewhere.
+  return REXCVAR_GET(xr_hide_hud) && rex::cvar::GetFlagByName("xr_hud_panel") != "true";
 }
 
 }  // namespace pinyon_shift::vr

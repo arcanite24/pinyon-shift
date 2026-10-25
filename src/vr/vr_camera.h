@@ -43,6 +43,11 @@ bool InStereo();
 // InStereo: the right eye's short step made it a smear across the frame.
 bool StereoConfigured();
 
+// Whether this run is in VR at all (xr_enabled or xr_simulate), known at
+// start: the HUD is hidden or on the headset's panel then (HidesHud), and
+// the HUD key works the panel (hud_toggle.cpp).
+bool InVr();
+
 // Whether the immersive camera's shake group (speed shake, braking
 // vibration) applies: off for the whole of a VR run unless xr_camera_shake,
 // also on the VR screen's cameras, so it does not come and go with the view.
@@ -55,9 +60,10 @@ bool KeepsCameraShake();
 // does not read as depth. Unchanged outside stereo.
 double PairStep(double seconds);
 
-// Whether the HUD is hidden for VR stereo (xr_hide_hud): drawn at the same
-// place for both eyes, it would float at the wrong depth. Not while the
-// headset shows it on a panel of its own (xr_hud_panel).
+// Whether the HUD is hidden for the VR run (xr_hide_hud): drawn at the same
+// place for both eyes, it would float at the wrong depth in stereo. Not
+// while the headset shows it on a panel of its own (xr_hud_panel, which the
+// launcher's "Hide the HUD" and the HUD key turn off).
 bool HidesHud();
 
 // In VR stereo, the main view's aspect scale (the viewport aspect hook's) for
