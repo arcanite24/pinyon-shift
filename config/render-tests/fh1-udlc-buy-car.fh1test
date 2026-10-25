@@ -1,0 +1,75 @@
+pinyon-shift-fh1-render-test-v1
+# Private i444-live or bugbash-1021-v4 copy with verified UDLC and Traffic.
+# Requires the private udlc_autoshow_probe: only the Autoshow trigger radius is enlarged.
+# Buy through the ordinary manufacturer grid with private test credits.
+# dlc-car-trace
+# dlc-car-ids 368,422,2276,2288
+input 0 0000 0 0 0 0 0 0
+wait 10 30000 file pressstart.wmv
+input 360 1000 0 0 0 0 0 0
+input 366 0000 0 0 0 0 0 0
+# Observe the merge immediately after Start; file history has a bounded lookback.
+wait 370 30000 file media\db\patch
+input 480 1000 0 0 0 0 0 0
+input 486 0000 0 0 0 0 0 0
+input 600 1000 0 0 0 0 0 0
+input 606 0000 0 0 0 0 0 0
+input 720 1000 0 0 0 0 0 0
+input 726 0000 0 0 0 0 0 0
+input 840 1000 0 0 0 0 0 0
+input 864 0000 0 0 0 0 0 0
+input 960 1000 0 0 0 0 0 0
+input 984 0000 0 0 0 0 0 0
+input 1080 1000 0 0 0 0 0 0
+input 1104 0000 0 0 0 0 0 0
+input 1200 1000 0 0 0 0 0 0
+input 1224 0000 0 0 0 0 0 0
+wait 1400 3000 vehicle
+capture 1560 free-roam
+input 1680 4000 0 0 0 0 0 0
+input 1686 0000 0 0 0 0 0 0
+capture 2100 manufacturers
+cvar 2120 cheat_set_credits 9000000
+input 2160 0008 0 0 0 0 0 0
+input 2166 0000 0 0 0 0 0 0
+input 2240 1000 0 0 0 0 0 0
+input 2276 0000 0 0 0 0 0 0
+capture 2500 udlc-rsx-name
+input 2600 1000 0 0 0 0 0 0
+input 2636 0000 0 0 0 0 0 0
+capture 3600 udlc-rsx-showroom
+input 3700 1000 0 0 0 0 0 0
+input 3736 0000 0 0 0 0 0 0
+capture 3900 purchase-confirmation
+input 4000 1000 0 0 0 0 0 0
+input 4036 0000 0 0 0 0 0 0
+capture 4800 after-purchase
+input 4900 1000 0 0 0 0 0 0
+input 4936 0000 0 0 0 0 0 0
+capture 5140 post-0
+input 5220 1000 0 0 0 0 0 0
+input 5256 0000 0 0 0 0 0 0
+capture 5460 post-1
+input 5540 1000 0 0 0 0 0 0
+input 5576 0000 0 0 0 0 0 0
+capture 5780 post-2
+input 5860 1000 0 0 0 0 0 0
+input 5896 0000 0 0 0 0 0 0
+capture 6100 post-3
+input 6180 1000 0 0 0 0 0 0
+input 6216 0000 0 0 0 0 0 0
+capture 6420 post-4
+input 6500 1000 0 0 0 0 0 0
+input 6536 0000 0 0 0 0 0 0
+capture 6740 post-5
+input 7000 2000 0 0 0 0 0 0
+input 7006 0000 0 0 0 0 0 0
+capture 7300 post-final
+input 7400 0000 255 0 -24000 0 0 0
+capture 7800 udlc-reversing
+input 8000 0000 0 0 0 0 0 0
+input 8200 0000 0 255 0 0 0 0
+capture 8700 udlc-driving
+capture 9000 udlc-driving-later
+input 9100 0000 0 0 0 0 0 0
+stop 9200

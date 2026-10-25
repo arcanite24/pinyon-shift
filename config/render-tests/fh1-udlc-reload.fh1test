@@ -1,0 +1,33 @@
+pinyon-shift-fh1-render-test-v1
+# Private purchased-UDLC save: compare enabled, disabled and restored copies.
+# Inspect notices, car identity and driving; exit 0 alone is not qualification.
+input 0 0000 0 0 0 0 0 0
+wait 10 30000 file pressstart.wmv
+input 360 1000 0 0 0 0 0 0
+input 366 0000 0 0 0 0 0 0
+# Observe the merge immediately after Start; file history has a bounded lookback.
+wait 370 30000 file media\db\patch
+input 480 1000 0 0 0 0 0 0
+input 486 0000 0 0 0 0 0 0
+input 600 1000 0 0 0 0 0 0
+input 606 0000 0 0 0 0 0 0
+input 720 1000 0 0 0 0 0 0
+input 726 0000 0 0 0 0 0 0
+input 840 1000 0 0 0 0 0 0
+input 864 0000 0 0 0 0 0 0
+input 960 1000 0 0 0 0 0 0
+input 984 0000 0 0 0 0 0 0
+input 1080 1000 0 0 0 0 0 0
+input 1104 0000 0 0 0 0 0 0
+input 1200 1000 0 0 0 0 0 0
+input 1224 0000 0 0 0 0 0 0
+capture 1560 reload-notice
+capture 1800 selected-car
+input 1900 0000 255 0 -24000 0 0 0
+capture 2400 reversing
+input 2500 0000 0 0 0 0 0 0
+input 2700 0000 0 255 0 0 0 0
+capture 3300 reload-driving
+capture 3600 reload-driving-later
+input 3650 0000 0 0 0 0 0 0
+stop 3700
