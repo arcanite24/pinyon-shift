@@ -55,11 +55,28 @@ class PinyonDlcTests(unittest.TestCase):
         main = self.downloads / self.archives[dlc.UDLC]["file"]
         renamed = main.with_name("UDLCv1.2 (1).zip")
         main.rename(renamed)
+        valid_zip = renamed.read_bytes()
         main.write_bytes(b"partial")
         renamed.with_suffix(".zip.crdownload").write_bytes(renamed.read_bytes())
         self.assertEqual(pinyon_dlc.find_udlc([self.downloads], [dlc.UDLC]), {dlc.UDLC: renamed})
         renamed.unlink()
         self.assertEqual(pinyon_dlc.find_udlc([self.downloads], [dlc.UDLC]), {})
+        for name in ("UDLCv1.2(1).zip", "UDLCv1.2-2.zip", "UDLCv1.2 2.zip"):
+            with self.subTest(name=name):
+                path = self.downloads / name
+                path.write_bytes(valid_zip)
+                self.assertEqual(pinyon_dlc.find_udlc([self.downloads], [dlc.UDLC]), {dlc.UDLC: path})
+                path.unlink()
+
+    def test_partial_companion_record_still_has_a_name_in_the_json_result(self):
+        metadata = self.root / "state/dlc"
+        metadata.mkdir(parents=True)
+        (metadata / (dlc.TRAFFIC + ".json")).write_text(json.dumps({"package_id": dlc.TRAFFIC}))
+        result = pinyon_dlc.run(self.args("--find"))
+        self.assertEqual(result["result"], "ok")
+        traffic = next(p for p in result["packages"] if p["package_id"] == dlc.TRAFFIC)
+        self.assertEqual(traffic["display_name"], "Traffic Car Unlocker")
+        self.assertEqual(traffic["status"], "missing")
 
     def test_find_rejects_wrong_md5_and_names_the_missing_download(self):
         main = self.downloads / self.archives[dlc.UDLC]["file"]

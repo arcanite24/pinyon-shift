@@ -84,7 +84,7 @@ def find_udlc(folders: list[Path], wanted: list[str]) -> dict[str, Path]:
             if id in found:
                 continue
             known = UDLC_ARCHIVES[id]
-            pattern = re.compile(re.escape(Path(known["file"]).stem) + r"(?: \(\d+\))?\.zip", re.I)
+            pattern = re.compile(re.escape(Path(known["file"]).stem) + r"(?: ?\(\d+\)|[- ]\d+)?\.zip", re.I)
             for path in sorted(folder.iterdir()) if folder.is_dir() else []:
                 if path.is_file() and pattern.fullmatch(path.name) and path.stat().st_size == known["size"]:
                     identify_udlc(path)
