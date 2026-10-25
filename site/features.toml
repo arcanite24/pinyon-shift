@@ -70,7 +70,7 @@ pinyon = "Asset, database, texture, Vulkan shader and native mods; the Forza Hor
 feature = "DLC and title update"
 link = "dlc.md"
 xbox = "Bought on Xbox Live"
-pinyon = "Your own packages, verified and imported, including community UDLC v1.2 and its Traffic Car Unlocker; Treasure Map included; Horizon Rally and 1000 Club on the optional title update v4 build"
+pinyon = "Your own packages, verified and imported; UDLC v1.2 and its Traffic Car Unlocker through Download from ModDB or Install UDLC in the DLC panel; Treasure Map included; Horizon Rally and 1000 Club on the optional title update v4 build"
 
 [[original]]
 feature = "Controls"

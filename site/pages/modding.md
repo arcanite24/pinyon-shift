@@ -201,9 +201,14 @@ The archives are extracted with [7-Zip](https://www.7-zip.org) when it is instal
 ## The UDLC pack
 
 [UDLC v1.2](https://www.moddb.com/mods/forza-horizon-udlc-pack/downloads/udlcv12)
-by Warshack4874 installs as a community DLC package. Download it yourself,
-then use the launcher's DLC panel or `python tools/pinyon.py dlc udlc --find`.
-The optional Traffic Car Unlocker needs UDLC. See
+by Warshack4874 installs as a community DLC package. In the launcher's
+**DLC** panel, use **Download from ModDB** under **UDLC Pack** to open the
+page in your browser and install when the download finishes, or
+**Install UDLC** to select ZIPs you already have. Tick **Also install the
+Traffic Car Unlocker** before downloading if you want traffic cars too;
+the unlocker needs UDLC. The launcher asks before turning UDLC off and
+explains that owned cars are hidden until you turn it on again.
+The terminal equivalent is `python tools/pinyon.py dlc udlc --find`. See
 [installation and qualification](dlc.md#community-udlc) for the verified
 versions and known paint-shop hangs. Pinyon Shift does not redistribute
 these downloads.

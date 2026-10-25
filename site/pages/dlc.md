@@ -45,7 +45,16 @@ packages, identified as community content in import records. Pinyon Shift does n
 redistribute them or download them automatically: download the ZIPs in your
 own browser from ModDB.
 
-Use the launcher's DLC panel, or leave the ZIPs in Downloads and run:
+In the launcher's **DLC** panel, find **UDLC Pack** and choose
+**Download from ModDB**. Download `UDLCv1.2.zip` on the page that opens in
+your browser (about 1 GB); the launcher waits up to four hours and installs
+it when it finishes in Downloads. Tick **Also install the Traffic Car
+Unlocker** before clicking to open its page and install both packages.
+If you already have the ZIPs, choose **Install UDLC** and select the UDLC
+ZIP and, optionally, the unlocker ZIP together. Both actions enable the
+imported packages, which are marked **Community** in the list.
+
+From a terminal, leave the ZIPs in Downloads and run:
 
 ```text
 python tools/pinyon.py dlc udlc --find
@@ -59,7 +68,10 @@ The command checks each ZIP's size and MD5, verifies the inner packages and
 extracted files against pinned SHA-256 values, imports them and enables
 UDLC and the imported unlocker. A first import with `dlc import` leaves them disabled.
 Turning UDLC off also turns its unlocker off; the unlocker cannot be enabled
-without UDLC. The older v1.11 ZIP is refused with a link to v1.2.
+without UDLC. The launcher asks for confirmation first: owned UDLC cars
+are hidden while it is off, the game picks another car, and the UDLC cars
+return when it is turned on again. The save file is not changed.
+The older v1.11 ZIP is refused with a link to v1.2.
 
 On Windows with an RTX 4080 and Vulkan, the **2002 Acura RSX Type-S** was
 bought and driven on both the base and v4 builds. A fresh base launch
