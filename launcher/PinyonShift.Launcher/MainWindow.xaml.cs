@@ -2228,6 +2228,52 @@ public partial class MainWindow : Window
         [JsonPropertyName("pre_v4_backups")] public List<string> PreV4Backups { get; set; } = [];
     }
 
+    private async void InstallUdlcButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_busy) return;
+        var picker = new OpenFileDialog
+        {
+            Title = "Choose the UDLC zip and optionally the Traffic Car Unlocker zip",
+            Filter = "UDLC archives (*.zip)|*.zip|All files|*.*", Multiselect = true
+        };
+        if (picker.ShowDialog(this) == true) await ChangeUdlcAsync(picker.FileNames);
+    }
+
+    private async void DownloadUdlcButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_busy) return;
+        await ChangeUdlcAsync([], download: true);
+    }
+
+    private async Task ChangeUdlcAsync(string[] archives, bool download = false)
+    {
+        _busy = true;
+        UdlcControls.IsEnabled = DlcControls.IsEnabled = DlcList.IsEnabled = false;
+        UpdatePrimaryButton();
+        UdlcStatusText.Text = download
+            ? "Download UDLCv1.2.zip on the ModDB page that opened (UDLC Pack by Warshack4874, about 1 GB). " +
+              "Installing starts by itself when it finishes in your Downloads folder…"
+            : "Checking and extracting the UDLC archives. This takes a few minutes…";
+        try
+        {
+            await RunDlcToolAsync("udlc", archives: archives, download: download,
+                traffic: download && UdlcTrafficCheckBox.IsChecked == true);
+            ApplyDlcResult(await RunDlcToolAsync("list"));
+        }
+        catch (Exception ex)
+        {
+            try { ApplyDlcResult(await RunDlcToolAsync("list")); } catch { }
+            UdlcStatusText.Text = ex.Message;
+            AppendLog($"UDLC Pack: {ex.Message}");
+        }
+        finally
+        {
+            _busy = false;
+            UdlcControls.IsEnabled = DlcControls.IsEnabled = DlcList.IsEnabled = true;
+            UpdatePrimaryButton();
+        }
+    }
+
     private async void ImportDlcButton_Click(object sender, RoutedEventArgs e)
     {
         if (_busy) return;
@@ -2247,6 +2293,10 @@ public partial class MainWindow : Window
     private async void ToggleDlcButton_Click(object sender, RoutedEventArgs e)
     {
         if (_busy || (sender as Button)?.Tag is not DlcPackage package) return;
+        if (package.Enabled && package.PackageId == "4D5309C900000729" && MessageBox.Show(this,
+                "Cars you own from UDLC are hidden while it is off, and the game picks another car for you. " +
+                "They come back when you turn UDLC on again. Turn UDLC off?",
+                "UDLC Pack", MessageBoxButton.YesNo, MessageBoxImage.Information) != MessageBoxResult.Yes) return;
         await ChangeDlcAsync(package.Enabled ? "disable" : "enable", packageId: package.PackageId,
             success: "Updated. Applies at the next start; saves were not changed.");
     }
@@ -2263,6 +2313,7 @@ public partial class MainWindow : Window
         _busy = true;
         DlcControls.IsEnabled = false;
         DlcList.IsEnabled = false;
+        UdlcControls.IsEnabled = false;
         UpdatePrimaryButton();
         DlcStatusText.Text = action == "import" ? "Verifying and importing packages…" :
             action == "enable" && packageId == "6F6992766050D818245ADD408031E280FB5F4E634D"
@@ -2285,11 +2336,13 @@ public partial class MainWindow : Window
             _busy = false;
             DlcControls.IsEnabled = true;
             DlcList.IsEnabled = true;
+            UdlcControls.IsEnabled = true;
             UpdatePrimaryButton();
         }
     }
 
-    private async Task<DlcResult> RunDlcToolAsync(string action, string? source = null, string? packageId = null)
+    private async Task<DlcResult> RunDlcToolAsync(string action, string? source = null, string? packageId = null,
+        string[]? archives = null, bool download = false, bool traffic = false)
     {
         if (_repositoryRoot is null || _stateRoot is null)
             throw new InvalidOperationException("Release source is not ready.");
@@ -2304,27 +2357,43 @@ public partial class MainWindow : Window
             start.ArgumentList.Add(argument);
         if (source is not null) { start.ArgumentList.Add("-InputPath"); start.ArgumentList.Add(source); }
         if (packageId is not null) { start.ArgumentList.Add("-PackageId"); start.ArgumentList.Add(packageId); }
+        if (download)
+            foreach (var argument in new[] { "-Find", "-OpenPages", "-Wait", "14400" }) start.ArgumentList.Add(argument);
+        if (traffic) start.ArgumentList.Add("-Traffic");
+        foreach (var archive in archives ?? []) start.ArgumentList.Add(archive);
+        if (action == "udlc")
+            AppendLog($"UDLC command: {start.FileName} " + string.Join(" ", start.ArgumentList.Select(argument => $"\"{argument}\"")));
         using var process = Process.Start(start) ?? throw new InvalidOperationException("Windows could not start DLC management.");
         var output = process.StandardOutput.ReadToEndAsync();
         var error = process.StandardError.ReadToEndAsync();
         await process.WaitForExitAsync();
         var stdout = await output;
         var stderr = await error;
-        if (process.ExitCode != 0)
-            throw new InvalidOperationException(string.IsNullOrWhiteSpace(stderr) ? "DLC management stopped." : stderr.Trim());
-        return JsonSerializer.Deserialize<DlcResult>(stdout.Trim(), new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
-            ?? throw new InvalidDataException("DLC management returned an invalid result.");
+        var json = stdout.Trim();
+        json = json[(json.LastIndexOf('\n') + 1)..];
+        var result = json.StartsWith('{')
+            ? JsonSerializer.Deserialize<DlcResult>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+            : null;
+        if (process.ExitCode != 0 || result?.Error is not null)
+            throw new InvalidOperationException(result?.Error ?? (string.IsNullOrWhiteSpace(stderr) ? "DLC management stopped." : stderr.Trim()));
+        return result ?? throw new InvalidDataException("DLC management returned an invalid result.");
     }
 
     private void ApplyDlcResult(DlcResult result)
     {
         DlcList.ItemsSource = result.Packages;
         DlcEmptyText.Visibility = result.Packages.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        var udlc = result.Packages.Find(package => package.PackageId == "4D5309C900000729");
+        var traffic = result.Packages.Exists(package => package.PackageId == "4D5309C900000732");
+        UdlcStatusText.Text = udlc is null
+            ? "Not installed. Download from ModDB opens the UDLC page in your browser and installs it when the download finishes; Install UDLC takes a zip you already have."
+            : $"UDLC is {(udlc.Enabled ? "on" : "off")}. Traffic Car Unlocker is {(traffic ? "installed" : "not installed")}.";
     }
 
     public sealed class DlcResult
     {
         public List<DlcPackage> Packages { get; set; } = [];
+        public string? Error { get; set; }
     }
 
     public sealed class DlcPackage
@@ -2333,6 +2402,10 @@ public partial class MainWindow : Window
         [JsonPropertyName("display_name")] public string DisplayName { get; set; } = "";
         public bool Enabled { get; set; }
         public string Status { get; set; } = "";
+        public string Source { get; set; } = "";
+        public string? Author { get; set; }
+        public string CommunityText => Source == "community"
+            ? string.IsNullOrWhiteSpace(Author) ? "Community" : $"Community, by {Author}" : "";
         [JsonPropertyName("rally_assets_cached")] public bool RallyAssetsCached { get; set; }
         public bool CanToggle => Status == "gameplay_unverified" ||
             (Enabled && (Status == "missing" || Status == "metadata_invalid"));

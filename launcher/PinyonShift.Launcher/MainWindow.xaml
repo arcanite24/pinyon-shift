@@ -256,6 +256,18 @@
                                             </Grid.ColumnDefinitions>
                                             <StackPanel Margin="0,0,18,0">
                                                 <TextBlock Text="{Binding DisplayName}" FontSize="14" TextWrapping="Wrap"/>
+                                                <TextBlock Text="{Binding CommunityText}" FontSize="12"
+                                                           Foreground="{StaticResource MutedBrush}">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock">
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding CommunityText}" Value="">
+                                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
                                                 <TextBlock Text="{Binding StatusText}" FontSize="12" Margin="0,3,0,0"
                                                            Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"/>
                                             </StackPanel>
@@ -276,6 +288,28 @@
                             <Button Content="Import folder" Style="{StaticResource QuietButton}" Click="ImportDlcFolderButton_Click" Margin="0,0,10,8"/>
                             <Button Content="Done" Style="{StaticResource QuietButton}" Click="CloseDlcButton_Click" Margin="0,0,0,8"/>
                         </WrapPanel>
+                        <Grid Margin="0,4,0,16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Margin="0,0,16,0" VerticalAlignment="Center">
+                                <TextBlock Text="UDLC Pack" FontSize="14"/>
+                                <TextBlock x:Name="UdlcStatusText" Margin="0,3,0,0" FontSize="12" TextWrapping="Wrap" Text="Checking…"
+                                           Foreground="{StaticResource MutedBrush}" AutomationProperties.LiveSetting="Polite"/>
+                            </StackPanel>
+                            <StackPanel x:Name="UdlcControls" Grid.Column="1" VerticalAlignment="Center">
+                                <StackPanel Orientation="Horizontal">
+                                    <Button x:Name="UdlcDownloadButton" Content="Download from ModDB" Style="{StaticResource QuietButton}"
+                                            Click="DownloadUdlcButton_Click" Margin="0,0,10,0"
+                                            AutomationProperties.Name="Download UDLC from ModDB"/>
+                                    <Button x:Name="UdlcInstallButton" Content="Install UDLC" Style="{StaticResource QuietButton}"
+                                            Click="InstallUdlcButton_Click"/>
+                                </StackPanel>
+                                <CheckBox x:Name="UdlcTrafficCheckBox" Content="Also install the Traffic Car Unlocker"
+                                          FontSize="12" Margin="0,5,0,0"
+                                          ToolTip="Lets you buy the game's traffic cars. Needs UDLC."/>
+                            </StackPanel>
+                        </Grid>
                         <!-- Optional FH1 v4 title update (TITLE_UPDATE_V4_BACKLOG TU-2). -->
                         <Grid Margin="0,4,0,0">
                             <Grid.ColumnDefinitions>
