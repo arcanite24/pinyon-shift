@@ -411,6 +411,51 @@
         }
       ],
       "rejected": []
+    },
+    {
+      "package_id": "4D5309C900000729",
+      "content_id": "21D846F4D0EB47F4C4EB6892992F83429BBAD7D5",
+      "display_name": "UDLC Pack V1.2",
+      "rejected": [],
+      "accepted": [
+        {
+          "size": 1075519488,
+          "sha256": "1F1A4EF0B3331CF97804F12A530610974E11E18CC6176441BD265A49BB36929B",
+          "license_mask": "00000000"
+        }
+      ],
+      "payload_sha256": "FDF2FB2802707795F3C133A3C678ACBA30A286489044E6F3E2B5AC09A29EC43D",
+      "file_count": 694,
+      "expanded_size": 1068163294,
+      "source": "community",
+      "author": "Warshack4874",
+      "status": "import_verified_gameplay_pending",
+      "version": "1.2",
+      "page": "https://www.moddb.com/mods/forza-horizon-udlc-pack/downloads/udlcv12"
+    },
+    {
+      "package_id": "4D5309C900000732",
+      "content_id": "D0C675B14CD31CA4F214F6DD028C5169D81FA897",
+      "display_name": "UDLC Traffic Car Unlocker Expansion",
+      "rejected": [],
+      "accepted": [
+        {
+          "size": 2846720,
+          "sha256": "A27652806F9544566844B4E3E72DFF3C6147191D9AD781E2BD821F7DD511B840",
+          "license_mask": "00000000"
+        }
+      ],
+      "payload_sha256": "A8598385134385AD5F42BFE95B0D3212960564D76E682AE664545D693DBCB06E",
+      "file_count": 3,
+      "expanded_size": 2767990,
+      "source": "community",
+      "author": "Warshack4874",
+      "status": "import_verified_gameplay_pending",
+      "version": "2026-01-13",
+      "page": "https://www.moddb.com/mods/forza-horizon-udlc-pack/downloads/udlc-traffic-car-unlocker",
+      "requires": [
+        "4D5309C900000729"
+      ]
     }
   ]
 }

@@ -22,6 +22,11 @@ PACKAGE_ID = re.compile(r"[0-9A-F]{1,42}\Z")
 MAGIC = (b"LIVE", b"PIRS", b"CON ")
 MAX_PACKAGE = 2 * 1024**3
 RALLY = "6F6992766050D818245ADD408031E280FB5F4E634D"
+UDLC = "4D5309C900000729"
+TRAFFIC = "4D5309C900000732"
+UDLC_PAGE = "https://www.moddb.com/mods/forza-horizon-udlc-pack/downloads/udlcv12"
+OLD_UDLC_SIZE = 1053251920
+OLD_UDLC_MD5 = "de63fea5dc471456e35c7dcde660f9c4"
 
 
 def long_path(path: Path) -> Path:
@@ -107,8 +112,8 @@ def inspect(stream, size: int, manifest: dict) -> tuple[dict, dict]:
     content_id = header[0x32C:0x340].hex().upper()
     package = next((p for p in manifest["packages"] if p["content_id"] == content_id), None)
     if package is None:
-        raise ValueError(f"{named}not one of the 21 Forza Horizon packages the importer can "
-                         "verify (see the DLC page), so it was skipped")
+        raise ValueError(f"{named}this DLC package is not in the verified catalog "
+                         "(see the DLC page), so it was skipped")
     digest = hashlib.sha256(header)
     total = len(header)
     while block := stream.read(4 * 1024**2):
@@ -243,6 +248,10 @@ def stage_inputs(source: Path, temporary: Path, manifest: dict) -> list[tuple]:
             with path.open("rb") as stream:
                 accept(stream, path.stat().st_size)
         elif zipfile.is_zipfile(path):
+            if path.stat().st_size == OLD_UDLC_SIZE:
+                with path.open("rb") as stream:
+                    if hashlib.file_digest(stream, "md5").hexdigest() == OLD_UDLC_MD5:
+                        raise ValueError(f"This is UDLC v1.11. Download UDLC v1.2 from ModDB: {UDLC_PAGE}")
             try:
                 with zipfile.ZipFile(path) as archive:
                     for member in archive.infolist():
@@ -348,16 +357,19 @@ def list_content(state: Path) -> list[dict]:
     state = long_path(state)
     records = []
     metadata = state / "dlc"
+    packages = {p["package_id"]: p for p in catalog()["packages"]}
     for path in sorted(metadata.glob("*.json")):
         id = path.stem
         if not PACKAGE_ID.fullmatch(id):
             continue
         enabled, disabled, header = package_paths(state, id)
         record = import_record(path)
+        source = packages.get(id, {}).get("source", "official" if id in packages else "unknown")
         if record is None:
             records.append(dict(package_id=id, display_name=id, enabled=enabled.is_dir(),
-                                status="metadata_invalid"))
+                                status="metadata_invalid", source=source))
             continue
+        record["source"] = source
         record["enabled"] = enabled.is_dir()
         record["status"] = ("conflict" if enabled.exists() and disabled.exists() else
                             "missing" if not (enabled.is_dir() or disabled.is_dir()) or not header.is_file()
@@ -387,7 +399,7 @@ def list_content(state: Path) -> list[dict]:
             if path.is_dir() and path.name not in known:
                 records.append(dict(package_id=path.name, display_name=path.name,
                                     enabled=folder.name == "00000002" and folder.parent.name == "4D5309C9",
-                                    status="unmanaged"))
+                                    status="unmanaged", source=packages.get(path.name, {}).get("source", "unknown")))
     return records
 
 
@@ -502,7 +514,28 @@ def set_enabled(state: Path, id: str, enabled: bool) -> list[dict]:
         source, destination = (inactive, active) if enabled else (active, inactive)
         if enabled:
             # Repeated enable must also reject an already active damaged package.
-            verified_content(state, id)
+            _, package, _ = verified_content(state, id)
+            for required in package.get("requires", []):
+                dependency = next(p for p in catalog()["packages"] if p["package_id"] == required)
+                try:
+                    verified_content(state, required, require_enabled=True)
+                except ValueError:
+                    raise ValueError(f'{package["display_name"]} requires {dependency["display_name"]}; '
+                                     'enable it first (turning it off also disables the unlocker)') from None
+        else:
+            # Check every destination before moving anything; also repair an
+            # active companion left behind when its parent was already off.
+            dependents = [package_paths(state, p["package_id"])[:2]
+                          for p in catalog()["packages"] if id in p.get("requires", [])]
+            for child_active, child_inactive in dependents:
+                if child_active.exists() and child_inactive.exists():
+                    raise ValueError("both enabled and disabled copies exist for a dependent package")
+            if source.exists() and destination.exists():
+                raise ValueError("both enabled and disabled copies exist")
+            for child_active, child_inactive in dependents:
+                if child_active.is_dir():
+                    child_inactive.parent.mkdir(parents=True, exist_ok=True)
+                    child_active.rename(child_inactive)
         if destination.exists():
             if source.exists():
                 raise ValueError("both enabled and disabled copies exist")

@@ -15,6 +15,69 @@ SPEC.loader.exec_module(dlc)
 
 
 class DlcImportTests(unittest.TestCase):
+    def community_fixture(self, root):
+        source, manifest, package = self.fixture(root)
+        package.update(package_id=dlc.UDLC, source="community")
+        data = bytearray(source.read_bytes())
+        data[0x32C] = 1
+        traffic = package | dict(package_id=dlc.TRAFFIC, content_id=data[0x32C:0x340].hex().upper(),
+                                 display_name="Traffic Car Unlocker", requires=[dlc.UDLC],
+                                 accepted=[package["accepted"][0] | dict(
+                                     sha256=hashlib.sha256(data).hexdigest().upper())])
+        manifest["packages"].append(traffic)
+        archive = root / "udlc.zip"
+        with zipfile.ZipFile(archive, "w") as output:
+            output.writestr(package["package_id"], source.read_bytes())
+            output.writestr(traffic["package_id"], data)
+
+        def extract(args, **kwargs):
+            destination, id = Path(args[3]), args[4]
+            folder = destination / dlc.CONTENT / "00000002" / id
+            folder.mkdir(parents=True)
+            (folder / "offer.puboffer").write_bytes(b"owned")
+            header = destination / dlc.CONTENT / "Headers/00000002" / (id + ".header")
+            header.parent.mkdir(parents=True)
+            header.write_bytes(bytes(328) + b"\1\0\0\0")
+            return subprocess.CompletedProcess(args, 0, "", "")
+
+        return archive, manifest, extract
+
+    def test_pinned_community_import_requires_parent_and_disable_cascades(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            archive, manifest, extract = self.community_fixture(root)
+            state = root / "state"
+            with patch.object(dlc, "catalog", return_value=manifest), \
+                    patch.object(dlc.subprocess, "check_output", return_value=b""), \
+                    patch.object(dlc.subprocess, "run", side_effect=extract):
+                rows = dlc.import_content(archive, state, root / "extractor")
+                self.assertEqual([(p["source"], p["enabled"]) for p in rows],
+                                 [("community", False), ("community", False)])
+                with self.assertRaisesRegex(ValueError, "requires.*enable it first.*also disables"):
+                    dlc.set_enabled(state, dlc.TRAFFIC, True)
+                dlc.set_enabled(state, dlc.UDLC, True)
+                rows = dlc.set_enabled(state, dlc.TRAFFIC, True)
+                self.assertTrue(all(p["enabled"] for p in rows))
+                rows = dlc.set_enabled(state, dlc.UDLC, False)
+                self.assertFalse(any(p["enabled"] for p in rows))
+                manifest["packages"][0]["accepted"][0]["sha256"] = "F" * 64
+                with self.assertRaisesRegex(ValueError, "SHA-256 differs"):
+                    dlc.import_content(archive, state, root / "extractor")
+
+    def test_old_udlc_is_recognized_by_zip_size_and_md5_only(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            archive, manifest, _ = self.community_fixture(root)
+            with archive.open("rb") as stream:
+                md5 = hashlib.file_digest(stream, "md5").hexdigest()
+            with patch.object(dlc, "OLD_UDLC_SIZE", archive.stat().st_size), \
+                    patch.object(dlc, "OLD_UDLC_MD5", md5):
+                with self.assertRaisesRegex(ValueError,
+                        r"This is UDLC v1.11. Download UDLC v1.2 from ModDB: https://.*udlcv12"):
+                    dlc.stage_inputs(archive, root, manifest)
+                with patch.object(dlc, "OLD_UDLC_MD5", "0" * 32):
+                    self.assertEqual(len(dlc.stage_inputs(archive, root, manifest)), 2)
+
     def test_payload_digest_order_is_the_same_on_every_platform(self):
         # The catalog digests were made on Windows, where paths sort without
         # case; macOS and Linux must list the files in the same order.
@@ -109,7 +172,7 @@ class DlcImportTests(unittest.TestCase):
             data[0x32C] = 1
             source.write_bytes(data)
             with source.open("rb") as stream, self.assertRaisesRegex(
-                    ValueError, '"Promo Car": not one of the 21'):
+                    ValueError, '"Promo Car": this DLC package is not in the verified catalog'):
                 dlc.inspect(stream, len(data), manifest)
             data[0x32C] = 0
             data[0x344:0x348] = bytes.fromhex("000D0000")
