@@ -21,10 +21,10 @@ base = """media/db/gamedb.slt"""
 v4 = """update media.zip db/gamedb.slt"""
 name = """gamedb.slt game database"""
 what = """Car, upgrade, wristband, event, track and time-of-day data is a plain SQLite database with 221 tables. It defines 145 active tracks, 85 of them used by events. Car prices (`Data_Car.BaseCost`), upgrade prices (`List_Upgrade*`), event prizes (`Events.CashPrize`), the XP curve (`PlayerLevelDef`) and event car restrictions (`EventRestrictions`) are rows. Lowering car 1496's price (Jaguar XKR-S, 120,000 Cr) to 1,000 makes the showroom offer it for "1,000 Cr or 1 Token". v4 ships a replacement copy in its update `media.zip` and reads only that one: a patched `game:` copy of `media/db/gamedb.slt` has no effect on v4 (its Autoshow kept the stock recommendation), while the same scripts applied to the update's copy and served through a mod's `update/media.zip` take effect. v4's copy (3,208,192 bytes) has the same 16 `IsUnicorn` rows as the disc's."""
-how = """Read-only survey of the tables; a patched database merged in free roam; on v4, an Autoshow purchase route with a `db/*.sql` mod, first patching the disc copy, then the update's copy (#895)."""
+how = """Read-only survey of the tables; a patched database merged in free roam; on v4, an Autoshow purchase route with a `db/*.sql` mod, first patching the disc copy, then the update's copy (#895); on the base game, the `festival_pacing` mod (#491) at its default 0.5x prices on `fh1-pacing-upgrade` from a pinned seed, where every `List_Upgrade*` price at half made Dak's Garage's AUTO UPGRADE from C 400 ask 24,075 Cr (B 500) instead of 46,956 Cr (B 496), the 9% make discount still applied; at the lower prices it chose slightly different parts."""
 confidence = """confirmed"""
-note = """Only the car price, recommendation and `IsUnicorn` edits have been tried in game; the other columns' effects are read from the schema."""
-issue = """#478, #895"""
+note = """Car and upgrade prices, the Autoshow recommendation and `IsUnicorn` edits have been tried in game; payouts, the XP curve and wristband points are read from the schema (`festival_pacing` changes them but no route has finished a race with it yet)."""
+issue = """#478, #491, #895"""
 source = """docs/NATIVE_PORT_BACKLOG.md Where the code stands, NP-10.2; docs/FEATURE_BACKLOG.md FB-12, FB-12.2, FB-12.3, FB-12.16; docs/TITLE_UPDATE_V4_BACKLOG.md What v4 adds"""
 
 [[finding]]

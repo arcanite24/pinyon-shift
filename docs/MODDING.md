@@ -261,6 +261,38 @@ are inactive. Misspelt update archive or member names fail the build.
 Merges apply over the winning enabled mod's whole-archive replacement under
 `update/`, when present, using the same load order as disc overrides.
 
+`festival_pacing` (#491, FB-12.16) is the festival pacing pack, a
+database-only mod with two [options](#options). **Prices** (0.5x by default)
+multiplies what cars (`Data_Car.BaseCost`), every `List_Upgrade*` part and
+rims (`List_Wheels`) cost. **Rewards** (2x by default) multiplies finishing
+places (`EventScoring.Credits`), event prizes (`Events.CashPrize`), car-make
+loyalty bonuses (`AffinityLevelDef.BonusCredits`) and the wristband points a
+finish earns (`WristbandScoring.Points`), and divides the XP a driver level
+takes (`PlayerLevelDef.XP`). The wristband thresholds are left alone because
+the events' `UnlockPointsReq` uses the same points, so scaling what a finish
+earns keeps the two in step. Stock is the mod off, or both at 1x, which
+leaves every table as the disc has it. DLC cars and parts come from their
+packages' merge databases while the game runs and keep their prices. It
+plays the modded profile. It targets the base executable (`game_version`)
+because it has not been tried on v4: the mod host rejects it there, and the
+v4 step of the [database patches](#database-patches) leaves its scripts out
+of v4's database.
+`tools/tests/test_festival_pacing.py` runs the scripts on a small copy of
+the tables they touch at the defaults and at 1x.
+
+On `fh1-pacing-upgrade` from a seed parked at Dak's Garage, AUTO UPGRADE
+from C 400 asked 46,956 Cr for B 496 on stock and 24,075 Cr for B 500 at the
+defaults; with the cheaper prices the auto upgrade chose slightly different
+parts. An earlier build with one combined option, at a third of the stock
+prices, asked 16,045 Cr for the same parts, two-thirds of the half-price
+total, so the chosen value reaches the game. A save that already has XP
+keeps its level: a profile edited to 100,000 XP at level 11 (the stock
+curve's level) was saved as level 11 with the mod, where the defaults' curve
+gives level 18. Whether the next XP gain catches it up is not tested. The
+profile has one XP field, `Main/XP`, which the wristband meter reads too, so
+if race finishes add their `WristbandScoring` points to it, Rewards counts
+twice for driver levels.
+
 ### Camera editor
 
 F6 > DISPLAY > CAMERA EDITOR (#487) edits both chase views live. Height

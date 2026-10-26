@@ -49,6 +49,12 @@ xbox = "Stock cameras"
 pinyon = "Live chase height, distance, FOV and stiffness; optional immersive camera motion"
 
 [[original]]
+feature = "Career pace"
+link = "playing.md#festival-pacing"
+xbox = "Fixed"
+pinyon = "Optional festival pacing on the base game: set what cars and upgrades cost and what races pay, from a quarter to five times stock"
+
+[[original]]
 feature = "Music"
 link = "playing.md#your-music"
 xbox = "Three stations; a dashboard soundtrack replaces them"

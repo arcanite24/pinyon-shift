@@ -170,6 +170,12 @@ Linux, the Steam Deck, macOS, Android and the DualSense Edge have not been tried
 
 The setting changes how the AI drives, not the game's files, so it plays your own profile. Two smaller boosts are kept by every choice: by our reading of the code, cars at the back of the grid get extra power for the first few hundred metres, and your rival can get extra power and skill. Neither has been measured yet.
 
+### Festival pacing
+
+The **Festival pacing** mod changes how fast the career goes. Turn it on with the launcher's **Mods** button, where its two settings are listed under its description, and start the game. **Prices** sets what cars, upgrades and rims cost, from a quarter to three times the usual. **Rewards** sets what you earn, from half to five times: credits for race finishes, event prizes and car-make loyalty bonuses, wristband points, and how quickly driver levels come. At the defaults everything costs half and pays twice. A change applies at the next start. With the mod off, or both at 1x, the game is unchanged. DLC cars and parts keep their usual prices. The mod is for the base game only for now: it has not been tried on the title update v4 build, so it stays off there. **F6 > MODS** turns it on and off too, with the settings it last had.
+
+The mod changes the game's database, so it plays the separate modded profile. That profile starts as a copy of your save, and your own save is not changed. A save that already has XP keeps the driver level it had: the mod doesn't move it to the level the new curve would give.
+
 ## Traffic and showcase cars
 
 Turn on **Hidden cars** with the launcher's **Mods** button (or **F6 > MODS > HIDDEN_CARS**) and restart to list the intro Corrado and showcase Mini Cooper S, 500 Abarth and Peugeot 205 T16 in the Autoshow. The traffic cars previously listed by this mod, including the tour bus, are excluded because they lack qualified player models. It plays a separate profile, so your own save is not changed. Existing traffic-car purchases remain there. If one blocks your garage, close the game and follow the [backed-up selection recovery](modding.md#enabling); it requests a starter Corrado without deleting the purchased car.
