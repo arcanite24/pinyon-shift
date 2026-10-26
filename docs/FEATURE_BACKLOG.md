@@ -313,7 +313,7 @@ is unverified.
 
 | ID | Item | Effort | Status |
 | --- | --- | --- | --- |
-| FB-9.1 | **Mod manager in the launcher**: install from a ZIP, enable, disable and order, show conflicts (README mid term). | M | Not started |
+| FB-9.1 | **Mod manager in the launcher**: install from a ZIP, enable, disable and order, show conflicts (README mid term). | M | Done (2026-10-22): **Mods** in both launchers over `tools/pinyon.py mods` (`pinyon_mods.py`): install from a ZIP or folder (packs too; unsafe paths and Pinyon Shift's own names refused), switch on (with installed requirements; conflicts refused), off, earlier, later and remove. Each mod shows its new `mod.toml` `title`, `description`, `author`, `url` and `images`, what it contains, the builds it targets, the game's own load checks (name, ABI, `game_version` against the build the next start runs, `requires`, `conflicts`) and the save the switched-on mods play. Layout checked at 1080x720 and 940x640 (`tools/check-launcher.py`) and in the Avalonia snapshot |
 | FB-9.2 | **Existing FH1 mods.** Check the XE Mod (FH2 and Fast & Furious cars in FH1, ModDB) through the override workflow and write compatibility guidance. | S-M | Not started |
 | FB-9.3 | **Mod templates** for the features above: a radio station (FB-1.4), a world detail preset (FB-4.2), a livery pack (FB-7.2). | S | Not started |
 | FB-9.4 | **Menu insertion and Lua** (NP-11.3, NP-10.4). Tracked there. | - | Pointer |

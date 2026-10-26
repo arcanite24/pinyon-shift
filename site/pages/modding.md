@@ -23,11 +23,14 @@ Mods live in the state folder, never in the game files. They can replace files, 
   db/*.sql               database patches
   textures/<hash>.dds    texture replacements
   shaders/shader_<guest>_<modification>_<translated>.spv  Vulkan replacements
+  preview.png            images the launcher shows (optional)
 ```
 
 `<state>` for an installed preview is `%LOCALAPPDATA%\PinyonShift\source\<version>\.local\preview`.
 
 ## Enabling
+
+The launcher's **Mods** button lists the installed mods with each one's description and images; **Details** under the description shows what it changes, the builds it is made for, whether it keeps your own save and the mods it needs. When a switch moves the next start to another save, it says so: switching on the first mod that changes your save moves you to a separate copy of it, and switching off the last one sends you back to your own save, while the copy keeps what you played with mods until you switch one on again. **Install ZIP** and **Install folder** add a mod (it starts switched off); **Switch on** and **Remove** act on the selected one. A mod that offers options, such as how strong its change is, shows a list for each under its description. A mod the game would refuse, such as one made for the other build or missing a mod it needs, is marked with the reason. The Linux and macOS launcher also takes a dropped ZIP or folder. Changes apply at the next start. The in-game **SETTINGS > MODS** screen switches mods too.
 
 The built-in `hidden_cars` mod lists four hidden player-model variants.
 Traffic entries such as the tour bus are excluded because driving support
@@ -52,7 +55,7 @@ List mods, in load order, in `<state>/config/pinyon_shift.toml`:
 enabled_mods = "hello_telemetry,english_strings"
 ```
 
-The in-game **SETTINGS** screen lists the mods it finds. Changes apply at the next start. Each load or rejection is logged as `mod.loaded` or `mod.rejected` with the reason.
+`tools/pinyon.py mods` does the launcher's work from the command line ([commands](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/MODDING.md#layout-and-enabling)). Each load or rejection is logged as `mod.loaded` or `mod.rejected` with the reason.
 
 ## mod.toml
 
