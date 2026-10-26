@@ -1925,7 +1925,16 @@ public partial class MainWindow : Window
     private async Task ChangeXeAsync(string action, string[] archives, string success)
     {
         _busy = true;
-        XeControls.IsEnabled = false;
+        var waiting = action == "download";
+        if (waiting)
+        {
+            // Only the download button stays live, as Stop waiting.
+            _xeWait = new CancellationTokenSource();
+            XeInstallButton.IsEnabled = XeToggleButton.IsEnabled = false;
+            XeDownloadButton.Content = "Stop waiting";
+            AutomationProperties.SetName(XeDownloadButton, "Stop waiting for the XE downloads");
+        }
+        else XeControls.IsEnabled = false;
         UpdatePrimaryButton();
         XeStatusText.Text = action switch
         {
@@ -1934,7 +1943,13 @@ public partial class MainWindow : Window
                           "Installing starts by itself when they finish in your Downloads folder…",
             _ => "Updating…"
         };
-        try { ApplyXe(await RunXeToolAsync(action, archives), success); }
+        try { ApplyXe(await RunXeToolAsync(action, archives, _xeWait?.Token ?? default), success); }
+        catch (OperationCanceledException)
+        {
+            await RefreshXeAsync("Stopped waiting for the XE downloads. Download from ModDB opens the pages again; " +
+                                 "Install XE takes archives you already have.");
+            AppendLog("XE mod: stopped waiting for the downloads.");
+        }
         catch (Exception ex)
         {
             await RefreshXeAsync(ex.Message);
@@ -1942,13 +1957,22 @@ public partial class MainWindow : Window
         }
         finally
         {
+            if (waiting)
+            {
+                _xeWait?.Dispose();
+                _xeWait = null;
+                XeDownloadButton.Content = "Download from ModDB";
+                AutomationProperties.SetName(XeDownloadButton, "Open the XE mod's ModDB downloads and install them when they finish");
+                XeInstallButton.IsEnabled = true;
+            }
             _busy = false;
             XeControls.IsEnabled = true;
             UpdatePrimaryButton();
         }
     }
 
-    private async Task<XeStatus> RunXeToolAsync(string action, string[]? archives = null)
+    private async Task<XeStatus> RunXeToolAsync(string action, string[]? archives = null,
+        CancellationToken cancel = default)
     {
         if (_repositoryRoot is null || _stateRoot is null)
             throw new InvalidOperationException("Release source is not ready.");
@@ -1965,7 +1989,12 @@ public partial class MainWindow : Window
         using var process = Process.Start(start) ?? throw new InvalidOperationException("Windows could not start XE management.");
         var output = process.StandardOutput.ReadToEndAsync();
         var error = process.StandardError.ReadToEndAsync();
-        await process.WaitForExitAsync();
+        using (cancel.Register(() =>
+               {
+                   try { if (!process.HasExited) process.Kill(entireProcessTree: true); } catch { }
+               }))
+            await process.WaitForExitAsync();
+        cancel.ThrowIfCancellationRequested();
         var stdout = (await output).Trim();
         var stderr = (await error).Trim();
         var json = stdout[(stdout.LastIndexOf('\n') + 1)..];
@@ -1983,7 +2012,7 @@ public partial class MainWindow : Window
     private async void RadioButton_Click(object sender, RoutedEventArgs e)
     {
         if (_busy || _repositoryRoot is null || _stateRoot is null) return;
-        if (_panel is not (View.Dlc or View.Android or View.Radio)) _panelBeforeDlc = _panel;
+        if (_panel is not (View.Dlc or View.Android or View.Radio or View.Mods)) _panelBeforeDlc = _panel;
         ShowPanel(View.Radio);
         await ChangeRadioAsync("list");
     }
@@ -2307,7 +2336,9 @@ public partial class MainWindow : Window
 
     private void CloseDlcButton_Click(object sender, RoutedEventArgs e)
     {
-        if (_busy) return;
+        // Leaving stops waiting for the XE downloads; other DLC work finishes first.
+        if (_xeWait is { } wait) wait.Cancel();
+        else if (_busy) return;
         ShowPanel(_panelBeforeDlc);
         UpdatePrimaryButton();
     }

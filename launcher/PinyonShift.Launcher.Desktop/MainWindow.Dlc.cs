@@ -346,7 +346,11 @@ public partial class MainWindow
     // ---- The Forza Horizon XE mod (pinyon.py xe) --------------------------------
 
     private async Task<CommandResult> RunXeAsync(params string[] arguments) =>
-        await _installation!.RunJsonAsync(new[] { "xe" }.Concat(arguments).Concat(StateArguments()), onLine: AppendLog);
+        await RunXeAsync(arguments, CancellationToken.None);
+
+    private async Task<CommandResult> RunXeAsync(string[] arguments, CancellationToken cancel) =>
+        await _installation!.RunJsonAsync(new[] { "xe" }.Concat(arguments).Concat(StateArguments()), onLine: AppendLog,
+            cancel: cancel);
 
     private async Task RefreshXeAsync(string? message = null)
     {
@@ -370,14 +374,28 @@ public partial class MainWindow
                 : $"XE {version} is installed and off. The game runs as on the disc.");
     }
 
-    private async Task ChangeXeAsync(string[] arguments, string working, string success)
+    private async Task ChangeXeAsync(string[] arguments, string working, string success, CancellationTokenSource? wait = null)
     {
         SetBusy(true);
-        XeControls.IsEnabled = false;
+        if (wait is null) XeControls.IsEnabled = false;
+        else
+        {
+            // Only the download button stays live, as Stop waiting.
+            XeInstallButton.IsEnabled = XeToggleButton.IsEnabled = false;
+            XeDownloadButton.Content = "Stop waiting";
+        }
         XeStatusText.Text = working;
-        var result = await RunXeAsync(arguments);
-        var message = result.Succeeded ? success : result.Error("XE management");
-        if (!result.Succeeded) AppendLog($"XE mod: {message}");
+        var result = await RunXeAsync(arguments, wait?.Token ?? CancellationToken.None);
+        var stopped = wait?.IsCancellationRequested == true;
+        var message = stopped
+            ? "Stopped waiting for the XE downloads. Download from ModDB opens the pages again; Install XE takes archives you already have."
+            : result.Succeeded ? success : result.Error("XE management");
+        if (!result.Succeeded) AppendLog($"XE mod: {(stopped ? "stopped waiting for the downloads." : message)}");
+        if (wait is not null)
+        {
+            XeDownloadButton.Content = "Download from ModDB";
+            XeInstallButton.IsEnabled = true;
+        }
         await RefreshXeAsync(message);
         XeControls.IsEnabled = true;
         SetBusy(false);
@@ -404,12 +422,28 @@ public partial class MainWindow
 
     // ModDB disallows automated downloads, so the player's browser fetches both
     // archives and the tool installs them from Downloads when they finish (#426).
+    // The wait lasts up to four hours, so the button stops it while it runs.
+    // Stopping is safe at any point: the install builds XE in a staging folder and
+    // only renames it into place at the end.
+    private CancellationTokenSource? _xeWait;
+
     private async void XeDownload_Click(object? sender, RoutedEventArgs e)
     {
-        await ChangeXeAsync(new[] { "install", "--find", "--open-pages", "--wait", "14400", "--replace" },
-            "Download both files on the ModDB pages that opened (XE by Teancum, 3.7 GB). " +
-            "Installing starts by itself when they finish in your Downloads folder…",
-            "XE is installed and on. Its first start creates a new save.");
+        if (_xeWait is { } running)
+        {
+            running.Cancel();
+            return;
+        }
+        if (_busy) return;
+        using var wait = _xeWait = new CancellationTokenSource();
+        try
+        {
+            await ChangeXeAsync(new[] { "install", "--find", "--open-pages", "--wait", "14400", "--replace" },
+                "Download both files on the ModDB pages that opened (XE by Teancum, 3.7 GB). " +
+                "Installing starts by itself when they finish in your Downloads folder…",
+                "XE is installed and on. Its first start creates a new save.", wait);
+        }
+        finally { _xeWait = null; }
     }
 
     private async void XeToggle_Click(object? sender, RoutedEventArgs e)
