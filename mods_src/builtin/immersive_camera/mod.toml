@@ -1,5 +1,9 @@
 name = "immersive_camera"
 version = "1.2.0"
+title = "Immersive camera"
+description = """
+Adds G-forces, corner lean, speed shake and head sway to the chase cameras.
+Set its strength in F6 > DISPLAY > IMMERSIVE CAMERA."""
 abi = 1
 # Changes only the camera, never saved data: the player keeps their own save.
 shares_save = true

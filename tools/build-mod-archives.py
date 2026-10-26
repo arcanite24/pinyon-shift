@@ -540,7 +540,7 @@ def build_update_merges(state: Path, mods: list[str], staging: Path,
             with tempfile.TemporaryDirectory(prefix="pinyon-db-") as temporary:
                 database = Path(temporary) / "gamedb.slt"
                 database.write_bytes(read_member(base, data, UPDATE_DATABASE[1], extractor))
-                applied = patches.apply_scripts(database, scripts)
+                applied = patches.apply_scripts(state, database, scripts)
                 replacements[UPDATE_DATABASE[1]] = database.read_bytes()
         rebuilt, _, _, _ = rebuild(data, replacements)
         output = staging / "update" / archive

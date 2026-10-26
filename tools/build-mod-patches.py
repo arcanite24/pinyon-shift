@@ -243,6 +243,29 @@ def shares_save(state: Path, mod: str) -> bool:
     return re.search(r"^shares_save[ \t]*=[ \t]*true[ \t]*(#.*)?$", text, re.MULTILINE) is not None
 
 
+def _mod_options():
+    if str(Path(__file__).resolve().parent) not in sys.path:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import mod_options  # noqa: PLC0415
+    return mod_options
+
+
+def option_values(state: Path, mod: str) -> dict[str, str] | None:
+    """The values of a mod's options (tools/mod_options.py), or None for a mod
+    without [[option]] tables, whose scripts run exactly as written. A mod.toml
+    this cannot read counts as having none, as before options existed."""
+    import tomllib  # noqa: PLC0415
+    try:
+        manifest = tomllib.loads((state / "mods" / mod / "mod.toml").read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError):
+        return None
+    tables = manifest.get("option")
+    if not isinstance(tables, list) or not tables or not all(isinstance(t, dict) for t in tables):
+        return None
+    options = _mod_options()
+    return options.chosen(state, mod, options.declared(manifest))
+
+
 def database_scripts(state: Path, mods: list[str]) -> list[tuple[str, Path]]:
     """(mod, script) for every enabled mod's db/*.sql, in load order."""
     scripts = []
@@ -254,14 +277,23 @@ def database_scripts(state: Path, mods: list[str]) -> list[tuple[str, Path]]:
     return scripts
 
 
-def apply_scripts(database: Path, scripts: list[tuple[str, Path]]) -> list[dict]:
-    """Run the scripts on a database file in place; returns what was applied."""
+def apply_scripts(state: Path, database: Path, scripts: list[tuple[str, Path]]) -> list[dict]:
+    """Run the scripts on a database file in place; returns what was applied.
+    A mod with options has its {{key}} placeholders filled with the state's
+    chosen values first."""
+    values = {mod: option_values(state, mod) for mod in dict.fromkeys(m for m, _ in scripts)}
     applied = []
     connection = sqlite3.connect(database)
     try:
         for mod, script in scripts:
-            connection.executescript(script.read_text(encoding="utf-8"))
-            applied.append({"mod": mod, "script": script.name, "sha256": sha256(script)})
+            text = script.read_text(encoding="utf-8")
+            entry = {"mod": mod, "script": script.name, "sha256": sha256(script)}
+            if values[mod] is not None:
+                # Only a mod with options: its {{key}} placeholders take the chosen values.
+                text = _mod_options().fill(text, values[mod], f"{mod}/db/{script.name}")
+                entry["options"] = values[mod]
+            connection.executescript(text)
+            applied.append(entry)
         connection.commit()
     finally:
         connection.close()
@@ -283,7 +315,7 @@ def build(state: Path, game_root: Path) -> dict:
     staging = database.with_suffix(".building")
     database.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(base, staging)
-    applied = apply_scripts(staging, scripts)
+    applied = apply_scripts(state, staging, scripts)
     if database.is_file() and sha256(database) == sha256(staging):
         staging.unlink()
     else:

@@ -6,6 +6,8 @@
 # table editor) before use.
 name = "english_strings"
 version = "1.0.0"
+title = "English text (sample)"
+description = "A sample asset-only mod: your own English string table, ready to edit."
 abi = 1
 # The base disc and the FH1 v4 title update (see docs/MODDING.md).
 game_version = ["DB40DF605ADE49A6", "74B033805AB1BCAA"]

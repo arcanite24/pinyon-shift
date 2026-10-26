@@ -131,6 +131,45 @@ class BuildModArchivesTests(unittest.TestCase):
             self.assertEqual(["10-unicorns.sql"],
                              [s["script"] for s in result["archives"][0]["database_scripts"]])
 
+    def test_database_scripts_fill_mod_options_in_the_update_copy(self):
+        # The v4 copy runs the same filled scripts as the game: copy, not the
+        # raw {{key}} text, which would not be valid SQL.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            state, game = root / "state", root / "game"
+            v4_database = root / "v4.slt"
+            connection = sqlite3.connect(v4_database)
+            connection.executescript(
+                "create table Data_Car (Id integer, BaseCost integer);"
+                "insert into Data_Car values (1496, 120000);")
+            connection.commit()
+            connection.close()
+            update = state / "title-update-v4" / "media.zip"
+            update.parent.mkdir(parents=True)
+            with zipfile.ZipFile(update, "w", zipfile.ZIP_DEFLATED) as archive:
+                archive.write(v4_database, "db/gamedb.slt")
+            cheap = state / "mods" / "cheap"
+            (cheap / "db").mkdir(parents=True)
+            (cheap / "mod.toml").write_text(
+                'name = "cheap"\nabi = 1\n\n[[option]]\nkey = "divide"\ndefault = "2"\n'
+                'choices = ["2", "4"]\n', encoding="utf-8")
+            (cheap / "db" / "10-price.sql").write_text(
+                "update Data_Car set BaseCost = BaseCost / {{divide}} where Id = 1496;", encoding="utf-8")
+            config = state / "config" / "pinyon_shift.toml"
+            config.parent.mkdir()
+            config.write_text('enabled_mods = "cheap"\n')
+            (state / "config" / "mod_options.json").write_text('{"cheap": {"divide": "4"}}', encoding="utf-8")
+            result = MODULE.build(state, game)
+            patched = root / "patched.slt"
+            with zipfile.ZipFile(state / "mods" / MODULE.GENERATED / "update" / "media.zip") as archive:
+                patched.write_bytes(archive.read("db/gamedb.slt"))
+            connection = sqlite3.connect(patched)
+            cost = connection.execute("select BaseCost from Data_Car where Id = 1496").fetchone()[0]
+            connection.close()
+            self.assertEqual(30000, cost)
+            self.assertEqual([{"divide": "4"}],
+                             [s["options"] for s in result["archives"][0]["database_scripts"]])
+
     def test_database_scripts_need_no_update_overlay_without_the_update(self):
         with tempfile.TemporaryDirectory() as directory:
             state = Path(directory)
