@@ -487,7 +487,6 @@
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="1.3*"/>
@@ -523,7 +522,7 @@
                                    FontSize="13.5" Foreground="{StaticResource FogBrush}" TextWrapping="Wrap"
                                    AutomationProperties.LiveSetting="Polite"/>
                         <!-- LS-1.7: what this PC has and the in-game preset that suits it. -->
-                        <DockPanel Grid.Row="3" Grid.ColumnSpan="5" Margin="0,20,0,0">
+                        <DockPanel Grid.Row="3" Grid.ColumnSpan="5" Margin="0,16,0,0">
                             <Button DockPanel.Dock="Right" x:Name="UseRecommendedButton" Style="{StaticResource QuietButton}"
                                     Content="Use recommended" VerticalAlignment="Center" Margin="16,0,0,0"
                                     IsEnabled="False" Click="UseRecommendedButton_Click"/>
@@ -535,7 +534,7 @@
                                            Foreground="{StaticResource MutedBrush}" AutomationProperties.LiveSetting="Polite"/>
                             </StackPanel>
                         </DockPanel>
-                        <CheckBox Grid.Row="4" Grid.ColumnSpan="5" x:Name="TreasureMapCheckBox" Margin="0,20,0,0"
+                        <CheckBox Grid.Row="4" Grid.ColumnSpan="5" x:Name="TreasureMapCheckBox" Margin="0,16,0,0"
                                   FontFamily="Bahnschrift" FontSize="13" IsChecked="True"
                                   AutomationProperties.Name="Treasure Map">
                             <TextBlock TextWrapping="Wrap" Foreground="{StaticResource FogBrush}">
@@ -544,8 +543,10 @@
                             </TextBlock>
                         </CheckBox>
                         <!-- FB-12.15: start the game in a VR headset (xr_enabled), at a render
-                             size of its own, as the headset's eye favours rows over columns. -->
-                        <DockPanel Grid.Row="5" Grid.ColumnSpan="5" Margin="0,16,0,0">
+                             size of its own, as the headset's eye favours rows over columns. The
+                             HUD in VR (xr_hud_panel; F2 flips it while playing) sits under it, so
+                             the two lines share the render size box's height. -->
+                        <DockPanel Grid.Row="5" Grid.ColumnSpan="5" Margin="0,12,0,0">
                             <ComboBox DockPanel.Dock="Right" x:Name="VrScaleComboBox" Width="240"
                                       VerticalAlignment="Center" Margin="16,0,0,0" SelectedIndex="0"
                                       IsEnabled="False" AutomationProperties.Name="VR render size"
@@ -554,26 +555,28 @@
                                 <ComboBoxItem Tag="2x3">2×3 · lighter (120 Hz)</ComboBoxItem>
                                 <ComboBoxItem Tag="3x3">3×3</ComboBoxItem>
                             </ComboBox>
-                            <CheckBox x:Name="VrCheckBox" FontFamily="Bahnschrift" FontSize="13"
-                                      VerticalAlignment="Center" AutomationProperties.Name="VR headset"
-                                      Checked="VrCheckBox_Changed" Unchecked="VrCheckBox_Changed">
-                                <TextBlock TextWrapping="Wrap" Foreground="{StaticResource FogBrush}">
-                                    <Run Text="VR headset (experimental)"/><Run Foreground="{StaticResource MutedBrush}"
-                                         Text=" · Starts the game in the headset of a running Virtual Desktop, SteamVR or Meta Link: the cockpit and hood cameras in 3D, base game only."/>
-                                </TextBlock>
-                            </CheckBox>
+                            <StackPanel VerticalAlignment="Center">
+                                <CheckBox x:Name="VrCheckBox" FontFamily="Bahnschrift" FontSize="13"
+                                          AutomationProperties.Name="VR headset"
+                                          ToolTip="Starts the game in the headset of a running Virtual Desktop, SteamVR or Meta Link: the cockpit and hood cameras in 3D, everything else on a screen in front of you. Base game only."
+                                          Checked="VrCheckBox_Changed" Unchecked="VrCheckBox_Changed">
+                                    <TextBlock TextTrimming="CharacterEllipsis" Foreground="{StaticResource FogBrush}">
+                                        <Run Text="VR headset (experimental)"/><Run Foreground="{StaticResource MutedBrush}"
+                                             Text=" · Virtual Desktop, SteamVR or Meta Link"/>
+                                    </TextBlock>
+                                </CheckBox>
+                                <CheckBox x:Name="VrHideHudCheckBox" Margin="24,4,0,0"
+                                          FontFamily="Bahnschrift" FontSize="13" IsEnabled="False"
+                                          AutomationProperties.Name="Hide the HUD in VR"
+                                          ToolTip="No speedometer, map, skill chain or banners in the headset. F2 shows or hides the HUD while you play.">
+                                    <TextBlock TextTrimming="CharacterEllipsis" Foreground="{StaticResource FogBrush}">
+                                        <Run Text="Hide the HUD"/><Run Foreground="{StaticResource MutedBrush}"
+                                             Text=" · F2 shows or hides it in game"/>
+                                    </TextBlock>
+                                </CheckBox>
+                            </StackPanel>
                         </DockPanel>
-                        <!-- The HUD in VR: on a panel in front of the seat, or off for the run
-                             (xr_hud_panel = false; F2 flips it while playing). -->
-                        <CheckBox Grid.Row="6" Grid.ColumnSpan="5" x:Name="VrHideHudCheckBox" Margin="24,8,0,0"
-                                  FontFamily="Bahnschrift" FontSize="13" IsEnabled="False"
-                                  AutomationProperties.Name="Hide the HUD in VR">
-                            <TextBlock TextWrapping="Wrap" Foreground="{StaticResource FogBrush}">
-                                <Run Text="Hide the HUD"/><Run Foreground="{StaticResource MutedBrush}"
-                                     Text=" · No speedometer, map, skill chain or banners in the headset. F2 shows or hides it while you play."/>
-                            </TextBlock>
-                        </CheckBox>
-                        <DockPanel Grid.Row="7" Grid.ColumnSpan="5" Margin="0,22,0,0">
+                        <DockPanel Grid.Row="6" Grid.ColumnSpan="5" Margin="0,18,0,0">
                             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
                                 <Button x:Name="RestoreGraphicsButton" Content="Restore backup" Style="{StaticResource LinkButton}"
                                         VerticalAlignment="Center" Click="RestoreGraphicsButton_Click"/>
