@@ -80,9 +80,9 @@
             <!-- Scrolls when the window is shorter than the body, as at 300 % scaling
                  on a 4K TV (#594); centred otherwise. -->
             <ScrollViewer x:Name="BodyScroll" Grid.Row="1" VerticalScrollBarVisibility="Auto"
-                          HorizontalScrollBarVisibility="Disabled" Focusable="False">
+                          HorizontalScrollBarVisibility="Disabled" Focusable="False" ScrollChanged="ModsFit_ScrollChanged">
             <Grid MinHeight="{Binding ViewportHeight, ElementName=BodyScroll}">
-            <StackPanel VerticalAlignment="Center" Margin="56,0,56,36">
+            <StackPanel x:Name="BodyStack" VerticalAlignment="Center" Margin="56,0,56,36" SizeChanged="ModsFit_SizeChanged">
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
@@ -118,6 +118,9 @@
                     <Button x:Name="DlcButton" Content="DLC" Style="{StaticResource QuietButton}"
                             Height="54" Padding="20,0" Margin="12,0,0,0" Visibility="Collapsed"
                             Click="DlcButton_Click" AutomationProperties.HelpText="Import and manage your owned downloadable content."/>
+                    <Button x:Name="ModsButton" Content="Mods" Style="{StaticResource QuietButton}"
+                            Height="54" Padding="20,0" Margin="12,0,0,0" Visibility="Collapsed"
+                            Click="ModsButton_Click" AutomationProperties.HelpText="Install, switch on and order mods."/>
                     <Button x:Name="RadioButton" Content="Radio" Style="{StaticResource QuietButton}"
                             Height="54" Padding="20,0" Margin="12,0,0,0" Visibility="Collapsed"
                             Click="RadioButton_Click" AutomationProperties.HelpText="Make radio stations from your own music."/>
@@ -419,6 +422,182 @@
                                     Click="RadioFfmpeg_Click" Margin="0,0,10,8" Visibility="Collapsed"
                                     AutomationProperties.Name="Choose ffmpeg.exe, which encodes the music"/>
                             <Button Content="Done" Style="{StaticResource QuietButton}" Click="CloseRadioButton_Click" Margin="0,0,0,8"/>
+                        </WrapPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- Mods (FEATURE_BACKLOG FB-9.1): install and switch on the mods in
+                     <state>/mods, with what each mod.toml says about the mod. -->
+                <Border x:Name="ModsPanel" Background="{StaticResource SurfaceBrush}" CornerRadius="14"
+                        Visibility="Collapsed" VerticalAlignment="Top" AutomationProperties.Name="Mods">
+                    <Border.Resources>
+                        <BooleanToVisibilityConverter x:Key="ModVisible"/>
+                    </Border.Resources>
+                    <StackPanel Margin="26,22">
+                        <TextBlock x:Name="ModsSaveText" Margin="0,0,0,12" FontSize="13" TextWrapping="Wrap" LineHeight="20"
+                                   Foreground="{StaticResource MutedBrush}" AutomationProperties.LiveSetting="Polite"/>
+                        <TextBlock x:Name="ModsEmptyText" FontSize="14" Margin="0,4,0,12" TextWrapping="Wrap"
+                                   Text="No mods installed. Install a mod's ZIP or folder; it starts switched off."/>
+                        <Grid x:Name="ModsBrowser" Height="206">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="270"/><ColumnDefinition Width="20"/><ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <ListBox x:Name="ModsList" Background="Transparent" BorderThickness="0"
+                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                     SelectionChanged="ModsList_SelectionChanged"
+                                     AutomationProperties.Name="Installed mods, switched-on ones first">
+                                <ListBox.ItemContainerStyle>
+                                    <Style TargetType="ListBoxItem">
+                                        <Setter Property="AutomationProperties.Name" Value="{Binding AccessibleName}"/>
+                                        <!-- Inside the item's right and bottom gap, as its Shell is. -->
+                                        <Setter Property="FocusVisualStyle">
+                                            <Setter.Value>
+                                                <Style>
+                                                    <Setter Property="Control.Template">
+                                                        <Setter.Value>
+                                                            <ControlTemplate>
+                                                                <Border CornerRadius="8" Margin="0,0,6,4" BorderThickness="1"
+                                                                        BorderBrush="{StaticResource FogBrush}"/>
+                                                            </ControlTemplate>
+                                                        </Setter.Value>
+                                                    </Setter>
+                                                </Style>
+                                            </Setter.Value>
+                                        </Setter>
+                                        <Setter Property="Template">
+                                            <Setter.Value>
+                                                <ControlTemplate TargetType="ListBoxItem">
+                                                    <Border x:Name="Shell" Background="Transparent" CornerRadius="8" Padding="12,8"
+                                                            Margin="0,0,6,4" BorderThickness="1" BorderBrush="Transparent">
+                                                        <ContentPresenter/>
+                                                    </Border>
+                                                    <ControlTemplate.Triggers>
+                                                        <Trigger Property="IsMouseOver" Value="True">
+                                                            <Setter TargetName="Shell" Property="Background" Value="{StaticResource SurfaceHoverBrush}"/>
+                                                        </Trigger>
+                                                        <Trigger Property="IsSelected" Value="True">
+                                                            <Setter TargetName="Shell" Property="Background" Value="{StaticResource PanelRaisedBrush}"/>
+                                                            <Setter TargetName="Shell" Property="BorderBrush" Value="{StaticResource LineStrongBrush}"/>
+                                                        </Trigger>
+                                                    </ControlTemplate.Triggers>
+                                                </ControlTemplate>
+                                            </Setter.Value>
+                                        </Setter>
+                                    </Style>
+                                </ListBox.ItemContainerStyle>
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <Ellipse Width="8" Height="8" Margin="0,6,10,0" VerticalAlignment="Top">
+                                                <Ellipse.Style>
+                                                    <Style TargetType="Ellipse">
+                                                        <Setter Property="Fill" Value="{StaticResource LineStrongBrush}"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding State}" Value="on">
+                                                                <Setter Property="Fill" Value="{StaticResource GreenBrush}"/>
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding State}" Value="problem">
+                                                                <Setter Property="Fill" Value="{StaticResource AmberBrush}"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Ellipse.Style>
+                                            </Ellipse>
+                                            <StackPanel Grid.Column="1">
+                                                <TextBlock Text="{Binding Title}" FontSize="14" TextTrimming="CharacterEllipsis"
+                                                           Foreground="{StaticResource FogBrush}"/>
+                                                <TextBlock Text="{Binding StateText}" FontSize="12" Margin="0,2,0,0"
+                                                           TextTrimming="CharacterEllipsis" Foreground="{StaticResource MutedBrush}"/>
+                                            </StackPanel>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                            <Grid Grid.Column="2" x:Name="ModDetail">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="*"/><RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                                              Focusable="False" Margin="0,0,16,0">
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding Title}" FontFamily="Bahnschrift SemiBold" FontSize="20"
+                                                   TextWrapping="Wrap" Foreground="{StaticResource FogBrush}"/>
+                                        <TextBlock Text="{Binding Byline}" FontSize="12" Margin="0,3,0,0" TextWrapping="Wrap"
+                                                   Foreground="{StaticResource MutedBrush}"/>
+                                        <TextBlock Text="{Binding ProblemText}" FontSize="12.5" Margin="0,10,0,0" TextWrapping="Wrap"
+                                                   Foreground="{StaticResource AmberBrush}" Visibility="{Binding HasProblems, Converter={StaticResource ModVisible}}"/>
+                                        <TextBlock Text="{Binding DescriptionText}" FontSize="13" Margin="0,10,0,0" TextWrapping="Wrap"
+                                                   LineHeight="20" Foreground="{StaticResource FogBrush}"/>
+                                        <!-- The mod's options (mod.toml [[option]]), one list each; a pick applies at the next start. -->
+                                        <ItemsControl x:Name="ModOptions" ItemsSource="{Binding Options}" Focusable="False" Margin="0,6,0,0"
+                                                      Visibility="{Binding HasOptions, Converter={StaticResource ModVisible}}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <StackPanel Margin="0,8,0,0">
+                                                        <TextBlock Text="{Binding Title}" FontSize="13" Foreground="{StaticResource FogBrush}"/>
+                                                        <TextBlock Text="{Binding Description}" FontSize="12" Margin="0,2,0,0" TextWrapping="Wrap"
+                                                                   Foreground="{StaticResource MutedBrush}"
+                                                                   Visibility="{Binding HasDescription, Converter={StaticResource ModVisible}}"/>
+                                                        <ComboBox ItemsSource="{Binding Choices}" DisplayMemberPath="Label" SelectedValuePath="Value"
+                                                                  SelectedValue="{Binding Value, Mode=OneTime}" Width="220" HorizontalAlignment="Left"
+                                                                  Margin="0,6,0,0" SelectionChanged="ModOption_SelectionChanged"
+                                                                  AutomationProperties.Name="{Binding Title}"/>
+                                                    </StackPanel>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                        <StackPanel Orientation="Horizontal" Margin="-8,4,0,0">
+                                            <Button Content="Mod page" Style="{StaticResource LinkButton}" Margin="0,0,6,0"
+                                                    Click="ModPage_Click" Visibility="{Binding HasUrl, Converter={StaticResource ModVisible}}"
+                                                    AutomationProperties.HelpText="{Binding Url}"/>
+                                            <!-- What the mod changes, its builds, save and requirements: technical, so shown on request. -->
+                                            <Button x:Name="ModFactsButton" Content="Details" Style="{StaticResource LinkButton}"
+                                                    Click="ModFacts_Click" AutomationProperties.Name="Show the mod's technical details"/>
+                                        </StackPanel>
+                                        <TextBlock x:Name="ModFactsText" Text="{Binding Facts}" FontSize="12" Margin="0,4,0,0" TextWrapping="Wrap"
+                                                   LineHeight="19" Foreground="{StaticResource MutedBrush}" Visibility="Collapsed"/>
+                                    </StackPanel>
+                                </ScrollViewer>
+                                <!-- The mod's images, one at a time. -->
+                                <StackPanel Grid.Column="1" Width="224" x:Name="ModImagePanel">
+                                    <Border CornerRadius="8" Background="{StaticResource InkBrush}" Height="126" ClipToBounds="True">
+                                        <Image x:Name="ModImage" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality"
+                                               AutomationProperties.Name="Image of the mod"/>
+                                    </Border>
+                                    <DockPanel x:Name="ModImageControls" Margin="0,6,0,0">
+                                        <Button DockPanel.Dock="Left" Content="&#x2039;" Style="{StaticResource QuietButton}" Height="28"
+                                                Padding="12,0" Click="ModImagePrevious_Click" AutomationProperties.Name="Previous image"/>
+                                        <Button DockPanel.Dock="Right" Content="&#x203A;" Style="{StaticResource QuietButton}" Height="28"
+                                                Padding="12,0" Click="ModImageNext_Click" AutomationProperties.Name="Next image"/>
+                                        <TextBlock x:Name="ModImageCount" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                   FontSize="12" Foreground="{StaticResource MutedBrush}"/>
+                                    </DockPanel>
+                                </StackPanel>
+                                <WrapPanel Grid.Row="1" Grid.ColumnSpan="2" x:Name="ModControls" Margin="0,10,0,0">
+                                    <Button x:Name="ModToggleButton" Content="{Binding ToggleText}" Style="{StaticResource ActionButton}"
+                                            MinWidth="110" Click="ModToggle_Click" Margin="0,0,10,0"
+                                            AutomationProperties.Name="{Binding ToggleAccessibleName}"/>
+                                    <Button x:Name="ModRemoveButton" Content="Remove" Style="{StaticResource QuietButton}"
+                                            Click="ModRemove_Click" IsEnabled="{Binding CanRemove}"
+                                            AutomationProperties.Name="Remove this mod from this PC"/>
+                                </WrapPanel>
+                            </Grid>
+                        </Grid>
+                        <TextBlock x:Name="ModsStatusText" Margin="0,10,0,10" TextWrapping="Wrap" FontSize="12.5"
+                                   Foreground="{StaticResource MutedBrush}" AutomationProperties.LiveSetting="Polite"/>
+                        <WrapPanel x:Name="ModsControls">
+                            <Button Content="Install ZIP" Style="{StaticResource ActionButton}" Click="InstallModZip_Click" Margin="0,0,10,8"
+                                    AutomationProperties.Name="Install mods from a ZIP"/>
+                            <Button Content="Install folder" Style="{StaticResource QuietButton}" Click="InstallModFolder_Click" Margin="0,0,10,8"
+                                    AutomationProperties.Name="Install a mod from its folder"/>
+                            <Button Content="Open mods folder" Style="{StaticResource QuietButton}" Click="OpenModsFolder_Click" Margin="0,0,10,8"/>
+                            <Button Content="Done" Style="{StaticResource QuietButton}" Click="CloseModsButton_Click" Margin="0,0,0,8"/>
                         </WrapPanel>
                     </StackPanel>
                 </Border>

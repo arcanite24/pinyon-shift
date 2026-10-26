@@ -84,12 +84,13 @@ $include = @(
     'config/performance/symbol-order-base.txt', 'config/performance/symbol-order-v4.txt',
     'tools/build-preview.ps1', 'tools/create-crash-report.ps1', 'tools/install-build-tools.ps1',
     'tools/launch-preview.ps1', 'tools/prepare-rexglue.ps1',
-    'tools/build-mod-patches.py', 'tools/build-mod-archives.py', 'tools/install-sample-mod.py',
+    'tools/build-mod-patches.py', 'tools/build-mod-archives.py', 'tools/mod_options.py', 'tools/install-sample-mod.py',
     'tools/pinyon.py', 'tools/pinyon_android.py', 'tools/build-android.ps1',
     # pinyon.py's other commands and the launchers' content panels: the XE mod,
-    # asset export (#446) and custom radio stations (#445).
+    # asset export (#446), custom radio stations (#445) and the mod manager (FB-9.1).
     'tools/pinyon_xe.py', 'tools/manage-xe.ps1', 'tools/pinyon_assets.py', 'tools/fh1_audio_decode.cpp',
     'tools/pinyon_radio.py', 'tools/manage-radio.ps1', 'tools/build-fh1-radio.py',
+    'tools/pinyon_mods.py', 'tools/manage-mods.ps1',
     # Linux, the Steam Deck and macOS (docs/LINUX.md, docs/MACOS.md).
     'tools/pinyon_setup.py', 'tools/pinyon_steam.py', 'tools/pinyon_deck.py', 'config/steam',
     # The launcher backends of pinyon.py on every OS: DLC, title update, saves,

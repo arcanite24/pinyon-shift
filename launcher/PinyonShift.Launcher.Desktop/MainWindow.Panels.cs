@@ -5,11 +5,11 @@ using Avalonia.Interactivity;
 namespace PinyonShift.Launcher.Desktop;
 
 // One panel at a time under Play, as the Windows launcher's Settings, DLC,
-// Radio and Android views (ShowPanel there); the open panel's button is
+// Mods, Radio and Android views (ShowPanel there); the open panel's button is
 // outlined and a second click closes it.
 public partial class MainWindow
 {
-    private enum Panel { None, Settings, Dlc, Radio, Android, Saves }
+    private enum Panel { None, Settings, Dlc, Mods, Radio, Android, Saves }
 
     private Panel _panel = Panel.None;
 
@@ -20,12 +20,14 @@ public partial class MainWindow
         _panel = panel;
         SettingsPanel.IsVisible = panel == Panel.Settings;
         DlcPanel.IsVisible = panel == Panel.Dlc;
+        ModsPanel.IsVisible = panel == Panel.Mods;
         RadioPanel.IsVisible = panel == Panel.Radio;
         AndroidPanel.IsVisible = panel == Panel.Android;
         SavesPanel.IsVisible = panel == Panel.Saves;
         foreach (var (button, owner) in new (Button, Panel)[]
                  {
-                     (SettingsButton, Panel.Settings), (DlcButton, Panel.Dlc), (RadioButton, Panel.Radio),
+                     (SettingsButton, Panel.Settings), (DlcButton, Panel.Dlc), (ModsButton, Panel.Mods),
+                     (RadioButton, Panel.Radio),
                      (AndroidButton, Panel.Android), (SavesButton, Panel.Saves),
                  })
             button.Classes.Set("selected", owner == panel);
@@ -48,6 +50,11 @@ public partial class MainWindow
         {
             case Panel.Settings: await LoadSettingsAsync(); break;
             case Panel.Dlc: await LoadDlcPanelAsync(); break;
+            case Panel.Mods:
+                _modFactsShown = false;
+                ShowModFacts();
+                await ChangeModsAsync(["list"], "Reading mods…", null);
+                break;
             case Panel.Radio: await ChangeRadioAsync(Array.Empty<string>(), "Reading stations…", null); break;
             case Panel.Android: await LoadAndroidPanelAsync(); break;
             case Panel.Saves: SavesStatusText.Text = ""; break;
@@ -58,6 +65,7 @@ public partial class MainWindow
     {
         Panel.Settings => SettingsPanel,
         Panel.Dlc => DlcPanel,
+        Panel.Mods => ModsPanel,
         Panel.Radio => RadioPanel,
         Panel.Android => AndroidPanel,
         Panel.Saves => SavesPanel,
@@ -66,13 +74,14 @@ public partial class MainWindow
 
     private async void SettingsButton_Click(object? sender, RoutedEventArgs e) => await OpenPanelAsync(Panel.Settings);
     private async void DlcButton_Click(object? sender, RoutedEventArgs e) => await OpenPanelAsync(Panel.Dlc);
+    private async void ModsButton_Click(object? sender, RoutedEventArgs e) => await OpenPanelAsync(Panel.Mods);
     private async void RadioButton_Click(object? sender, RoutedEventArgs e) => await OpenPanelAsync(Panel.Radio);
     private async void AndroidButton_Click(object? sender, RoutedEventArgs e) => await OpenPanelAsync(Panel.Android);
     private async void SavesButton_Click(object? sender, RoutedEventArgs e) => await OpenPanelAsync(Panel.Saves);
 
     /// <summary>--snapshot FILE [STATE] [WIDTHxHEIGHT]: render the window to a
     /// PNG and exit, to check a layout without clicking. STATE is setup,
-    /// building, ready, a panel (settings, dlc, radio, android, saves; loaded
+    /// building, ready, a panel (settings, dlc, mods, radio, android, saves; loaded
     /// from the real backends), crash, or failure-graphics.</summary>
     public void Snapshot(string path, string? state, string? size)
     {
@@ -96,7 +105,7 @@ public partial class MainWindow
                     PercentText.Text = "47%";
                     ProgressMessage.Text = "Building the game (812/2140)";
                     break;
-                case "settings" or "dlc" or "radio" or "android" or "saves":
+                case "settings" or "dlc" or "mods" or "radio" or "android" or "saves":
                     ShowMode(Mode.Ready);
                     var panel = Enum.Parse<Panel>(state, ignoreCase: true);
                     await OpenPanelAsync(panel);

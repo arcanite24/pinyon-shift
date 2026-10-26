@@ -29,7 +29,7 @@ public partial class MainWindow : Window
     ];
 
     // The content area shows one of these at a time.
-    private enum View { Setup, Ready, Log, Crash, Graphics, Dlc, Android, Radio }
+    private enum View { Setup, Ready, Log, Crash, Graphics, Dlc, Android, Radio, Mods }
 
     private CancellationTokenSource? _cancellation;
     private string? _repositoryRoot;
@@ -1012,23 +1012,24 @@ public partial class MainWindow : Window
 
     private void ShowPanel(View panel)
     {
-        // The DLC, radio and Android panels take the headline while open.
-        var wasSide = _panel is View.Dlc or View.Android or View.Radio;
-        if (panel is View.Dlc or View.Android or View.Radio && panel != _panel)
+        // The DLC, mods, radio and Android panels take the headline while open.
+        var wasSide = _panel is View.Dlc or View.Android or View.Radio or View.Mods;
+        if (panel is View.Dlc or View.Android or View.Radio or View.Mods && panel != _panel)
         {
             if (!wasSide) _headlineBeforeDlc = HeadlineText.Text;
             HeadlineText.Text = panel switch
             {
                 View.Dlc => "Downloadable content",
                 View.Radio => "Custom radio",
+                View.Mods => "Mods",
                 _ => "Android"
             };
         }
-        else if (wasSide && panel is not (View.Dlc or View.Android or View.Radio)) HeadlineText.Text = _headlineBeforeDlc;
+        else if (wasSide && panel is not (View.Dlc or View.Android or View.Radio or View.Mods)) HeadlineText.Text = _headlineBeforeDlc;
         // The local network share serves only while its panel is open.
         if (_panel == View.Android && panel != View.Android && _androidShare is not null) StopAndroidShare();
         _panel = panel;
-        SubheadText.Visibility = panel is View.Dlc or View.Android or View.Radio || string.IsNullOrEmpty(SubheadText.Text)
+        SubheadText.Visibility = panel is View.Dlc or View.Android or View.Radio or View.Mods || string.IsNullOrEmpty(SubheadText.Text)
             ? Visibility.Collapsed : Visibility.Visible;
         SetupPanel.Visibility = panel == View.Setup ? Visibility.Visible : Visibility.Collapsed;
         LogPanel.Visibility = panel == View.Log ? Visibility.Visible : Visibility.Collapsed;
@@ -1037,6 +1038,7 @@ public partial class MainWindow : Window
         DlcPanel.Visibility = panel == View.Dlc ? Visibility.Visible : Visibility.Collapsed;
         AndroidPanel.Visibility = panel == View.Android ? Visibility.Visible : Visibility.Collapsed;
         RadioPanel.Visibility = panel == View.Radio ? Visibility.Visible : Visibility.Collapsed;
+        ModsPanel.Visibility = panel == View.Mods ? Visibility.Visible : Visibility.Collapsed;
         // The route only tells something while there is setup left to do.
         RouteList.Visibility = panel is View.Setup or View.Log ? Visibility.Visible : Visibility.Collapsed;
         if (panel == View.Ready) UpdateSummary();
@@ -1106,21 +1108,23 @@ public partial class MainWindow : Window
     private void UpdatePrimaryButton()
     {
         ChooseInstallRootButton.IsEnabled = !_busy && _canChooseInstallRoot &&
-            _panel is not (View.Graphics or View.Dlc or View.Android or View.Radio);
-        PrimaryButton.IsEnabled = !_busy && _panel is not (View.Dlc or View.Android or View.Radio) && (_pendingReport is not null || _gameExecutable is not null ||
+            _panel is not (View.Graphics or View.Dlc or View.Android or View.Radio or View.Mods);
+        PrimaryButton.IsEnabled = !_busy && _panel is not (View.Dlc or View.Android or View.Radio or View.Mods) && (_pendingReport is not null || _gameExecutable is not null ||
             (_repositoryRoot is not null && (File.Exists(IsoPathTextBox.Text) || Directory.Exists(IsoPathTextBox.Text)) && OwnershipCheckBox.IsChecked == true));
         // The Android package is made from the game this PC built.
         AndroidButton.Visibility = _gameExecutable is not null && _pendingReport is null
             ? Visibility.Visible : Visibility.Collapsed;
-        AndroidButton.IsEnabled = !_busy && _panel is not (View.Dlc or View.Radio);
+        AndroidButton.IsEnabled = !_busy && _panel is not (View.Dlc or View.Radio or View.Mods);
         DlcButton.Visibility = _gameExecutable is not null && _pendingReport is null
             ? Visibility.Visible : Visibility.Collapsed;
         DlcButton.IsEnabled = !_busy;
         RadioButton.Visibility = DlcButton.Visibility;
         RadioButton.IsEnabled = !_busy;
+        ModsButton.Visibility = DlcButton.Visibility;
+        ModsButton.IsEnabled = !_busy;
         WheelButton.Visibility = DlcButton.Visibility;
         WheelButton.IsEnabled = !_busy;
-        GraphicsSettingsButton.IsEnabled = !_busy && _panel is not (View.Dlc or View.Radio);
+        GraphicsSettingsButton.IsEnabled = !_busy && _panel is not (View.Dlc or View.Radio or View.Mods);
     }
 
     // ---- Android (ONE_CLICK_SETUP_BACKLOG A-1 to A-5) -----------------------
@@ -1151,7 +1155,7 @@ public partial class MainWindow : Window
     private async void AndroidButton_Click(object sender, RoutedEventArgs e)
     {
         if (_busy || _repositoryRoot is null || _gameExecutable is null) return;
-        if (_panel is not (View.Android or View.Dlc or View.Radio)) _panelBeforeDlc = _panel;
+        if (_panel is not (View.Android or View.Dlc or View.Radio or View.Mods)) _panelBeforeDlc = _panel;
         ShowPanel(View.Android);
         RefreshAndroidPanel();
         try { _titleUpdate = await RunTitleUpdateToolAsync("status"); } catch (Exception) { }
@@ -1706,7 +1710,7 @@ public partial class MainWindow : Window
     private async void DlcButton_Click(object sender, RoutedEventArgs e)
     {
         if (_busy || _repositoryRoot is null || _stateRoot is null) return;
-        if (_panel is not (View.Dlc or View.Android or View.Radio)) _panelBeforeDlc = _panel;
+        if (_panel is not (View.Dlc or View.Android or View.Radio or View.Mods)) _panelBeforeDlc = _panel;
         ShowPanel(View.Dlc);
         await ChangeDlcAsync("list", success: "Changes apply the next time you start the game.");
         await RefreshTitleUpdateAsync();
@@ -1898,8 +1902,18 @@ public partial class MainWindow : Window
 
     // ModDB disallows automated downloads, so the player's browser fetches both
     // archives and the tool installs them from Downloads when they finish (#426).
+    // The wait lasts up to four hours, so the button stops it while it runs, and
+    // Done stops it too. Stopping is safe at any point: the install builds XE in a
+    // staging folder and only renames it into place at the end.
+    private CancellationTokenSource? _xeWait;
+
     private async void DownloadXeButton_Click(object sender, RoutedEventArgs e)
     {
+        if (_xeWait is { } wait)
+        {
+            wait.Cancel();
+            return;
+        }
         if (_busy) return;
         await ChangeXeAsync("download", [],
             "XE is installed and on. Its first start creates a new save.");
