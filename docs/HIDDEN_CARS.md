@@ -11,6 +11,13 @@ listings. It does not remove any already purchased car or purchased part.
 The previous patch's seven traffic-car price values are retained as legacy
 metadata, even though those entries are no longer offered for purchase.
 
+Until 2026-10-27 the patch had no effect on the v4 build: v4 reads its own
+`gamedb.slt` from the update's `media.zip`, not the disc copy the patch
+replaced. The mod builders now apply the same script to v4's database too
+([MODDING.md](MODDING.md#database-patches)). It changes the same 11 rows
+there as on the disc copy. Listing and buying the variants in v4 hasn't
+been checked in game yet.
+
 ## Asset audit
 
 Audited locally on multivac, Windows, from the supported base disc on

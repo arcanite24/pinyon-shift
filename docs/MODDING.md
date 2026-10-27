@@ -499,6 +499,21 @@ earliest enabled mod in the load order that ships one is the base, recorded as
 `base` in `patches.json`. Archive members and merges likewise start from a
 mod's replacement archive or `zipmanifest.xml` when one is enabled.
 
+The v4 title update doesn't read that file: it opens its own
+`db/gamedb.slt` from the update's `media.zip` on `update:`, which shadows
+any `game:` database. When the update is installed,
+`tools/build-mod-archives.py` therefore also applies the same scripts, in
+the same order, to v4's database. It reads the member from the installed
+update (or from the winning mod's whole `update/media.zip` replacement),
+runs the scripts on that copy, and writes the result into
+`zz-archive-patches/update/media.zip` together with any `merge-update/`
+merges. The v4 host mounts that overlay ahead of the verified update, which
+stays untouched. `patches.json` lists the scripts as `database_scripts`
+under the `media.zip` entry. A script must therefore work on both
+databases; v4's is a superset of the disc's (the same tables plus the Rally
+cars). The v4 copy is built from the update's own database, never from an
+enabled mod's `game:` replacement such as the XE mod's.
+
 ### New cars from existing models
 
 `tools/clone-fh1-car.py` turns a short spec into a database script and the

@@ -8,7 +8,9 @@ asset-only mod <state>/mods/zz-db-patches, listed first in enabled_mods so
 its database wins over the game's. Nothing from the disc is distributed: the
 patched copy is built on the player's machine from their files. With no
 scripts enabled the generated mod is removed. Run it after changing mods
-(the launcher runs it before each start).
+(the launcher runs it before each start). The v4 title update reads its own
+database from update:\\media.zip instead; build-mod-archives.py applies the
+same scripts there.
 
   build-mod-patches.py <state-root> [--game-root DIR]
 """
@@ -241,13 +243,35 @@ def shares_save(state: Path, mod: str) -> bool:
     return re.search(r"^shares_save[ \t]*=[ \t]*true[ \t]*(#.*)?$", text, re.MULTILINE) is not None
 
 
+def database_scripts(state: Path, mods: list[str]) -> list[tuple[str, Path]]:
+    """(mod, script) for every enabled mod's db/*.sql, in load order."""
+    scripts = []
+    for mod in mods:
+        if mod in GENERATED_MODS:
+            continue
+        for script in sorted((state / "mods" / mod / "db").glob("*.sql")):
+            scripts.append((mod, script))
+    return scripts
+
+
+def apply_scripts(database: Path, scripts: list[tuple[str, Path]]) -> list[dict]:
+    """Run the scripts on a database file in place; returns what was applied."""
+    applied = []
+    connection = sqlite3.connect(database)
+    try:
+        for mod, script in scripts:
+            connection.executescript(script.read_text(encoding="utf-8"))
+            applied.append({"mod": mod, "script": script.name, "sha256": sha256(script)})
+        connection.commit()
+    finally:
+        connection.close()
+    return applied
+
+
 def build(state: Path, game_root: Path) -> dict:
     config = state / "config" / "pinyon_shift.toml"
     mods = [m for m in enabled_mods(config) if m != GENERATED]
-    scripts = []
-    for mod in mods:
-        for script in sorted((state / "mods" / mod / "db").glob("*.sql")):
-            scripts.append((mod, script))
+    scripts = database_scripts(state, mods)
     target = state / "mods" / GENERATED
     if not scripts:
         if target.exists():
@@ -259,15 +283,7 @@ def build(state: Path, game_root: Path) -> dict:
     staging = database.with_suffix(".building")
     database.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(base, staging)
-    applied = []
-    connection = sqlite3.connect(staging)
-    try:
-        for mod, script in scripts:
-            connection.executescript(script.read_text(encoding="utf-8"))
-            applied.append({"mod": mod, "script": script.name, "sha256": sha256(script)})
-        connection.commit()
-    finally:
-        connection.close()
+    applied = apply_scripts(staging, scripts)
     if database.is_file() and sha256(database) == sha256(staging):
         staging.unlink()
     else:

@@ -1,5 +1,6 @@
 import importlib.util
 import shutil
+import sqlite3
 import struct
 import sys
 import tempfile
@@ -82,6 +83,69 @@ class BuildModArchivesTests(unittest.TestCase):
             with zipfile.ZipFile(update, "w") as archive:
                 archive.writestr("other.xml", '<CameraPhysics/>')
             with self.assertRaisesRegex(MODULE.ArchiveError, "has no member"):
+                MODULE.build(state, state / "no-disc")
+
+    def test_database_scripts_patch_the_update_copy_v4_reads(self):
+        # v4 opens db/gamedb.slt inside update:\media.zip, so a game: copy
+        # alone is never read there (#895).
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            state, game = root / "state", root / "game"
+            v4_database = root / "v4.slt"
+            connection = sqlite3.connect(v4_database)
+            connection.executescript(
+                "create table Data_Car (Id integer, IsUnicorn integer);"
+                "insert into Data_Car values (320, 1), (251, 1), (1600, 0);")
+            connection.commit()
+            connection.close()
+            update = state / "title-update-v4" / "media.zip"
+            update.parent.mkdir(parents=True)
+            with zipfile.ZipFile(update, "w", zipfile.ZIP_DEFLATED) as archive:
+                archive.write(v4_database, "db/gamedb.slt")
+                archive.writestr("camera/cameraphysics.xml",
+                                 '<CameraPhysics><FollowCam NumLayers="80"/></CameraPhysics>')
+                archive.writestr("other.bin", b"unchanged")
+            original = update.read_bytes()
+            unicorns = state / "mods" / "unicorns" / "db" / "10-unicorns.sql"
+            unicorns.parent.mkdir(parents=True)
+            unicorns.write_text("update Data_Car set IsUnicorn = 0 where Id = 320;")
+            camera = state / "mods" / "camera" / "merge-update" / "media.zip" / "camera" / "cameraphysics.xml"
+            camera.parent.mkdir(parents=True)
+            camera.write_text('<CameraPhysics><FollowCam NumLayers="84"/></CameraPhysics>')
+            config = state / "config" / "pinyon_shift.toml"
+            config.parent.mkdir()
+            config.write_text('enabled_mods = "unicorns,camera"\n')
+            result = MODULE.build(state, game)
+            output = state / "mods" / MODULE.GENERATED / "update" / "media.zip"
+            patched = root / "patched.slt"
+            with zipfile.ZipFile(output) as archive:
+                patched.write_bytes(archive.read("db/gamedb.slt"))
+                self.assertIn(b'NumLayers="84"', archive.read("camera/cameraphysics.xml"))
+                self.assertEqual(b"unchanged", archive.read("other.bin"))
+            connection = sqlite3.connect(patched)
+            rows = connection.execute("select Id, IsUnicorn from Data_Car order by Id").fetchall()
+            connection.close()
+            # The update's own rows (1600) survive; only the script's change applies.
+            self.assertEqual([(251, 1), (320, 0), (1600, 0)], rows)
+            self.assertEqual(update.read_bytes(), original)
+            self.assertEqual(["10-unicorns.sql"],
+                             [s["script"] for s in result["archives"][0]["database_scripts"]])
+
+    def test_database_scripts_need_no_update_overlay_without_the_update(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory)
+            script = state / "mods" / "unicorns" / "db" / "10-unicorns.sql"
+            script.parent.mkdir(parents=True)
+            script.write_text("select 1;")
+            config = state / "config" / "pinyon_shift.toml"
+            config.parent.mkdir()
+            config.write_text('enabled_mods = "unicorns"\n')
+            self.assertFalse(MODULE.build(state, state / "no-disc")["patched"])
+            update = state / "title-update-v4" / "media.zip"
+            update.parent.mkdir()
+            with zipfile.ZipFile(update, "w") as archive:
+                archive.writestr("other.bin", b"no database")
+            with self.assertRaisesRegex(MODULE.ArchiveError, "has no member db"):
                 MODULE.build(state, state / "no-disc")
 
     def make(self, directory: Path):

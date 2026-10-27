@@ -38,6 +38,9 @@ The v4 update's own archive members use an explicit, separate tree:
 These merge against <state>/title-update-v4 and build under the generated
 mod's update/ overlay, mounted only by the v4 host. They are inactive when
 the update is absent. Neither the verified update nor the disc is written.
+The update also carries v4's own db/gamedb.slt, which the title reads
+instead of game:\\media\\db\\gamedb.slt, so the enabled mods' db/*.sql scripts
+(see build-mod-patches.py) are applied to that member of the same overlay.
 
 A merged .ini lists the lines to set (`Section\\Key value`; other keys keep the
 player's values, unknown keys are added). A merged .xml mirrors the member's
@@ -81,6 +84,8 @@ from xml.etree import ElementTree
 ROOT = Path(__file__).resolve().parents[1]
 GENERATED = "zz-archive-patches"
 MANIFEST = Path("media") / "zipmanifest.xml"
+# Where the v4 title update keeps the game database (archive, member).
+UPDATE_DATABASE = ("media.zip", "db\\gamedb.slt")
 
 LOCAL = struct.Struct("<IHHHHHIIIHH")
 CENTRAL = struct.Struct("<IHHHHHHIIIHHHHHII")
@@ -492,14 +497,22 @@ def build_update_merges(state: Path, mods: list[str], staging: Path,
                         extractor: Path | None) -> list[dict]:
     """Explicit update: members, separate from game: and the disc manifest.
 
+    v4 reads its database from update:\\media.zip, which the game: database
+    that build-mod-patches.py writes cannot shadow, so the enabled mods'
+    db/*.sql scripts are applied again to the update's own copy (#895).
     No installed v4 update means these optional patches are inactive. Never
     replace or write the verified title update itself.
     """
     update = state / "title-update-v4"
     if not update.is_dir():
         return []
+    patches = _patches_module()
+    scripts = patches.database_scripts(state, mods)
+    merges = collect_merges(state, mods, "merge-update")
+    if scripts:
+        merges.setdefault(UPDATE_DATABASE[0], {})
     results = []
-    for archive, members in sorted(collect_merges(state, mods, "merge-update").items()):
+    for archive, members in sorted(merges.items()):
         base = find_case_insensitive(update, archive)
         if base is None or not base.is_file():
             raise ArchiveError(f"update:/{archive} is not in the installed title update")
@@ -520,15 +533,27 @@ def build_update_merges(state: Path, mods: list[str], staging: Path,
             for _, patch in reversed(edits):
                 body = merge_member(member, body, patch.read_bytes())
             replacements[member] = body
+        applied = []
+        if scripts and archive == UPDATE_DATABASE[0]:
+            if UPDATE_DATABASE[1] not in names:
+                raise ArchiveError(f"update:/{archive} has no member {UPDATE_DATABASE[1]}")
+            with tempfile.TemporaryDirectory(prefix="pinyon-db-") as temporary:
+                database = Path(temporary) / "gamedb.slt"
+                database.write_bytes(read_member(base, data, UPDATE_DATABASE[1], extractor))
+                applied = patches.apply_scripts(database, scripts)
+                replacements[UPDATE_DATABASE[1]] = database.read_bytes()
         rebuilt, _, _, _ = rebuild(data, replacements)
         output = staging / "update" / archive
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_bytes(rebuilt)
-        results.append({"update_archive": archive,
-                        "merged": {m: [mod for mod, _ in edits]
-                                   for m, edits in sorted(members.items())},
-                        "base_sha256": hashlib.sha256(data).hexdigest().upper(),
-                        "sha256": hashlib.sha256(rebuilt).hexdigest().upper()})
+        result = {"update_archive": archive,
+                  "merged": {m: [mod for mod, _ in edits]
+                             for m, edits in sorted(members.items())},
+                  "base_sha256": hashlib.sha256(data).hexdigest().upper(),
+                  "sha256": hashlib.sha256(rebuilt).hexdigest().upper()}
+        if applied:
+            result["database_scripts"] = applied
+        results.append(result)
     return results
 
 
@@ -543,7 +568,8 @@ def build(state: Path, game_root: Path, extractor: Path | None = None) -> dict:
     for archive in list(merges) + list(additions) + list(string_edits):
         archives.setdefault(archive, {})
     target = state / "mods" / GENERATED
-    update_merges = (state / "title-update-v4").is_dir() and collect_merges(state, mods, "merge-update")
+    update_merges = (state / "title-update-v4").is_dir() and (
+        collect_merges(state, mods, "merge-update") or patches.database_scripts(state, mods))
     if not archives and not update_merges:
         if target.exists():
             patches.remove_written_directory(target)
