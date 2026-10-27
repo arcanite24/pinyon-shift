@@ -1918,6 +1918,15 @@ std::unique_ptr<MenuScreen> SettingsPages::DualSense() {
         {std::to_string(value) + "%", {{"pad_gyro_sensitivity", std::to_string(value)}}});
   }
   rows.push_back(Setting("TILT SENSITIVITY", std::move(sensitivities)));
+  // Greyed until a DualSense is connected (the status line below says why).
+  for (auto& row : rows) {
+    row.enabled = [] {
+      for (const auto& joystick : rex::input::sdl::ListJoysticks()) {
+        if (joystick.dualsense) return true;
+      }
+      return false;
+    };
+  }
   auto screen = std::make_unique<MenuScreen>("DUALSENSE", std::move(rows), [] {
     bool dualsense = false;
     bool wireless = false;
@@ -1958,19 +1967,9 @@ std::unique_ptr<MenuScreen> SettingsPages::Controls() {
   map.activate = [this] { host_ui_.Push(MapController()); };
   rows.push_back(std::move(map));
   rows.push_back(Page("RACING WHEEL", &SettingsPages::Wheel));
-  // Only when a DualSense (or Steam's stand-in for one) is here, or its
-  // settings were changed, so other players never see it.
-  {
-    bool show = rex::input::sdl::SteamInputHidesDualSense() ||
-                REXCVAR_GET(pad_ds_triggers) != "off" || REXCVAR_GET(pad_ds_lightbar) != "player" ||
-                REXCVAR_GET(pad_gyro_steering);
-    for (const auto& joystick : rex::input::sdl::ListJoysticks()) {
-      show |= joystick.playstation || joystick.steam_virtual;
-    }
-    if (show) {
-      rows.push_back(Page("DUALSENSE", &SettingsPages::DualSense));
-    }
-  }
+  // Always listed so players can find it; the page greys its options out while no
+  // DualSense is connected and says why in its status line.
+  rows.push_back(Page("DUALSENSE", &SettingsPages::DualSense));
   rows.push_back(Setting("RUMBLE",
                          {{"OFF", {{"pad_rumble_strength", "0"}}},
                           {"25%", {{"pad_rumble_strength", "25"}}},
