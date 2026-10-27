@@ -2,17 +2,18 @@
 """Owned FH1 DLC on every OS (LX-3.4): import, enable and disable packages.
 
   pinyon.py dlc status [--state-root DIR] [--json]
-  pinyon.py dlc import PATH [--state-root DIR] [--json]
+  pinyon.py dlc import PATH [PATH ...] [--state-root DIR] [--json]
   pinyon.py dlc enable PACKAGE_ID [--state-root DIR] [--game-root DIR] [--json]
   pinyon.py dlc disable PACKAGE_ID [--state-root DIR] [--json]
   pinyon.py dlc udlc [--find] [--open-pages] [--wait SECONDS] [--traffic]
                     [PATH ...] [--state-root DIR] [--json]
 
-PATH is a raw package, a ZIP of packages or a folder of them, as the Windows
-launcher's DLC panel takes. The work is tools/manage-fh1-dlc.py, the same
-verifier the Windows panel runs (through manage-dlc.ps1), given this
-platform's archive extractor (pinyon_shift_fh1_archive_extract, built beside
-the game). Each package is checked against config/supported-dlc.json before
+PATH is a raw package, a ZIP of packages or a folder of them, as the
+launchers' DLC panels take; give several to import them in one batch.
+Folders and ZIPs are searched at any depth, including ZIPs inside ZIPs.
+The work is tools/manage-fh1-dlc.py, the same verifier the Windows panel
+runs (through manage-dlc.ps1), given this platform's archive
+extractor (pinyon_shift_fh1_archive_extract, built beside the game). Each package is checked against config/supported-dlc.json before
 anything is published; imported packages start disabled. Enabling Rally
 verifies it and prepares its generated assets (prepare-fh1-rally.py).
 
@@ -155,10 +156,11 @@ def run(args: argparse.Namespace) -> dict:
         # and prepares Rally with it).
         command += ["--extractor", str(common.require_extractor())]
     if action == "import":
-        source = args.path.expanduser()
-        if not source.exists():
-            raise common.CommandError(f"{source} does not exist")
-        command += ["--source", str(source.resolve())]
+        for source in args.path:
+            source = source.expanduser()
+            if not source.exists():
+                raise common.CommandError(f"{source} does not exist")
+            command += ["--source", str(source.resolve())]
     if action in ("enable", "disable"):
         command += ["--package-id", args.package_id.upper()]
         if args.game_root:
@@ -185,8 +187,8 @@ def add_parser(commands) -> None:
     parser = commands.add_parser("dlc", help="import and manage your FH1 DLC packages")
     sub = parser.add_subparsers(dest="dlc_command", required=True)
     sub.add_parser("status", help="list the imported packages")
-    importing = sub.add_parser("import", help="verify and import a package, ZIP or folder")
-    importing.add_argument("path", type=Path)
+    importing = sub.add_parser("import", help="verify and import packages, ZIPs or folders")
+    importing.add_argument("path", type=Path, nargs="+")
     udlc = sub.add_parser("udlc", help="install and enable the community UDLC pack from your downloads")
     udlc.add_argument("paths", type=Path, nargs="*")
     udlc.add_argument("--find", action="store_true", help="look in the browser's Downloads folders")

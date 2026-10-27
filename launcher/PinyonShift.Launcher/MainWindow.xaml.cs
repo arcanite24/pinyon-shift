@@ -2277,17 +2277,21 @@ public partial class MainWindow : Window
     private async void ImportDlcButton_Click(object sender, RoutedEventArgs e)
     {
         if (_busy) return;
-        var picker = new OpenFileDialog { Title = "Choose your FH1 DLC package or ZIP", Filter = "DLC packages and ZIPs|*.*" };
+        var picker = new OpenFileDialog
+        {
+            Title = "Choose your FH1 DLC packages or ZIPs (several at once are fine)",
+            Filter = "DLC packages and ZIPs|*.*", Multiselect = true
+        };
         if (picker.ShowDialog(this) == true)
-            await ChangeDlcAsync("import", picker.FileName, success: "Import verified. Enable individual packages when ready to test them.");
+            await ChangeDlcAsync("import", picker.FileNames, success: "Import verified. Enable individual packages when ready to test them.");
     }
 
     private async void ImportDlcFolderButton_Click(object sender, RoutedEventArgs e)
     {
         if (_busy) return;
-        var picker = new OpenFolderDialog { Title = "Choose your FH1 DLC folder" };
+        var picker = new OpenFolderDialog { Title = "Choose your FH1 DLC folders (subfolders are searched too)", Multiselect = true };
         if (picker.ShowDialog(this) == true)
-            await ChangeDlcAsync("import", picker.FolderName, success: "Import verified. Enable individual packages when ready to test them.");
+            await ChangeDlcAsync("import", picker.FolderNames, success: "Import verified. Enable individual packages when ready to test them.");
     }
 
     private async void ToggleDlcButton_Click(object sender, RoutedEventArgs e)
@@ -2308,7 +2312,7 @@ public partial class MainWindow : Window
         UpdatePrimaryButton();
     }
 
-    private async Task ChangeDlcAsync(string action, string? source = null, string? packageId = null, string success = "")
+    private async Task ChangeDlcAsync(string action, string[]? source = null, string? packageId = null, string success = "")
     {
         _busy = true;
         DlcControls.IsEnabled = false;
@@ -2341,7 +2345,7 @@ public partial class MainWindow : Window
         }
     }
 
-    private async Task<DlcResult> RunDlcToolAsync(string action, string? source = null, string? packageId = null,
+    private async Task<DlcResult> RunDlcToolAsync(string action, string[]? source = null, string? packageId = null,
         string[]? archives = null, bool download = false, bool traffic = false)
     {
         if (_repositoryRoot is null || _stateRoot is null)
@@ -2355,12 +2359,13 @@ public partial class MainWindow : Window
         foreach (var argument in new[] { "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
             Path.Combine(_repositoryRoot, "tools", "manage-dlc.ps1"), "-Action", action, "-StateRoot", _stateRoot })
             start.ArgumentList.Add(argument);
-        if (source is not null) { start.ArgumentList.Add("-InputPath"); start.ArgumentList.Add(source); }
+        if (source is { Length: > 0 }) { start.ArgumentList.Add("-InputPath"); start.ArgumentList.Add(source[0]); }
         if (packageId is not null) { start.ArgumentList.Add("-PackageId"); start.ArgumentList.Add(packageId); }
         if (download)
             foreach (var argument in new[] { "-Find", "-OpenPages", "-Wait", "14400" }) start.ArgumentList.Add(argument);
         if (traffic) start.ArgumentList.Add("-Traffic");
-        foreach (var archive in archives ?? []) start.ArgumentList.Add(archive);
+        // Further import sources travel as remaining arguments, like UDLC archives.
+        foreach (var archive in (archives ?? []).Concat(source?.Skip(1) ?? [])) start.ArgumentList.Add(archive);
         if (action == "udlc")
             AppendLog($"UDLC command: {start.FileName} " + string.Join(" ", start.ArgumentList.Select(argument => $"\"{argument}\"")));
         using var process = Process.Start(start) ?? throw new InvalidOperationException("Windows could not start DLC management.");

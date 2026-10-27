@@ -289,6 +289,63 @@ class DlcImportTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, r"big.zip \(it uses a compression method"):
                 dlc.stage_inputs(only, root, manifest)
 
+    def two_packages(self, root):
+        """Two distinct catalogued packages: (data of each, manifest)."""
+        source, manifest, package = self.fixture(root)
+        first = source.read_bytes()
+        second = bytearray(first)
+        second[0x32C] = 1
+        other = package | dict(package_id="B" * 42, content_id=second[0x32C:0x340].hex().upper(), display_name="Other DLC", accepted=[
+            package["accepted"][0] | dict(sha256=hashlib.sha256(second).hexdigest().upper())])
+        manifest["packages"].append(other)
+        return first, bytes(second), manifest
+
+    def test_nested_folders_and_zips_inside_zips_are_searched(self):
+        # #857: packages under subfolders of a ZIP, in a ZIP inside a ZIP,
+        # and under nested folders of a chosen directory all import.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            first, second, manifest = self.two_packages(root)
+            inner = root / "inner.zip"
+            with zipfile.ZipFile(inner, "w") as archive:
+                archive.writestr("Pack/Sub/" + "B" * 42, second)
+                archive.writestr("Pack/readme.txt", b"hello")
+            outer = root / "outer.zip"
+            with zipfile.ZipFile(outer, "w") as archive:
+                archive.writestr("Forza Horizon/DLC/Cars/A" + "A" * 41, first)
+                archive.write(inner, "Forza Horizon/Extra/more.zip")
+            ids = lambda inputs: sorted(i[1]["package_id"] for i in inputs)
+            self.assertEqual(ids(dlc.stage_inputs(outer, root, manifest)), ["A" * 42, "B" * 42])
+            folder = root / "dump"
+            (folder / "a" / "b" / "c").mkdir(parents=True)
+            (folder / "a" / "b" / "c" / "pkg").write_bytes(first)
+            outer.rename(folder / "a" / "outer.zip")
+            self.assertEqual(ids(dlc.stage_inputs(folder, root, manifest)), ["A" * 42, "B" * 42])
+            self.assertEqual([p.name for p in root.iterdir() if p.name.startswith("nested-")], [])
+
+    def test_several_sources_are_merged_into_one_batch(self):
+        # #857: several ZIPs and folders chosen together.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            first, second, manifest = self.two_packages(root)
+            one = root / "one.zip"
+            with zipfile.ZipFile(one, "w") as archive:
+                archive.writestr("x/y/" + "A" * 42, first)
+            folder = root / "two"
+            folder.mkdir()
+            (folder / "pkg").write_bytes(second)
+            inputs = dlc.stage_inputs([one, folder], root, manifest)
+            self.assertEqual(sorted(i[1]["package_id"] for i in inputs), ["A" * 42, "B" * 42])
+            # The same package in two sources is kept once.
+            twin = root / "twin.zip"
+            twin.write_bytes(one.read_bytes())
+            self.assertEqual(len(dlc.stage_inputs([one, twin], root, manifest)), 1)
+            # A chosen file that is not a package is still refused.
+            junk = root / "junk.txt"
+            junk.write_text("no")
+            with self.assertRaisesRegex(ValueError, "choose a raw DLC package"):
+                dlc.stage_inputs([one, junk], root, manifest)
+
     def test_failed_extraction_never_publishes_and_retry_preserves_save(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

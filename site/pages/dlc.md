@@ -28,7 +28,7 @@ has a private initial-placement probe for developers; it is not a player option.
 
 ## What to import
 
-- The original package files: no file extension, beginning with `LIVE`, `CON` or `PIRS`. A folder or ZIP holding them works too. ZIPs that can't be read (Deflate64, which Windows uses for large ZIPs, or encrypted ones) are skipped and named; extract them first.
+- The original package files: no file extension, beginning with `LIVE`, `CON` or `PIRS`. A folder or ZIP holding them works too, however deeply the packages are nested: subfolders are searched, as are folders inside a ZIP and ZIPs inside a ZIP. Choose several files or folders at once (in the launcher's file picker, or by dropping them on the DLC panel on Linux and macOS) or pass several paths to `pinyon.py dlc import`; they import as one batch. ZIPs that can't be read (Deflate64, which Windows uses for large ZIPs, or encrypted ones) are skipped and named; extract them first.
 - Packages are listed by the name in their header, not by the file's name. A file shared as "2006 Ford GTX1" is the December IGN Car Pack and shows under that name. After importing, enable the package; its cars are bought in the Autoshow.
 - A package outside the verified catalog is refused with its header name and the reason. Content types other than Marketplace DLC, such as an offer or licence package, hold no cars to import.
 - Horizon Rally: one widely shared copy of the standalone Rally Expansion Pack is damaged (three dirt-track terrain files are corrupt) and is refused with that reason. Use another copy of the package, such as the one in the full DLC set.

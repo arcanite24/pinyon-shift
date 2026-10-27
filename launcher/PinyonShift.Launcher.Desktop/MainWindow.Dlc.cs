@@ -221,21 +221,23 @@ public partial class MainWindow
             "Installing starts by itself when it finishes in your Downloads folder…");
     }
 
-    private Task ImportDlcAsync(string path) => ChangeDlcAsync(["import", path], "Verifying and importing packages…",
+    private Task ImportDlcAsync(IEnumerable<string> paths) => ChangeDlcAsync(["import", .. paths], "Verifying and importing packages…",
         "Import verified. Enable individual packages when ready to test them.");
 
     private async void ImportDlc_Click(object? sender, RoutedEventArgs e)
     {
         var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
-            { Title = "Choose your FH1 DLC package or ZIP", AllowMultiple = false });
-        if (files.Count > 0 && files[0].TryGetLocalPath() is { } path) await ImportDlcAsync(path);
+            { Title = "Choose your FH1 DLC packages or ZIPs (several at once are fine)", AllowMultiple = true });
+        var paths = files.Select(file => file.TryGetLocalPath()).OfType<string>().ToList();
+        if (paths.Count > 0) await ImportDlcAsync(paths);
     }
 
     private async void ImportDlcFolder_Click(object? sender, RoutedEventArgs e)
     {
         var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
-            { Title = "Choose your FH1 DLC folder", AllowMultiple = false });
-        if (folders.Count > 0 && folders[0].TryGetLocalPath() is { } path) await ImportDlcAsync(path);
+            { Title = "Choose your FH1 DLC folders (subfolders are searched too)", AllowMultiple = true });
+        var paths = folders.Select(folder => folder.TryGetLocalPath()).OfType<string>().ToList();
+        if (paths.Count > 0) await ImportDlcAsync(paths);
     }
 
     // ---- Title update v4 (TITLE_UPDATE_V4_BACKLOG TU-2) ------------------------

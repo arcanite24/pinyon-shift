@@ -228,17 +228,19 @@ public partial class MainWindow : Window
 
     // Dropping selects the game source during setup, or imports DLC while
     // the DLC panel is open.
-    private string? DroppedPath(DragEventArgs e)
+    // Setup takes one path; the DLC panel takes any number of files and folders.
+    private List<string>? DroppedPaths(DragEventArgs e)
     {
-        var paths = e.DataTransfer.TryGetFiles()?.Select(item => item.TryGetLocalPath()).OfType<string>().ToList();
-        return paths is { Count: 1 } && (File.Exists(paths[0]) || Directory.Exists(paths[0])) ? paths[0] : null;
+        var paths = e.DataTransfer.TryGetFiles()?.Select(item => item.TryGetLocalPath()).OfType<string>()
+            .Where(path => File.Exists(path) || Directory.Exists(path)).ToList();
+        return paths is { Count: > 0 } && (_mode != Mode.Setup || paths.Count == 1) ? paths : null;
     }
 
     private bool AcceptsDrop => !_busy && (_mode == Mode.Setup || (_mode == Mode.Ready && _panel == Panel.Dlc));
 
     private void OnDragOver(object? sender, DragEventArgs e)
     {
-        var accepted = AcceptsDrop && DroppedPath(e) is not null;
+        var accepted = AcceptsDrop && DroppedPaths(e) is not null;
         e.DragEffects = accepted ? DragDropEffects.Copy : DragDropEffects.None;
         DropOverlayText.Text = _mode == Mode.Setup ? "Drop to use this disc image or folder" : "Drop to import this DLC";
         DropOverlay.IsVisible = accepted;
@@ -247,9 +249,9 @@ public partial class MainWindow : Window
     private async void OnDrop(object? sender, DragEventArgs e)
     {
         DropOverlay.IsVisible = false;
-        if (!AcceptsDrop || DroppedPath(e) is not { } path) return;
-        if (_mode == Mode.Setup) SetDisc(path);
-        else await ImportDlcAsync(path);
+        if (!AcceptsDrop || DroppedPaths(e) is not { } paths) return;
+        if (_mode == Mode.Setup) SetDisc(paths[0]);
+        else await ImportDlcAsync(paths);
     }
 
     private void Ownership_Changed(object? sender, RoutedEventArgs e) => UpdateActions();

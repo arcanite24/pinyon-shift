@@ -15,7 +15,10 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'release-common.ps1')
 $arguments = @((Join-Path $PSScriptRoot 'manage-fh1-dlc.py'), $Action, '--state-root', $StateRoot)
+# Import takes one or more sources: -InputPath, then any further paths as
+# remaining arguments (the same slot UDLC archives use).
 if ($InputPath) { $arguments += @('--source', $InputPath) }
+if ($Action -eq 'import') { foreach ($path in $Archives) { $arguments += @('--source', $path) } }
 if ($PackageId) { $arguments += @('--package-id', $PackageId) }
 if ($Action -eq 'udlc') {
     $arguments = @((Join-Path $PSScriptRoot 'pinyon.py'), 'dlc', 'udlc') + $Archives
