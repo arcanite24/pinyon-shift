@@ -44,7 +44,7 @@ Choose **Update to <version>** in the launcher's footer when it appears. The lau
 
 ## Install location
 
-By default everything lives under `%LOCALAPPDATA%\PinyonShift`. To build on another drive, choose **Change** next to **Installs to** on the setup screen. This picks where new installs go; it doesn't move an existing install or save. Microsoft Build Tools still need space on the system drive.
+By default everything lives under `%LOCALAPPDATA%\PinyonShift`. To build on another drive, choose **Change** next to **Installs to** on the setup screen. This picks where new installs go; it doesn't move an existing install or save. The ISO's drive doesn't matter. Setup needs about 30 GB free on the install drive (the build, the extracted game and the tools). The system drive needs about 3 GB for compiler temporary files, plus about 8 GB if the Microsoft C++ Build Tools are not installed yet. If the install folder is on the system drive, the two add up to 33 to 41 GB there. A "not enough free disk space" error lists each drive's free space and what it is needed for; if the install folder is on the Windows drive, choose **Change** and pick a roomier drive.
 
 ## Portable install
 

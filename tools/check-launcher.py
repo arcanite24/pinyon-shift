@@ -458,6 +458,31 @@ class Check {
             && File.Exists(Path.Combine(source, ".local/preview/user/ForzaProfile/ForzaProfile"))
             && File.Exists(Path.Combine(source, "out/build/x")) && File.Exists(Path.Combine(root, "outside.txt"))
             && File.Exists(Path.Combine(source, "unlisted.txt")), "Stale source removal touched other files");
+
+        // #802: an update over an earlier build must not stamp changed sources
+        // with the payload's old fixed timestamp.
+        var zipPath = Path.Combine(root, "payload.zip");
+        var fixedStamp = new DateTimeOffset(2026, 7, 23, 0, 0, 0, TimeSpan.Zero);
+        using (var zip = System.IO.Compression.ZipFile.Open(zipPath, System.IO.Compression.ZipArchiveMode.Create))
+            foreach (var (name, text) in new[] { ("same.txt", "same"), ("changed.txt", "new"), ("sub/added.txt", "added") }) {
+                var entry = zip.CreateEntry(name);
+                entry.LastWriteTime = fixedStamp;
+                using var writer = new StreamWriter(entry.Open());
+                writer.Write(text);
+            }
+        var target = Path.Combine(root, "extract");
+        Directory.CreateDirectory(target);
+        File.WriteAllText(Path.Combine(target, "same.txt"), "same");
+        File.WriteAllText(Path.Combine(target, "changed.txt"), "old!");
+        var built = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
+        File.SetLastWriteTimeUtc(Path.Combine(target, "same.txt"), built);
+        File.SetLastWriteTimeUtc(Path.Combine(target, "changed.txt"), built);
+        Require(PayloadExtractor.Extract(zipPath, target) == 2, "Extraction rewrote unchanged files");
+        Require(File.ReadAllText(Path.Combine(target, "changed.txt")) == "new"
+            && File.ReadAllText(Path.Combine(target, "sub/added.txt")) == "added", "Extraction missed changed files");
+        Require(File.GetLastWriteTimeUtc(Path.Combine(target, "same.txt")) == built, "Unchanged file lost its timestamp");
+        Require(File.GetLastWriteTimeUtc(Path.Combine(target, "changed.txt")) > built
+            && File.GetLastWriteTimeUtc(Path.Combine(target, "sub/added.txt")) > built, "Changed files kept the old payload date");
     }
 }
 '''

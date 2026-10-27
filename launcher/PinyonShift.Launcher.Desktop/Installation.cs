@@ -211,7 +211,7 @@ public sealed class Installation
             // Files an earlier release had and this one dropped. .local (game
             // files, the build's toolchain and saves) is never in the payload.
             PayloadManifest.RemoveStale(destination, entries);
-            await Task.Run(() => ZipFile.ExtractToDirectory(payload, destination, overwriteFiles: true));
+            await Task.Run(() => PayloadExtractor.Extract(payload, destination));
             if (!IsSourceRoot(destination))
                 throw new InvalidDataException("The source payload is incomplete. Download the launcher again.");
             await File.WriteAllTextAsync(marker, hash + "\n");

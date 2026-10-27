@@ -57,6 +57,21 @@ class PreflightTests(unittest.TestCase):
         self.assertIn("needs 1000000 GB", result["hint"])
         self.assertEqual(result["step"], "Check free disk space")
 
+    def test_a_short_windows_drive_explains_the_split(self):
+        # Install root on the Windows drive: one combined figure with its
+        # parts, and the way to move the install (#725).
+        result = failure(
+            "function Get-PinyonReleaseToolchain { [pscustomobject]@{ disk_space_gb ="
+            " [pscustomobject]@{ first_build = 1000000; rebuild = 1; system_drive = 3;"
+            " build_tools = 8 } } }\n"
+            "$sys = [IO.Path]::GetPathRoot([Environment]::GetFolderPath('Windows'))\n"
+            "Assert-PinyonFreeSpace -Root $sys -FirstBuild -BuildToolsMissing")
+        self.assertIn("1000011 GB", result["hint"])
+        self.assertIn("1000000 GB for the build", result["hint"])
+        self.assertIn("3 GB for temporary files", result["hint"])
+        self.assertIn("8 GB for the Microsoft C++ Build Tools", result["hint"])
+        self.assertIn("Choose Change next to Installs to", result["hint"])
+
     def test_the_android_build_has_its_own_figure(self):
         result = failure(
             "function Get-PinyonReleaseToolchain { [pscustomobject]@{ disk_space_gb ="

@@ -977,7 +977,7 @@ public partial class MainWindow : Window
             // Files an earlier release had and this one dropped; never .local.
             foreach (var stale in PayloadManifest.RemoveStale(destination, entries))
                 _portableNotes.Add($"Removed {stale}, which this release no longer has.");
-            await Task.Run(() => ZipFile.ExtractToDirectory(payload, destination, overwriteFiles: true));
+            await Task.Run(() => PayloadExtractor.Extract(payload, destination));
             if (!IsRoot(destination) || !HasPayloadFiles())
                 throw new InvalidDataException("The release source payload is incomplete. Extract a fresh launcher release and retry.");
             await File.WriteAllTextAsync(payloadMarker, payloadHash + Environment.NewLine);

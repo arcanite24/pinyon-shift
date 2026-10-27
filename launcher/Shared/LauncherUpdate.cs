@@ -492,3 +492,60 @@ public static class PayloadManifest
     public static void Write(string destination, IReadOnlyList<string> entries) =>
         File.WriteAllText(Path.Combine(destination, FileName), string.Join('\n', entries) + "\n");
 }
+
+/// <summary>Unpacks the source payload over an earlier release (#802). The
+/// payload's entries all carry one fixed timestamp (the ZIP is
+/// deterministic), so a plain extraction stamped every source file with that
+/// old date. The build tree left by the previous release is newer than that,
+/// so Ninja saw nothing to rebuild and the update kept running the old
+/// executable. Files whose bytes changed are written with the current time;
+/// identical files are left alone, which keeps their build outputs valid.</summary>
+public static class PayloadExtractor
+{
+    public static int Extract(string payload, string destination)
+    {
+        var root = Path.GetFullPath(destination).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        var written = 0;
+        using var archive = ZipFile.OpenRead(payload);
+        foreach (var entry in archive.Entries)
+        {
+            var path = Path.GetFullPath(Path.Combine(root, entry.FullName));
+            if (!path.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException($"The payload entry {entry.FullName} points outside the source folder.");
+            if (string.IsNullOrEmpty(entry.Name))
+            {
+                Directory.CreateDirectory(path);
+                continue;
+            }
+            if (SameContent(entry, path)) continue;
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            entry.ExtractToFile(path, overwrite: true);
+            File.SetLastWriteTimeUtc(path, DateTime.UtcNow);
+            written++;
+        }
+        return written;
+    }
+
+    private static bool SameContent(ZipArchiveEntry entry, string path)
+    {
+        var info = new FileInfo(path);
+        if (!info.Exists || info.Length != entry.Length) return false;
+        using var existing = info.OpenRead();
+        using var packed = entry.Open();
+        var left = new byte[81920];
+        var right = new byte[81920];
+        while (true)
+        {
+            var read = existing.Read(left, 0, left.Length);
+            var filled = 0;
+            while (filled < read)
+            {
+                var got = packed.Read(right, filled, read - filled);
+                if (got == 0) return false;
+                filled += got;
+            }
+            if (read == 0) return true;
+            if (!left.AsSpan(0, read).SequenceEqual(right.AsSpan(0, read))) return false;
+        }
+    }
+}

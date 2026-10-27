@@ -759,20 +759,39 @@ function Assert-PinyonFreeSpace {
     )
     $space = (Get-PinyonReleaseToolchain).disk_space_gb
     $needs = [ordered]@{}
+    $parts = @{}
     $install = [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($Root)).ToUpperInvariant()
     $system = ([Environment]::GetFolderPath('Windows') | ForEach-Object { [IO.Path]::GetPathRoot($_) }).ToUpperInvariant()
-    $needs[$install] = [double]$(if ($Android) { $space.android } elseif ($FirstBuild) { $space.first_build } else { $space.rebuild })
+    $buildNeed = [double]$(if ($Android) { $space.android } elseif ($FirstBuild) { $space.first_build } else { $space.rebuild })
+    $needs[$install] = $buildNeed
+    $parts[$install] = @("$buildNeed GB for the build, the game files and the tools")
     $systemNeed = [double]$space.system_drive + $(if ($BuildToolsMissing) { [double]$space.build_tools } else { 0 })
-    if ($needs.Contains($system)) { $needs[$system] += $systemNeed } else { $needs[$system] = $systemNeed }
+    $systemParts = @("$([double]$space.system_drive) GB for temporary files")
+    if ($BuildToolsMissing) { $systemParts += "$([double]$space.build_tools) GB for the Microsoft C++ Build Tools" }
+    if ($needs.Contains($system)) {
+        $needs[$system] += $systemNeed
+        $parts[$system] += $systemParts
+    }
+    else {
+        $needs[$system] = $systemNeed
+        $parts[$system] = $systemParts
+    }
     $short = foreach ($drive in $needs.Keys) {
         try { $free = [IO.DriveInfo]::new($drive).AvailableFreeSpace / 1GB } catch { continue }
         if ($free -lt $needs[$drive]) {
-            "$($drive.TrimEnd('')) has $([Math]::Round($free, 1)) GB free and needs $($needs[$drive]) GB"
+            "$($drive.TrimEnd('')) has $([Math]::Round($free, 1)) GB free and needs $($needs[$drive]) GB ($($parts[$drive] -join ' + '))"
         }
     }
     if (@($short).Count -gt 0) {
-        $hint = "Free up space ($(@($short) -join '; ')), then start setup again. " +
-            'The install drive holds the build; the Windows drive holds the build tools and temporary files.'
+        # Only the Build Tools and the compilers' scratch files go to the Windows
+        # drive; everything else follows the install folder (#725).
+        $where = if ($install -eq $system) {
+            "Pinyon Shift is installing to $Root, on the Windows drive. Choose Change next to Installs to in the launcher " +
+            "to install on a drive with $buildNeed GB free; the Windows drive then needs only $systemNeed GB."
+        } else {
+            "The install drive ($install) holds the build; the Windows drive ($system) holds the build tools and temporary files."
+        }
+        $hint = "Free up space ($(@($short) -join '; ')), then start setup again. $where"
         $failure = [Exception]::new("Not enough free disk space for the build. $hint")
         $failure.Data['step'] = 'Check free disk space'
         $failure.Data['error_kind'] = 'disk-space'
