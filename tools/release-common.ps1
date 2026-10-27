@@ -330,6 +330,13 @@ function Get-PinyonFailureHint {
     if ($text -match '(?i)No CMAKE_(C|CXX)_COMPILER could be found|is not a full path to an existing compiler|Could not find any instance of Visual Studio|Unable to initialize the Microsoft x64 build environment|vcvarsall|The C(XX)? compiler identification is unknown') {
         return 'The C++ build tools are missing or incomplete. Restart Windows after installing the Microsoft C++ Build Tools, then run setup again.'
     }
+    # Ninja runs link steps through cmd.exe /C, so this message comes from the
+    # command shell, not from the compiler (#769: a link test failed this way
+    # in "D:\Games\Forza Horizon\..."). The cause is not established; these
+    # are the usual suspects.
+    if ($text -match 'FAILED:' -and $text -match '(?i)The system cannot find the path specified') {
+        return 'Windows'' command shell stopped a link step with "The system cannot find the path specified". Install Pinyon Shift in a folder without spaces (for example D:\PinyonShift), and check that no AutoRun command is set under HKCU\Software\Microsoft\Command Processor or HKLM\Software\Microsoft\Command Processor (some shell add-ons set one), then run setup again.'
+    }
     $null
 }
 
