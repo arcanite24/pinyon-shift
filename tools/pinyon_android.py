@@ -27,6 +27,7 @@ import hashlib
 import json
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -98,11 +99,33 @@ def sdk_root() -> Path:
                        "(Android Studio's SDK Manager or the command-line tools install it)")
 
 
+def jdk_major(javac: Path | str) -> int | None:
+    """The major version a javac reports ("javac 17.0.2", or "javac 1.8.0_411"
+    for Java 8), or None when it cannot be run."""
+    try:
+        completed = subprocess.run([str(javac), "-version"], capture_output=True, text=True,
+                                   timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    match = re.search(r"javac\s+(?:1\.)?(\d+)", completed.stdout + completed.stderr)
+    return int(match.group(1)) if match else None
+
+
+def _usable_jdk(home: Path) -> bool:
+    """A JDK folder with javac and keytool of at least the pinned major
+    version. sdkmanager refuses Java older than 17 (#811), and the Oracle
+    "javapath" shim on PATH has javac but no keytool (#868)."""
+    return ((home / "bin" / _exe("javac")).is_file() and (home / "bin" / _exe("keytool")).is_file()
+            and (jdk_major(home / "bin" / _exe("javac")) or 0) >= CONFIG["jdk_major"])
+
+
 def java_home() -> Path | None:
-    """JAVA_HOME, or the JDK tools/build-android.ps1 unpacked."""
-    if os.environ.get("JAVA_HOME"):
+    """JAVA_HOME when it is a usable JDK, else the JDK tools/build-android.ps1
+    unpacked. A JAVA_HOME that points at an old or partial JDK is skipped
+    rather than used to fail later."""
+    if os.environ.get("JAVA_HOME") and _usable_jdk(Path(os.environ["JAVA_HOME"])):
         return Path(os.environ["JAVA_HOME"])
-    if (LOCAL_JDK / "bin" / _exe("javac")).is_file():
+    if _usable_jdk(LOCAL_JDK):
         return LOCAL_JDK
     return None
 
@@ -158,6 +181,9 @@ class Tools:
         java_bin = self.java_home / "bin" if self.java_home else None
         self.javac = self._find(java_bin, "javac")
         self.keytool = self._find(java_bin, "keytool")
+        if not java_bin and self.javac and (jdk_major(self.javac) or 0) < CONFIG["jdk_major"]:
+            # Only an old JDK on PATH (Java 8 from the Oracle installer, say).
+            self.javac = self.keytool = None
         host = "windows-x86_64" if WINDOWS else f"{platform.system().lower()}-x86_64"
         self.llvm_bin = self.ndk / "toolchains" / "llvm" / "prebuilt" / host / "bin"
         self.strip = self.llvm_bin / _exe("llvm-strip")
@@ -198,7 +224,7 @@ class Tools:
             "build-tools " + CONFIG["android_sdk"]["build_tools"]: self.aapt2,
             CONFIG["android_sdk"]["platform"]: self.android_jar,
             "platform-tools (adb)": self.adb,
-            "JDK " + str(CONFIG["jdk_major"]) + " (javac)": self.javac,
+            "JDK " + str(CONFIG["jdk_major"]) + " or newer (javac)": self.javac,
             "JDK keytool": self.keytool,
             "CMake": self.cmake,
             "Ninja": self.ninja,
@@ -211,6 +237,81 @@ def run(command: list, **kwargs) -> subprocess.CompletedProcess:
     if completed.returncode:
         raise AndroidError(f"{Path(str(command[0])).name} failed ({completed.returncode})")
     return completed
+
+
+def pinned_git() -> Path | None:
+    """The MinGit the PC build provisions (config/release-toolchain.json)."""
+    try:
+        entry = json.loads((ROOT / "config" / "release-toolchain.json").read_text(
+            encoding="utf-8"))["git"]
+    except (OSError, KeyError, json.JSONDecodeError):
+        return None
+    path = ROOT / entry["install_path"] / entry["executable"]
+    return path if path.is_file() else None
+
+
+def with_git(environment: dict) -> dict:
+    """The environment with a Git on PATH. CMake's FetchContent clones the
+    FidelityFX SDK with git and stops with "could not find git" on a player's
+    PC that has none (#810); the launcher's pinned MinGit serves."""
+    if shutil.which("git", path=environment.get("PATH")):
+        return environment
+    git = pinned_git()
+    if not git:
+        return environment
+    return dict(environment, PATH=str(git.parent) + os.pathsep + environment.get("PATH", ""))
+
+
+TRANSIENT_ATTEMPTS = 3
+
+
+def sdkmanager_install(tools: Tools, args: argparse.Namespace, environment: dict,
+                       sleep=time.sleep) -> None:
+    """Install the pinned SDK packages. The packages come from dl.google.com,
+    and players on some networks lose the connection part way (changing
+    network or using a VPN fixed it, #811 #868), so a failed attempt is
+    retried after a pause; the packages already installed are kept. A failure
+    that waiting cannot fix (Java too old, a license not accepted) stops at
+    once."""
+    packages = CONFIG["android_sdk"]["packages"]
+    command = [str(tools.sdkmanager), f"--sdk_root={tools.sdk}", "--install", *packages]
+    # The player accepted the Android SDK license (the launcher shows it
+    # before the build); otherwise sdkmanager asks here.
+    answers = "y\n" * 16 if args.accept_licenses else None
+    for attempt in range(1, TRANSIENT_ATTEMPTS + 1):
+        process = subprocess.Popen(command, stdin=subprocess.PIPE if answers else None,
+                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                   text=True, errors="replace", env=environment)
+        if answers:
+            try:
+                process.stdin.write(answers)
+                process.stdin.close()
+            except OSError:
+                pass
+        output = []
+        for line in process.stdout:
+            print(line, end="", flush=True)
+            output.append(line)
+        code = process.wait()
+        if code == 0:
+            return
+        text = "".join(output)
+        if "Java version" in text and "required" in text:
+            raise AndroidError("sdkmanager needs Java 17 or newer, and found an older one on PATH "
+                               "(JAVA_HOME is " + str(environment.get("JAVA_HOME", "not set")) + ")")
+        if "licenses have not been accepted" in text.lower() or "accept the license" in text.lower():
+            raise AndroidError("the Android SDK license was not accepted: run "
+                               "pinyon.py android doctor --install --accept-licenses")
+        if attempt == TRANSIENT_ATTEMPTS:
+            raise AndroidError(
+                f"sdkmanager failed ({code}) installing {', '.join(packages)} after "
+                f"{attempt} attempts. It downloads from dl.google.com; if the lines above show a "
+                "connection, timeout, certificate or host error, try another network or a VPN, "
+                "and check that an antivirus, proxy or firewall is not blocking Java")
+        delay = 10 * attempt
+        print(f"sdkmanager failed ({code}); retrying in {delay} seconds "
+              f"(attempt {attempt + 1} of {TRANSIENT_ATTEMPTS}).", flush=True)
+        sleep(delay)
 
 
 def adb(tools: Tools, args: argparse.Namespace, *command: str, **kwargs):
@@ -252,17 +353,10 @@ def doctor(args: argparse.Namespace) -> int:
     if missing and args.install:
         if not tools.sdkmanager.is_file():
             raise AndroidError("the SDK's command-line tools are needed to install packages")
-        packages = CONFIG["android_sdk"]["packages"]
         environment = dict(os.environ)
         if tools.java_home:
             environment["JAVA_HOME"] = str(tools.java_home)
-        command = [tools.sdkmanager, f"--sdk_root={tools.sdk}", "--install", *packages]
-        if args.accept_licenses:
-            # The player accepted the Android SDK license (the launcher
-            # shows it before the build); otherwise sdkmanager asks here.
-            run(command, input="y\n" * 16, text=True, env=environment)
-        else:
-            run(command, env=environment)
+        sdkmanager_install(tools, args, environment)
         missing = Tools().missing()
     for line in (f"sdk: {tools.sdk}", f"ndk: {tools.ndk}", f"build-tools: {tools.build_tools}",
                  f"javac: {tools.javac}", f"cmake: {tools.cmake}", f"ninja: {tools.ninja}"):
@@ -285,7 +379,7 @@ def build(args: argparse.Namespace) -> int:
                            "first (the launcher, tools/build-preview.ps1 or, for v4, "
                            "tools/build-v4.ps1)")
     directory = build_directory(args)
-    environment = dict(os.environ, ANDROID_NDK_HOME=str(tools.ndk))
+    environment = with_git(dict(os.environ, ANDROID_NDK_HOME=str(tools.ndk)))
     if not configured(directory):
         run([tools.cmake, "--preset", preset(args),
              f"-DREXSDK_DIR={rexsdk_dir().as_posix()}",

@@ -125,6 +125,78 @@ function Invoke-PinyonDownload {
     }
 }
 
+# Paths past the 260-character limit. A zip with deep entries (the Android
+# command-line tools' guava jars) unpacked under a long install folder
+# stopped with "Could not find a part of the path" (#799). Windows
+# PowerShell 5.1's .NET rejects the \?\ prefix that lifts the limit, so the
+# few calls needed go to Win32 directly.
+function Initialize-PinyonLongPath {
+    if ('PinyonLongPath' -as [type]) { return }
+    Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.IO;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
+
+public static class PinyonLongPath
+{
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    static extern bool CreateDirectoryW(string path, IntPtr security);
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    static extern uint GetFileAttributesW(string path);
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    static extern SafeFileHandle CreateFileW(string path, uint access, uint share, IntPtr security,
+        uint disposition, uint flags, IntPtr template);
+
+    public static string Prefix(string path)
+    {
+        string full = Path.GetFullPath(path);
+        if (full.StartsWith(@"\\?\")) return full;
+        if (full.StartsWith(@"\\")) return @"\\?\UNC\" + full.Substring(2);
+        return @"\\?\" + full;
+    }
+
+    public static bool DirectoryExists(string path)
+    {
+        uint attributes = GetFileAttributesW(Prefix(path));
+        return attributes != 0xFFFFFFFF && (attributes & 0x10) != 0;
+    }
+
+    public static void CreateDirectories(string path)
+    {
+        string full = Path.GetFullPath(path);
+        if (full.Length <= Path.GetPathRoot(full).Length) return;
+        full = full.TrimEnd((char)92);
+        if (DirectoryExists(full)) return;
+        string parent = Path.GetDirectoryName(full);
+        if (!string.IsNullOrEmpty(parent)) CreateDirectories(parent);
+        if (!CreateDirectoryW(Prefix(full), IntPtr.Zero) && Marshal.GetLastWin32Error() != 183)
+            throw new Win32Exception(Marshal.GetLastWin32Error(), "Cannot create " + full);
+    }
+
+    public static FileStream Create(string path)
+    {
+        // GENERIC_WRITE, no sharing, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL
+        SafeFileHandle handle = CreateFileW(Prefix(path), 0x40000000, 0, IntPtr.Zero, 2, 0x80, IntPtr.Zero);
+        if (handle.IsInvalid)
+            throw new Win32Exception(Marshal.GetLastWin32Error(), "Cannot create " + path);
+        return new FileStream(handle, FileAccess.Write);
+    }
+}
+'@
+}
+
+# Deletes a folder tree that may hold paths past the 260-character limit,
+# which Remove-Item in Windows PowerShell 5.1 cannot.
+function Remove-PinyonTree {
+    param([Parameter(Mandatory)] [string]$Path)
+    Initialize-PinyonLongPath
+    if (-not [PinyonLongPath]::DirectoryExists($Path)) { return }
+    & "$env:SystemRoot\System32\cmd.exe" /d /c rd /s /q ('"' + [PinyonLongPath]::Prefix($Path) + '"') | Out-Null
+    if ([PinyonLongPath]::DirectoryExists($Path)) { throw "Could not delete $Path." }
+}
+
 function Expand-PinyonZip {
     param(
         [Parameter(Mandatory)] [string]$Archive,
@@ -142,6 +214,22 @@ function Expand-PinyonZip {
             $target = [IO.Path]::GetFullPath((Join-Path $root $entry.FullName))
             if (-not $target.StartsWith($root, [StringComparison]::OrdinalIgnoreCase)) {
                 throw "The archive entry $($entry.FullName) is outside the destination."
+            }
+            if ($target.Length -ge 240) {
+                # Past what .NET's file calls accept (#799).
+                Initialize-PinyonLongPath
+                if ($entry.FullName.EndsWith('/') -or $entry.FullName.EndsWith('\')) {
+                    [PinyonLongPath]::CreateDirectories($target)
+                    continue
+                }
+                [PinyonLongPath]::CreateDirectories((Split-Path $target -Parent))
+                $source = $entry.Open()
+                try {
+                    $output = [PinyonLongPath]::Create($target)
+                    try { $source.CopyTo($output) } finally { $output.Dispose() }
+                }
+                finally { $source.Dispose() }
+                continue
             }
             if ($entry.FullName.EndsWith('/') -or $entry.FullName.EndsWith('\')) {
                 [void](New-Item -ItemType Directory -Force -Path $target)

@@ -98,6 +98,23 @@ class BuildTests(unittest.TestCase):
         android = read(ROOT / "tools" / "pinyon_android.py")
         self.assertIn('pinned = LOCAL_SDK / "cmdline-tools" / "latest" / "bin"', android)
 
+    def test_the_jdk_must_be_17_with_keytool_and_the_pinned_git_is_on_path(self):
+        # An Oracle Java 8 on PATH ("Java version 17 or higher is required",
+        # #811), its javapath shim without keytool (#868) and no git for
+        # CMake's FidelityFX clone (#810) each failed the build for players.
+        self.assertIn("Test-PinyonJdk -JavaHome $candidate -MinimumMajor $android.jdk_major",
+                      self.build)
+        self.assertIn(r"bin\keytool.exe", self.build)
+        self.assertNotIn("-not $haveJdk -and -not $env:JAVA_HOME", self.build)
+        self.assertLess(self.build.index("Get-PinyonGit"), self.build.index("'android', 'build'"))
+
+    def test_the_command_line_tools_unpack_past_the_path_limit(self):
+        self.assertIn("Remove-PinyonTree -Path $unpack", self.build)
+        self.assertIn("[IO.Directory]::Move((Join-Path $unpack 'cmdline-tools'), $latest)",
+                      self.build)
+        common = read(ROOT / "tools" / "release-common.ps1")
+        self.assertIn("[PinyonLongPath]::CreateDirectories", common)
+
     def test_usb_install_is_for_developers_and_resumes(self):
         usb = read(ROOT / "tools" / "install-android-usb.ps1")
         self.assertLess(usb.index("'android', 'install'"), usb.index("'android', 'push-data'"))
