@@ -199,7 +199,7 @@
           "size": 1083125760,
           "sha256": "AA7BD510649F5441AA8E626E8D20CCCB6D0DBC99BD9B8834DEE8C9DF993D9497",
           "license_mask": "FFFFFFFF",
-          "reason": "this copy is a known damaged dump: three Colorado dirt-track terrain files in it are corrupt, so the Rally stages would fail to load. Import another copy of the Rally package; the one in the full Forza Horizon DLC set is verified. Your other DLC is not affected."
+          "reason": "this copy is a known damaged dump, not a different version: 48 KiB of its Colorado dirt-track terrain data was overwritten with a repeat of the data after it, so three terrain files are corrupt and the Rally stages would fail to load. The package's own block hashes disagree with it. Import the Rally package from the full Forza Horizon DLC set instead; that copy is verified. Your other DLC is not affected."
         }
       ]
     },

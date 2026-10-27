@@ -186,6 +186,23 @@ members fail XMem decompression. The same members in the aggregate variant
 decompress successfully and match their archived CRCs. Use the Rally package
 inside `Forza Horizon.zip`; its accepted hash is pinned in the catalog.
 
+Investigated 2026-10-27 (bug bash, issue #610 and later reports): it is
+genuinely damaged, not a different valid build. The two STFS packages have the
+same size and differ in the header (licence mask `FFFFFFFF` against
+`00000001`, signature area) and in exactly one place in the data: 12
+consecutive 4 KiB blocks at package offset `0x102DC000` (48 KiB, inside
+`ColoradoDirt_pri_65.zip` at ZIP offset `0x5743000`, covering the compressed
+data of `coloradodirtout.00456`, `.06367` and `.00757.rmb.bin`). Those 12
+blocks are byte-identical to the 12 blocks that follow them, i.e. a
+duplicated run from a bad copy or read. Every other byte of the 1,083,125,760
+matches. ZIP central and local headers, sizes, CRCs and compression flags
+are the same in both, so no alternative LZX window, partition size or
+reset setting can apply; only the compressed bytes differ. The package's
+own STFS level-0 hash table is identical in both files and holds the
+aggregate copy's SHA-1 for those 12 blocks, so the standalone data fails its
+own block hashes too. The importer keeps rejecting it by whole-package
+hash; the catalog reason now says what is wrong and which package works.
+
 ## Implementation checklist
 
 ### DLC-0: verify inputs and the base-disc foundation — P0
