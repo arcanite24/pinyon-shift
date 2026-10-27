@@ -342,9 +342,12 @@ catch { [Console]::Error.Write($_.Exception.Message); exit 2 }
         self.assertIn("'safe.directory'", trust)
         self.assertIn('"$trusted/*"', trust)
         self.assertIn("GIT_CONFIG_COUNT", trust)
-        # A broken global http.sslCAInfo failed every clone (#604).
-        self.assertIn("'http.sslCAInfo'", trust)
-        self.assertIn(r"mingw64\etc\ssl\certs\ca-bundle.crt", trust)
+        # A broken global http.sslCAInfo failed every clone (#604). MinGit
+        # uses schannel and ignores CA files: its own bundle under a
+        # non-ASCII user folder failed with "failed to open CA file".
+        self.assertIn("@('http.sslBackend', 'schannel')", trust)
+        self.assertIn("@('http.schannelUseSSLCAInfo', 'false')", trust)
+        self.assertNotIn("@('http.sslCAInfo'", trust)
 
     def test_powershell_is_started_by_full_path(self):
         # A PATH without the WindowsPowerShell folder failed setup with "The

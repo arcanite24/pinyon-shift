@@ -1048,15 +1048,20 @@ function Set-PinyonGitEnvironment {
     #   dubious ownership", #599), as on drives formatted on another PC.
     #   The checkout and its nested SDK repositories are the player's own.
     # - A global http.sslCAInfo left by a removed or broken Git for Windows
-    #   failed every clone with "error adding trust anchors" (#604); the
-    #   pinned MinGit uses its own certificate bundle.
+    #   failed every clone with "error adding trust anchors" (#604). The
+    #   pinned MinGit uses Windows' certificate store through schannel and
+    #   ignores any CA file. Pointing it at its own bundle instead failed
+    #   under a user folder with a non-ASCII name ("schannel: failed to open
+    #   CA file", an accented C:\Users\Theo); git only skips the file when
+    #   the backend is set explicitly.
     $trusted = $Root.Replace('\', '/').TrimEnd('/')
     $settings = [Collections.Generic.List[string[]]]::new()
     $settings.Add(@('safe.directory', $trusted))
     $settings.Add(@('safe.directory', "$trusted/*"))
     $bundle = Join-Path (Split-Path (Split-Path $Git -Parent) -Parent) 'mingw64\etc\ssl\certs\ca-bundle.crt'
     if (Test-Path -LiteralPath $bundle -PathType Leaf) {
-        $settings.Add(@('http.sslCAInfo', $bundle.Replace('\', '/')))
+        $settings.Add(@('http.sslBackend', 'schannel'))
+        $settings.Add(@('http.schannelUseSSLCAInfo', 'false'))
     }
     $count = 0
     $existing = [Environment]::GetEnvironmentVariable('GIT_CONFIG_COUNT')

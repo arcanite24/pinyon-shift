@@ -23,6 +23,8 @@ Report the evidence so the maintainer can investigate and submit the exact sampl
 
 Check the connection and run the launcher again. Network failures are retried, and every pinned download is verified by SHA-256 before use, so partial files are never trusted. If curl fails, the launcher retries without a strict certificate revocation check and then with Windows' own downloader, which follows the system proxy. If a file still won't download but your browser can fetch it (a proxy or antivirus web filtering is the usual cause), download it in the browser and save it under the name and folder the error gives; setup checks it and continues.
 
+On Windows, setup clones ShiftGlue with its own Git, which checks certificates against Windows' certificate store. Up to 0.7.0 it pointed Git at a certificate file instead, and under a user folder with an accented or other non-ASCII name, such as `C:\Users\Théo`, every attempt failed with `schannel: failed to open CA file`. Update the launcher; nothing else needs changing.
+
 ## The build fails
 
 Restart Windows after a Build Tools install, free the space the error lists for each drive (about 30 GB on the install drive, plus 3 GB on the Windows drive, or 11 GB there while the Build Tools are missing; see [Install location](install.md#install-location)), and close any running game before trying again. When a step fails, the launcher shows which one, its exit code and the first real compiler, CMake or file-copy error, with a hint for common causes: a full disk, low memory, antivirus, a file in use. The same report is saved in `.local/logs/setup-error.json`. Attach it to a bug report; the final "build failed" line alone can't identify the cause.
