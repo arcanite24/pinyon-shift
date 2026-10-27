@@ -351,10 +351,15 @@ std::string SettingsPages::ResolutionLine() const {
     return line;
   }
   const auto [output_width, output_height] = *output;
+  const std::string effect = Unquote(Saved("present_effect"));
   if (output_width == render_width && output_height == render_height) {
+    // A temporal upscaler still runs at 1:1 as native anti-aliasing (DLAA
+    // for DLSS, #804).
+    if (IsTemporalEffect(effect) && TemporalUpscalerAvailable(effect)) {
+      return line + ", " + TemporalUpscalerLabel(effect) + " ANTI-ALIASES AT THAT SIZE";
+    }
     return line + ", SHOWN AT THAT SIZE";
   }
-  const std::string effect = Unquote(Saved("present_effect"));
   const char* upscaler = SameValue(effect, "fsr")    ? ", FSR 1 UPSCALES TO "
                          : SameValue(effect, "fsr2") ? ", FSR 2 UPSCALES TO "
                          : SameValue(effect, "fsr3") ? ", FSR 3 UPSCALES TO "
