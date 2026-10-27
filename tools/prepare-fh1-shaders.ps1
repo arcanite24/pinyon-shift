@@ -77,8 +77,13 @@ try {
         draw_resolution_scale_x = '1'; draw_resolution_scale_y = '1'
     }
     $config = Join-Path $StateRoot 'config/pinyon_shift.toml'
-    if (Test-Path -LiteralPath $config) {
-        $text = Get-Content -LiteralPath $config -Raw
+    # Get-Content -Raw returns $null for an empty file, and [regex]::Match
+    # throws on $null (#793): read the settings as an empty string instead.
+    $configText = if (Test-Path -LiteralPath $config -PathType Leaf) {
+        [string](Get-Content -LiteralPath $config -Raw)
+    } else { '' }
+    if ($configText) {
+        $text = $configText
         foreach ($name in @($settings.Keys)) {
             $match = [regex]::Match($text, "(?m)^\s*$name\s*=\s*([^#\r\n]+)")
             if ($match.Success) { $settings[$name] = $match.Groups[1].Value.Trim().ToLowerInvariant() }
@@ -105,8 +110,8 @@ try {
         return
     }
     # Not a key input: whether the other scales are prepared as well.
-    $prepareAllScales = (Test-Path -LiteralPath $config) -and [regex]::IsMatch(
-        (Get-Content -LiteralPath $config -Raw), '(?m)^\s*pinyon_shift_prepare_all_scales\s*=\s*true\b')
+    $prepareAllScales = [regex]::IsMatch(
+        $configText, '(?m)^\s*pinyon_shift_prepare_all_scales\s*=\s*true\b')
     $scale = [int]$settings.draw_resolution_scale_x
     if ($scale -lt 1 -or $scale -gt 4 -or [int]$settings.draw_resolution_scale_y -ne $scale) {
         throw 'Choose a matching 1x, 2x, 3x or 4x graphics resolution before preparing shaders.'
