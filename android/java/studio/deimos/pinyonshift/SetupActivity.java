@@ -248,6 +248,14 @@ public class SetupActivity extends Activity implements View.OnClickListener {
 
         text(column, "Pinyon Shift", 26, Color.WHITE, true);
         intro = text(column, "", 15, MUTED, false);
+        // No Qualcomm kernel GPU driver: probably Mali (Tensor, Exynos, Dimensity), which
+        // the game refuses at start unless the opt-in at the bottom is ticked.
+        if (!new File("/sys/class/kgsl/kgsl-3d0").exists() && !hasArguments(VERTEX_STORES_FALLBACK)) {
+            text(column, "This device does not look like a Snapdragon (Adreno). If the game closes at "
+                    + "start, scroll down to Experimental and tick \"Allow GPUs without vertex "
+                    + "shader stores\", then try again.", 14, ACCENT, false)
+                    .setPadding(0, dp(12), 0, 0);
+        }
 
         text(column, "From your PC over Wi-Fi", 18, ACCENT, true).setPadding(0, dp(16), 0, 0);
         text(column, "On the PC, open the Pinyon Shift launcher, choose Android, then Share on Wi-Fi, "
