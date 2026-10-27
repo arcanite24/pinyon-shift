@@ -15,6 +15,9 @@ A developer alpha. The Android build is the same recompiled game, cross-compiled
 - About 15 GB free on the PC's install drive. The launcher downloads the pinned Android SDK, NDK and JDK 17 when the PC has none, after you accept the Android SDK license. With Android Studio's SDK already installed, it adds the missing packages to that SDK with its own pinned command-line tools.
 - An arm64 device with an ARMv8.2 CPU (for example, Cortex-A55 or Cortex-A75), Android 13 or later and a Vulkan 1.3 driver, about 8 GB free, on the same network as the PC. A later phone release date alone does not establish the CPU's instruction support.
 - Tuned for Snapdragon 8 Gen 2 or newer (Adreno 740 and up).
+- **Mali, Tensor, Exynos and Dimensity GPUs** need an opt-in on the app's setup screen before the game starts: tick **Allow GPUs without vertex shader stores** (long-press the icon, **Get files from PC**, scroll to Experimental). The setup screen shows a hint when the device has no Qualcomm GPU driver. See [troubleshooting](#troubleshooting).
+
+Tested chips: Snapdragon 8 Gen 2 (Adreno 740) and 8 Elite (Adreno 830) in the table below, and a Pixel 7 Pro (Mali-G710, with the opt-in) at about 43 fps. Every other chip, including Dimensity and Exynos, has not been tested.
 
 Older devices remain unqualified. The [minimum-requirements audit](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/android/MINIMUM_REQUIREMENTS.md) explains which CPU instructions, Android APIs and Vulkan features the build uses, and what must be tested before lowering these requirements.
 

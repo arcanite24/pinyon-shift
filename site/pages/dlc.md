@@ -16,8 +16,10 @@ DLC comes from your own Xbox 360 packages or the community downloads below. The 
 | Monthly car packs (October to April) | Qualified: cars appear in the Autoshow, can be bought and driven |
 | VIP Membership, Honda Challenge, Pre-Order, Season Pass and single cars | Cars qualified. The Honda challenge flow isn't qualified |
 | Horizon Rally | Native on the v4 build. On the base build, a prepared overlay makes the championships playable from <kbd>F6</kbd> |
-| 1000 Club | Offline car challenges with saved medals on the v4 build ("1000 Club offline" in the launcher) |
+| 1000 Club | Offline car challenges with saved medals on the v4 build. The launcher's **1000 Club offline** box (under title update v4) makes the game confirm goals locally instead of asking the closed Forza server; untick it and 1000 Club needs the server again. It takes effect the next time you start v4 |
 | Treasure Map | Included and on by default |
+
+In the launcher's DLC list, **Gameplay unverified** is the status the launcher gives an imported package whose files and licence match the catalog: it is verified, but no gameplay check is recorded for it. It is not an error. **Missing** or a damaged record are the states that need a reimport.
 
 Import every copy of a package you own: verified variants of the same package combine their licences. The full November pack, for example, needs its full-licence copy.
 

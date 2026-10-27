@@ -96,6 +96,10 @@ A `graphics.device_lost` event with a failed Vulkan command-buffer submit is a d
 
 Connect it before starting the game. Close Steam or other remapping software, reconnect and relaunch. When reporting an unsupported controller, include its exact name, USB vendor and product IDs, and a screenshot from a gamepad tester.
 
+## The DualSense page shows no controller
+
+Open **F6 > CONTROLS > DUALSENSE**: the page is always there, and its status line reads **NO DUALSENSE CONNECTED** until the game sees the pad. A DualSense over USB is the tested case. Over Bluetooth it has not been tried yet ([DualSense](playing.md#dualsense)), so if it is paired but not listed, try the cable. If the status reads **STEAM INPUT HAS THE CONTROLLER**, Steam is handing the game a virtual Xbox pad: in Steam open **Properties > Controller**, choose **Disable Steam Input**, and restart the game. Connect the pad before starting the game. On Android only USB-C gets these features.
+
 ## A DualSense's triggers or lightbar do nothing
 
 Steam Input is probably holding the controller: when Steam starts the game with Steam Input on, the game only sees Steam's virtual Xbox controller, and **F6 > CONTROLS > DUALSENSE** says **STEAM INPUT HAS THE CONTROLLER**. In Steam, open the game's **Properties > Controller**, choose **Disable Steam Input**, and restart the game. Started outside Steam, the game drives the controller itself. See [DualSense](playing.md#dualsense).

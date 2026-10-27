@@ -36,7 +36,7 @@ Administrator permission is requested only when Visual Studio 2022 C++ Build Too
 
 ## Updating
 
-Choose **Update to <version>** in the launcher's footer when it appears. The launcher downloads the release from GitHub, checks its SHA-256, replaces itself and restarts. Saves, settings and game files stay where they are; choose your disc image to build the new version, which takes a while. Downloading the new `PinyonShift-Launcher.zip` and running it still works too. On Android, rebuild the APK on the PC and share it again: the app offers the newer build.
+Choose **Update to <version>** in the launcher's footer when it appears. The launcher downloads the release from GitHub, checks its SHA-256, replaces itself and restarts. Saves, settings, the gamertag and game files stay where they are: the update only replaces the launcher and its bundled source, and the profile lives in the state folder it doesn't touch. The game itself is rebuilt, not patched: choose your disc image again (the launcher asks; it doesn't remember the earlier choice) and the new version is built, which takes a while. Downloading the new `PinyonShift-Launcher.zip` and running it still works too. On Android, rebuild the APK on the PC and share it again: the app offers the newer build.
 
 ## Use an extracted folder
 
