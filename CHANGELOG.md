@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.7.0 - 2026-10-27
+
+- The launcher installs the community UDLC pack and its Traffic Car
+  Unlocker from browser downloads (#595); DLC import takes several files
+  and folders and nested ZIPs (#857).
+- Database mods apply on the v4 build; QUIT GAME in the F6 menu; DualSense
+  settings always listed; DLSS and FSR at a 1:1 resolution anti-alias
+  (#804); an Android hint for non-Qualcomm GPUs.
+- Fixed: updates that kept the old game (#802), the SET WRISTBAND settings
+  file, an empty pinyon_shift.toml (#793), Android builds without
+  developer tools (#810, #811, #868, #799), Steam Deck SD card folders
+  (#805), macOS with current Xcode (#798), glows through the car (#803),
+  push descriptors on Mesa ANV (#813), an XMA crash (#827).
+- Faster: save backups at most every ten minutes instead of every
+  autosave; 4x depth aliases share memory (1.09 ms GPU at 3x, RTX 4080).
+
 ## 0.6.1 - 2026-10-21
 
 - Builds again on Linux and Steam Deck in folders with spaces (#727) and
