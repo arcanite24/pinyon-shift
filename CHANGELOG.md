@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.1 - 2026-10-27
+
+- Fixed: Windows setup failed to download ShiftGlue ("schannel: failed
+  to open CA file") under a user folder with an accented or other
+  non-ASCII name; Git now uses Windows' certificate store.
+
 ## 0.7.0 - 2026-10-27
 
 - The launcher installs the community UDLC pack and its Traffic Car
