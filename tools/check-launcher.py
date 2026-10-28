@@ -36,10 +36,17 @@ class Check {
     // A CI runner's scanner can briefly hold a ZIP the check has just
     // written ("being used by another process"); the launcher's own reads
     // are closed by then.
+    // ZipFile.Open asks for exclusive access, which fails while a scanner on
+    // the CI runner reads the new ZIP; sharing it lets the scanner keep its
+    // handle. Retry for up to about a minute in case one still blocks writes.
     static ZipArchive OpenZipForUpdate(string path) {
         for (var attempt = 1; ; attempt++) {
-            try { return ZipFile.Open(path, ZipArchiveMode.Update); }
-            catch (IOException) when (attempt < 10) { System.Threading.Thread.Sleep(200 * attempt); }
+            try {
+                var stream = new FileStream(path, FileMode.Open, FileAccess.ReadWrite,
+                    FileShare.ReadWrite | FileShare.Delete);
+                return new ZipArchive(stream, ZipArchiveMode.Update);
+            }
+            catch (IOException) when (attempt < 30) { System.Threading.Thread.Sleep(Math.Min(200 * attempt, 2000)); }
         }
     }
     [STAThread] static void Main(string[] args) {
