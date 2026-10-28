@@ -1183,6 +1183,11 @@ void PinyonShiftApp::OnPostSetup() {
     window()->AddListener(&resize_listener_);
     resize_listener_added_ = true;
   }
+  // The pointer shows while the mouse moves and hides after the SDK's idle
+  // delay. Mouse look's capture restores this mode when it releases.
+  if (window()) {
+    window()->SetCursorVisibility(rex::ui::Window::CursorVisibility::kAutoHidden);
+  }
   rex::cvar::RegisterChangeCallback("pinyon_shift_hor_plus",
                                     [this](std::string_view, std::string_view) {
                                       if (window()) {
