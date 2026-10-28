@@ -365,7 +365,11 @@ endfunction()
 
 # The entrypoint stamp's depfile records the manifest, included analysis TOMLs,
 # all three game binaries, and the SDK version. The generator writes the stamp
-# only after every entrypoint/module output succeeds.
+# only after every entrypoint/module output succeeds. The generator keeps its
+# own stamp check on: its fingerprint covers the generator binary too, so after
+# build-preview.ps1's bootstrap the first Ninja run of this edge (which Ninja
+# has no log entry for) skips the unchanged modules in seconds instead of
+# translating the game a second time.
 if(NOT PINYON_SHIFT_FROZEN_CODEGEN)
 add_custom_command(
     OUTPUT "${PINYON_SHIFT_GENERATED_DIR}/codegen.build.stamp"
@@ -386,7 +390,7 @@ add_custom_command(
     COMMAND "${PINYON_SHIFT_REXGLUE_CODEGEN}"
         --log-level info
         --log-file "${PINYON_SHIFT_CODEGEN_LOG}"
-        codegen "${PINYON_SHIFT_MANIFEST}" --ignore-stamp ${PINYON_SHIFT_CODEGEN_EXTRA_ARGS}
+        codegen "${PINYON_SHIFT_MANIFEST}" ${PINYON_SHIFT_CODEGEN_EXTRA_ARGS}
     DEPENDS ${PINYON_SHIFT_REXGLUE_CODEGEN_DEPENDS} "${PINYON_SHIFT_MANIFEST}"
     DEPFILE "${PINYON_SHIFT_GENERATED_DIR}/codegen.d"
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"

@@ -205,7 +205,7 @@ generous contracts. Neither result is an executed optimized backend;
 new target/escape proofs would justify a new census.
 [Stage 0 method, counts and limits](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/CLEAN_SLATE_STAGE0.md#cs-02-caller-demand-and-net-publications).
 
-Output is split into files of at most 1 MiB, with the function-to-file assignment kept stable between runs (`codegen.partition.json`) so a regeneration doesn't rebuild everything. CMake runs the generator with a depfile covering the manifest, the analysis files, the three images and the SDK version, then builds the main image as an object library with a precompiled header and the facades as shared libraries.
+Output is split into files of at most 1 MiB, with the function-to-file assignment kept stable between runs (`codegen.partition.json`) so a regeneration doesn't rebuild everything. CMake runs the generator with a depfile covering the manifest, the analysis files, the three images and the SDK version, then builds the main image as an object library with a precompiled header and the facades as shared libraries. The generator also keeps a content fingerprint per module, which includes its own binary, and skips a module whose fingerprint and outputs are unchanged. A first build translates once, before CMake configures, and Ninja's run of the same step then skips in under a second; before, it translated the game a second time, 87 s of a 15-minute first build on a Ryzen 7 5800X.
 
 | Setting | Value |
 | --- | --- |

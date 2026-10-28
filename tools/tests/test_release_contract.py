@@ -258,7 +258,9 @@ catch { [Console]::Error.Write($_.Exception.Message); exit 2 }
         self.assertIn("-fasync-exceptions", integration)
         self.assertIn("target_precompile_headers", integration)
         self.assertIn("_recomp OBJECT", integration)
-        self.assertIn("--ignore-stamp", integration)
+        # The generator's stamp check must stay on, or the first build after
+        # the bootstrap translates the game twice.
+        self.assertNotIn("--ignore-stamp", integration)
         self.assertIn("rexglue-sdk EXCLUDE_FROM_ALL", integration)
         self.assertIn("PINYON_SHIFT_REXGLUE_CODEGEN_DEPENDS", integration)
         self.assertIn("$<TARGET_FILE:rexruntime>", integration)

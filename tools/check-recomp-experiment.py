@@ -33,7 +33,7 @@ def check(build: Path, generated: Path, ipo: bool, pgo: str = "off") -> int:
             raise ValueError("Recomp-only IPO unexpectedly affects runtime")
         if "CMakeFiles/rexruntime.dir/" in command and "-fprofile-" in command:
             raise ValueError("Recomp-only PGO unexpectedly affects runtime")
-    if "--ignore-stamp" in (build / "build.ninja").read_text():
+    if "Generating dependency-tracked recompiled code" in (build / "build.ninja").read_text():
         raise ValueError("Build can invoke codegen; snapshot is not frozen")
     return len(shards)
 
