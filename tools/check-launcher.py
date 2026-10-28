@@ -20,6 +20,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -47,7 +48,36 @@ class Check {
                 return new ZipArchive(stream, ZipArchiveMode.Update);
             }
             catch (IOException) when (attempt < 30) { System.Threading.Thread.Sleep(Math.Min(200 * attempt, 2000)); }
+            catch (IOException error) {
+                throw new IOException($"{error.Message} Held by: {FileHolders(path)}", error);
+            }
         }
+    }
+
+    // Names the processes holding a file (Restart Manager), for lock failures in CI.
+    [StructLayout(LayoutKind.Sequential)] struct RmUniqueProcess { public int Pid; public System.Runtime.InteropServices.ComTypes.FILETIME Start; }
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)] struct RmProcessInfo {
+        public RmUniqueProcess Process;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)] public string AppName;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 64)] public string ServiceName;
+        public int AppType; public int AppStatus; public int TSSessionId; [MarshalAs(UnmanagedType.Bool)] public bool Restartable;
+    }
+    [DllImport("rstrtmgr.dll", CharSet = CharSet.Unicode)] static extern int RmStartSession(out uint session, int flags, string key);
+    [DllImport("rstrtmgr.dll")] static extern int RmEndSession(uint session);
+    [DllImport("rstrtmgr.dll", CharSet = CharSet.Unicode)] static extern int RmRegisterResources(uint session, uint files, string[] names, uint apps, IntPtr processes, uint services, string[]? serviceNames);
+    [DllImport("rstrtmgr.dll")] static extern int RmGetList(uint session, out uint needed, ref uint count, [In, Out] RmProcessInfo[]? info, out uint reasons);
+    static string FileHolders(string path) {
+        if (RmStartSession(out var session, 0, Guid.NewGuid().ToString()) != 0) return "unknown";
+        try {
+            if (RmRegisterResources(session, 1, [path], 0, IntPtr.Zero, 0, null) != 0) return "unknown";
+            uint count = 0;
+            RmGetList(session, out var needed, ref count, null, out _);
+            var info = new RmProcessInfo[needed];
+            count = needed;
+            if (needed == 0 || RmGetList(session, out needed, ref count, info, out _) != 0) return needed == 0 ? "no process found" : "unknown";
+            return string.Join(", ", info.Take((int)count).Select(p => $"{p.AppName} (pid {p.Process.Pid}{(p.Process.Pid == Environment.ProcessId ? ", this process" : "")})"));
+        }
+        finally { RmEndSession(session); }
     }
     [STAThread] static void Main(string[] args) {
         var app = new App();
