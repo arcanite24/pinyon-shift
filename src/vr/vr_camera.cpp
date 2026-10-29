@@ -57,8 +57,9 @@ REXCVAR_DEFINE_STRING(xr_render_scale, "", "Display",
                       "the flat resolution stays as it was. Empty: draw_resolution_scale_x and _y")
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 REXCVAR_DEFINE_BOOL(xr_camera_shake, false, "Display",
-                    "Keep the immersive camera's speed shake and braking vibration in VR: "
-                    "the headset did not make that motion, so it reads as the world shaking")
+                    "Keep the immersive camera's speed shake and braking vibration, and the "
+                    "game's speed shake and road-bump and tyre-slip vibration, in VR: the "
+                    "headset did not make that motion, so it reads as the world shaking")
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
 
 REXCVAR_DECLARE(bool, xr_enabled);
