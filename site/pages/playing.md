@@ -131,6 +131,20 @@ A wheel drives through the same controller path: steering on the left stick, thr
 
 **SEPARATE DEVICES** (experimental, [#337](https://github.com/arcanite24/pinyon-shift/issues/337)) is a second way in, tested on a Fanatec CSL DD with SimJack pedals on their own USB. The wheel base, the pedals and each button may come from different USB devices, so a separate pedal set, shifter, handbrake or button box needs no virtual joystick. The game sees an Xbox 360 force feedback wheel reporting 900 degrees, so it uses its own linear 900-degree steering (set the base to 900 degrees), and it drives the wheel with the force feedback it gave the Microsoft wheel: inertia, friction, damper, a spring that stiffens with speed and a steering force updated every frame, plus rumble. Bind it in the launcher: **Wheel** on its main screen (or **Settings > Configure Wheel**): it asks you to turn the wheel and press each pedal and button in the game's wheel layout (right paddle shifts up, left paddle down), then an H-shifter's gears (**Skip** at 1st gear without one; with one the game reads the gear from the shifter, and the paddles still shift), shows live what the game will read, and writes the `wheel_*` settings into `pinyon_shift.toml`, including each pedal's bottom and top dead zone and the force feedback device, strength and per-effect strengths, and the engine and road shares of the rumble (the game's engine rumble grows towards the limiter; road rumble is bumps, kerbs and impacts). Its force feedback **Test** pulls the wheel left, then right; if it pulls right first, tick **Reverse force direction**. Its Telemetry card turns telemetry out on and sets its format and target, saved as you change them. The Wheel screen is Windows only. **F6 > CONTROLS > RACING WHEEL** then turns force feedback on, to rumble only or off, sets its strength and direction (keep it low on a direct-drive base), and **RECORD FFB TRACE** writes every force feedback call the game makes, with your steering and pedals, to `ffb-trace-<time>.csv` beside the runtime log.
 
+### Head tracking
+
+**F6 > CONTROLS > HEAD TRACKING** turns and moves the cockpit and hood cameras with your head, from [OpenTrack](https://github.com/opentrack/opentrack)'s "UDP over network" output. OpenTrack takes input from TrackIR, webcams (its face trackers), phones and VR headsets.
+
+To set it up:
+
+1. In OpenTrack, choose **UDP over network** as the output, with address 127.0.0.1 and port 4242. If you change the port, pick the same one on the HEAD TRACKING page.
+2. Turn **HEAD TRACKING** on.
+3. Use OpenTrack's curves to set how far the view turns for a given head movement.
+
+Pinyon Shift applies the pose one to one: yaw, pitch and roll in degrees, and movement in centimetres. The view can turn a full 90 degrees to the side. **REVERSE** flips yaw, pitch or roll for a tracker that reports them the other way. Large upward or sideways head movement can take the view through the roof or the door, so keep OpenTrack's position limits small.
+
+If OpenTrack stops sending, the view holds for a second, then eases back to centre. It works through the built-in immersive camera mod, whose camera files for the base game and the v4 title update both carry the head layers. It was checked with fixed poses on the cockpit camera of the base game, not yet with a tracker or on v4.
+
 ### DualSense
 
 A Sony DualSense or DualSense Edge is driven directly through SDL's PlayStation 5 driver, so it can do things the Xbox 360 game never asked for. **F6 > CONTROLS > DUALSENSE** is always listed; its options are greyed out until a DualSense is connected, and its status line says whether one is connected (USB or Bluetooth), none is, or Steam Input has it. Everything there is off until you turn it on, and applies at once:
