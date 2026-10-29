@@ -7,7 +7,8 @@ launcher, and the Desktop launcher calls it directly.
 
   pinyon.py config get                  the settings the panel shows
   pinyon.py config apply [--resolution-scale N] [--output-scaling M]
-                         [--treasure-map true|false] [--game-preset P] ...
+                         [--treasure-map true|false] [--vr true|false] [--vr-scale WxH]
+                         [--game-preset P] ...
   pinyon.py config reset                back up the file, write the defaults
   pinyon.py config restore              back up the file, restore the newest backup
   pinyon.py config treasure-map on|off  the Treasure Map DLC switch
@@ -369,6 +370,10 @@ def settings_result(text: str, config: Path, backup: str | None, operation: str)
             "letterbox": flag("present_letterbox", "true"),
             # The game turns the Treasure Map on unless the file says false.
             "treasure_map": flag("pinyon_shift_dlc_treasure_map", "true"),
+            "vr": flag("xr_enabled", "false"),
+            "vr_scale": get_value(text, "xr_render_scale", "2x4"),
+            # The HUD on the headset's panel; false hides it for the VR run.
+            "vr_hud": flag("xr_hud_panel", "true"),
             "clear_memory_page_state": flag("clear_memory_page_state", "false"),
             "vsync": vsync,
             "host_present_fps_limit": to_int(get_value(text, "host_present_fps_limit", "0")),
@@ -426,6 +431,22 @@ def apply_settings(text: str, options: dict) -> str:
         text = set_value(text, "draw_resolution_scale_y", str(resolution))
     if options.get("treasure_map") is not None:
         text = set_value(text, "pinyon_shift_dlc_treasure_map", options["treasure_map"])
+    # FB-12.15: start in a VR headset, each eye at vr_scale (across x down).
+    # The game applies xr_render_scale over the resolution scale while VR is
+    # on, so the flat one is kept for when it is off. A file that never had
+    # VR on gets no VR lines.
+    if options.get("vr") is not None:
+        if options["vr"] == "true" or get_value(text, "xr_enabled", "") != "":
+            text = set_value(text, "xr_enabled", options["vr"])
+        if options["vr"] == "true":
+            text = set_value(text, "xr_render_scale", f'"{options.get("vr_scale") or "2x4"}"')
+    # Hide the HUD in VR (xr_hud_panel = false: no panel, and the game's HUD
+    # off for the run). Written while VR is on, or once the file has it.
+    if options.get("vr_hud") is not None:
+        vr_on = options.get("vr") == "true" or (
+            options.get("vr") is None and get_value(text, "xr_enabled", "false") == "true")
+        if vr_on or get_value(text, "xr_hud_panel", "") != "":
+            text = set_value(text, "xr_hud_panel", options["vr_hud"])
     if options.get("output_scaling") is not None:
         text = set_value(text, "present_effect", f'"{options["output_scaling"]}"')
     if options.get("anisotropy") is not None:
@@ -485,7 +506,8 @@ def run(args: argparse.Namespace) -> dict:
         else:
             options = {name: getattr(args, name) for name in (
                 "anisotropy", "post_effect", "resolution_scale", "output_scaling",
-                "treasure_map", "preset", "game_preset", "presentation_fps", "render_fps",
+                "treasure_map", "vr", "vr_scale", "vr_hud", "preset", "game_preset", "presentation_fps",
+                "render_fps",
                 "disable_bloom", "disable_motion_blur", "disable_depth_of_field")}
         backup = backup_config(config)
         text = apply_settings(text, options)
@@ -510,6 +532,9 @@ def add_parser(commands) -> None:
     apply.add_argument("--graphics-api", choices=("vulkan",))
     apply.add_argument("--output-scaling", choices=("bilinear", "cas", "fsr", "fsr2", "fsr3", "dlss"))
     apply.add_argument("--treasure-map", choices=booleans)
+    apply.add_argument("--vr", choices=booleans)
+    apply.add_argument("--vr-scale", choices=("2x3", "2x4", "3x3"))
+    apply.add_argument("--vr-hud", choices=booleans)
     apply.add_argument("--preset", choices=("custom", "shipping_1x", "experimental_2x",
                                             "experimental_3x"))
     apply.add_argument("--game-preset", choices=tuple(GAME_PRESETS))

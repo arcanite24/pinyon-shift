@@ -100,6 +100,8 @@ Tile-based mobile GPUs pay for each rendering: on the Adreno 830 one costs 24–
 | The three predicated scene bands drawn once ("single-pass scene") | Odin | 4x 32.0 to 29.2 ms; 1x 28.3 to 25.4 ms; no seam in captures |
 | | Desktop 3x | within noise |
 | Draws that write nothing skipped (about 120 a frame) | Desktop | within noise |
+| Vertex and index uploads needed during a rendering recorded ahead of it instead of splitting it (`vulkan_hoist_split_uploads`), when the pages were last invalidated before the rendering began, so no draw in it can have read them | Desktop 3x, 2x MSAA, VR stereo | vertex and index upload splits about 26-33 to 0 a frame, renderings 150-161 to 123-129; replays bit-identical; four in-run A/Bs on a drive: −0.07, −1.01, −0.52 and −0.46 ms a frame. Dropping those uploads outright (a wrong image) bounded the splits at 1.1-1.7 ms. Off on Android and macOS, where it cost GPU time on the Adreno 740 |
+| A clear draw that overwrites color as well as depth claims the color targets' tiles without transfers (`fh1_color_overwrite_claims`) | Desktop 3x, 2x MSAA, VR stereo | transfer tile passes −80 % (13,531 to 2,667 and 14,947 to 2,867 in two replayed frames, images bit-identical at 1x and 3x, 2x and 4x MSAA); in-run A/B on a drive, two runs: −1.45 and −1.05 ms a frame (about 9.4-10.1 to 8.1-9.1 ms) |
 
 Dropped: store-op tuning (only about 8 depth stores a frame qualified); trimming render areas (the Adreno driver already skips untouched tiles); forcing Turnip's on-chip GMEM path (50–56 ms against 29–32); skipping attachment barriers at 3x (noise).
 
@@ -202,6 +204,8 @@ pipeline waiting to address the remaining restart-dependent sky tint.
 | Change | Measured |
 | --- | --- |
 | Above 1x, the game's 4x MSAA surfaces had 36 host samples per guest pixel at 3x; one sample per pixel | 3x race 29.1 to 22.3 ms; transfers 10.3 to 4.4 ms |
+| The half-size 4x views of 1x surfaces (pitch 16 and 13) stored in the 1x images, their draws at twice the scale (`fh1_share_msaa_aliases`) | RTX 3090, free roam in VR stereo: 2x with 4x MSAA 8.34 to 6.51 ms, transfers 2.93 to 0.93 ms (182 to 59 a frame); 3x without MSAA 12.55 to 9.57 ms; replayed frame bit-identical |
+| A draw resolution scale per axis in the FH1 executor (`draw_resolution_scale_x` and `_y` may differ; before, unequal scales fell back to the render target cache). In VR the headset's eye is a little taller than wide but the game's image is 16:9, so at 3x the eye got about twice the pixels per degree across as down | RTX 3090, simulated stereo on a scripted drive, 2x MSAA, window visible: 3x3 130.7 fps, 2x3 (2560x2160, the same rows) 163.4, 2x4 (2560x2880) 135.9, 2x2 160.0. Frame replays at 3x3 bit-identical to before |
 | MSAA off at any scale, the desktop default | 8 Elite race 25 to 17 ms; RTX 4080 only 0.2–0.35 ms, but surfaces 501 to 265 MB |
 | Two host samples for the game's 4x | Odin GPU 18.69 (4x), 16.19 (2x), 15.19 ms (off); 2x now holds 60 and is the SMOOTH 60 preset |
 | Surfaces allocated for the rows they use, not the whole EDRAM period (`fh1_surface_rows_on_demand`) | RTX 4080, 3x race: 34 surfaces 2,388 to 635 MB, device memory 4,479 to 2,747 MB; two surfaces grew during the route; captures unchanged |

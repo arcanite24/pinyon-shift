@@ -9,6 +9,9 @@
 #include "guest_native/retire_code.h"
 #include "dlc/rally_pace_notes.h"
 
+#include <algorithm>
+#include <cctype>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
@@ -21,6 +24,7 @@
 #include <toml++/toml.hpp>
 
 #include <rex/cvar.h>
+#include <rex/platform/env.h>
 #include <rex/filesystem.h>
 #include <rex/kernel/xboxkrnl/io.h>
 #include <rex/logging.h>
@@ -38,6 +42,7 @@
 #include <rex/ui/overlay/debug_overlay.h>
 #include <rex/ui/presenter.h>
 #if REX_HAS_VULKAN
+#include <rex/ui/vulkan/openxr.h>
 #include <rex/ui/vulkan/provider.h>
 #endif
 #include <rex/ui/windowed_app_context.h>
@@ -876,6 +881,24 @@ void PinyonShiftApp::OnPostInitLogging() {
                         {"perf_csv", perf_csv}});
 }
 
+// Sets a GPU plugin's flag before the plugin loads. Its flags register when
+// it does, after OnPreSetup, so a value set by name now finds no flag and is
+// lost. The environment (REX_<NAME>) is replayed as each flag registers, over
+// the config file and under the command line. A flag already registered (a
+// build with the renderer linked in) is set directly, unless the command line
+// set it.
+static void SetPluginFlagBeforeLoad(std::string_view name, std::string_view value) {
+  if (rex::cvar::GetFlagInfo(name)) {
+    if (rex::cvar::GetFlagSource(name) != rex::cvar::Source::kCommandLine) {
+      rex::cvar::SetFlagByName(name, value);
+    }
+    return;
+  }
+  std::string variable = "REX_";
+  for (const char c : name) variable += char(std::toupper(static_cast<unsigned char>(c)));
+  rex::platform::env::set(variable, value);
+}
+
 void PinyonShiftApp::OnPreSetup(rex::RuntimeConfig& config) {
   rex::system::SetHostGpuLossHandler(&OnHostGpuLoss);
   // The window title and the F3 overlay name this release and its commits.
@@ -892,6 +915,46 @@ void PinyonShiftApp::OnPreSetup(rex::RuntimeConfig& config) {
     rex::cvar::SetFlagByName("gpu_backend", "vulkan");
     pinyon_shift::diagnostics::RecordEvent("config.gpu_backend_defaulted",
                                            {{"from", "any"}, {"to", "vulkan"}});
+  }
+  // VR's settings for the GPU plugin (fh1_share_msaa_aliases, the draw
+  // resolution scale), which registers its flags when it loads, after this:
+  // a value set here would be lost (SetPluginFlagBeforeLoad).
+  const bool vr_configured = rex::cvar::GetFlagByName("xr_enabled") == "true" ||
+                             rex::cvar::GetFlagByName("xr_simulate") == "true";
+  // VR renders FH1's 4x views of its 1x surfaces into the 1x storage
+  // (fh1_share_msaa_aliases), off by default since it was measured only on an
+  // RTX 3090: in simulated stereo at 2x with 4x MSAA it took a frame from
+  // 8.3 to 6.5 ms. A value in the config or on the command line wins.
+  if (vr_configured && !(host_config_ && host_config_->Get("fh1_share_msaa_aliases"))) {
+    SetPluginFlagBeforeLoad("fh1_share_msaa_aliases", "true");
+    pinyon_shift::diagnostics::RecordEvent("gpu.share_msaa_aliases",
+                                           {{"value", "true"}, {"reason", "vr_default"}});
+  }
+  // VR's render size (xr_render_scale, which the launcher writes) replaces
+  // the flat draw resolution scale for this run, so turning VR off brings the
+  // flat one back. A scale given on the command line wins.
+  if (rex::cvar::GetFlagByName("xr_enabled") == "true") {
+    const std::string scale = rex::cvar::GetFlagByName("xr_render_scale");
+    const bool valid = scale.size() == 3 && scale[1] == 'x' && scale[0] >= '1' &&
+                       scale[0] <= '4' && scale[2] >= '1' && scale[2] <= '4';
+    if (valid) {
+      SetPluginFlagBeforeLoad("draw_resolution_scale_x", scale.substr(0, 1));
+      SetPluginFlagBeforeLoad("draw_resolution_scale_y", scale.substr(2, 1));
+      pinyon_shift::diagnostics::RecordEvent("vr.render_scale", {{"scale", scale}});
+    }
+  }
+  // VR paces two frames a headset frame, and the step gate counting the
+  // drawn step (pinyon_shift_step_count_drawn) let the simulation and render
+  // threads overlap there: simulated stereo 6.9 to 6.0-6.3 ms a frame on an
+  // RTX 3090. Measured only there, so on by default only in VR, before the
+  // title's waits are hooked. A value set in the config or on the command
+  // line wins.
+  if ((rex::cvar::GetFlagByName("xr_enabled") == "true" ||
+       rex::cvar::GetFlagByName("xr_simulate") == "true") &&
+      rex::cvar::GetFlagSource("pinyon_shift_step_count_drawn") == rex::cvar::Source::kDefault) {
+    rex::cvar::SetFlagByName("pinyon_shift_step_count_drawn", "true");
+    pinyon_shift::diagnostics::RecordEvent("step_gate.count_drawn",
+                                           {{"value", "true"}, {"reason", "vr_default"}});
   }
   pinyon_shift::fh1_render_test::Configure(config);
   pinyon_shift::rally::ConfigureAudioProbe(config);
@@ -1271,6 +1334,75 @@ void PinyonShiftApp::OnPostSetup() {
   });
   rex::ui::RegisterBind("bind_hud", pinyon_shift::config::kHudKeys,
                         "Hide or show the HUD (for screenshots)", [] { pinyon_shift::hud::Toggle(); });
+#if REX_HAS_VULKAN
+  // VR's keys only while VR is on: F12 is Steam's screenshot key, and F5
+  // makes a capture folder each press.
+  const bool vr = rex::cvar::GetFlagByName("xr_enabled") == "true" ||
+                  rex::cvar::GetFlagByName("xr_simulate") == "true";
+  if (vr) {
+    // The settings VR runs with, as the GPU plugin took them (OnPreSetup).
+    pinyon_shift::diagnostics::RecordEvent(
+        "vr.render_settings",
+        {{"draw_resolution_scale_x", rex::cvar::GetFlagByName("draw_resolution_scale_x")},
+         {"draw_resolution_scale_y", rex::cvar::GetFlagByName("draw_resolution_scale_y")},
+         {"fh1_share_msaa_aliases", rex::cvar::GetFlagByName("fh1_share_msaa_aliases")},
+         {"pinyon_shift_step_count_drawn",
+          rex::cvar::GetFlagByName("pinyon_shift_step_count_drawn")}});
+    rex::ui::RegisterBind("bind_vr_capture", pinyon_shift::config::kVrCaptureKeys,
+                          "VR: save what the next 8 frames sent to each eye, for checking", [] {
+      const auto stamp = std::chrono::system_clock::now().time_since_epoch();
+      const std::filesystem::path directory =
+          pinyon_shift::diagnostics::StateRoot() / "logs" /
+          ("xr-capture-" + std::to_string(std::chrono::duration_cast<std::chrono::seconds>(stamp).count()));
+      std::error_code error;
+      std::filesystem::create_directories(directory, error);
+      rex::ui::vulkan::openxr::RequestCapture(rex::path_to_utf8(directory), 8);
+      // With a dump file set (fh1_frame_dump_path, read at start), the next
+      // whole frame is recorded too, for an offline replay of what was seen.
+      if (!rex::cvar::GetFlagByName("fh1_frame_dump_path").empty()) {
+        rex::cvar::SetFlagByName("fh1_frame_dump_frame", "-1");
+      }
+    });
+    rex::ui::RegisterBind("bind_vr_recenter", pinyon_shift::config::kVrRecenterKeys,
+                          "VR: make where your head is now the driver's seat",
+                          [] { rex::ui::vulkan::openxr::Recenter(); });
+    // For comparing in the headset: not saved, the config's value returns on
+    // the next launch.
+    rex::ui::RegisterBind("bind_window_interval", pinyon_shift::config::kWindowIntervalKeys,
+                          "VR: present the desktop window every frame or one frame in eight",
+                          [] {
+      const bool every = rex::cvar::GetFlagByName("present_window_interval") != "1";
+      rex::cvar::SetFlagByName("present_window_interval", every ? "1" : "8");
+      pinyon_shift::diagnostics::RecordEvent("present.window_interval",
+                                             {{"interval", every ? "1" : "8"}});
+    });
+  }
+  // In VR the headset takes its own copy of every frame and the window is a
+  // mirror: presenting it on one frame in eight keeps its present call (about
+  // 2.5 ms of the GPU-bound frame at 3x) off the others (simulated stereo at
+  // 3x, visible window: 124 fps every other frame, 134 one in eight). A value
+  // set in the config or on the command line wins.
+  if (rex::cvar::GetFlagByName("xr_enabled") == "true" &&
+      rex::cvar::GetFlagSource("present_window_interval") == rex::cvar::Source::kDefault) {
+    rex::cvar::SetFlagByName("present_window_interval", "8");
+    pinyon_shift::diagnostics::RecordEvent("present.window_interval",
+                                           {{"interval", "8"}, {"reason", "vr_default"}});
+  }
+  // VR's DLSS (xr_upscaler) samples textures for the headset's size, not the
+  // render size, as DLSS asks: a mip bias of log2(render / output). A value
+  // set in the config or on the command line wins.
+  if ((rex::cvar::GetFlagByName("xr_enabled") == "true" ||
+       rex::cvar::GetFlagByName("xr_simulate") == "true") &&
+      rex::cvar::GetFlagByName("xr_upscaler") == "dlss" &&
+      rex::cvar::GetFlagSource("texture_mip_lod_bias") == rex::cvar::Source::kDefault) {
+    const double ratio =
+        std::clamp(std::atof(rex::cvar::GetFlagByName("xr_upscale_ratio").c_str()), 1.0, 3.0);
+    const std::string bias = fmt::format("{:.3f}", -std::log2(ratio));
+    rex::cvar::SetFlagByName("texture_mip_lod_bias", bias);
+    pinyon_shift::diagnostics::RecordEvent("texture.mip_lod_bias",
+                                           {{"bias", bias}, {"reason", "vr_dlss"}});
+  }
+#endif
   rex::ui::RegisterBind("bind_music_next", pinyon_shift::config::kMusicNextKeys,
                         "Your music: next track", [] { pinyon_shift::music::Next(); });
   rex::ui::RegisterBind("bind_music_previous", pinyon_shift::config::kMusicPreviousKeys,

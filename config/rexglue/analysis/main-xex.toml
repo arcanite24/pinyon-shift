@@ -833,6 +833,13 @@ address = 0x823EDB84
 name = "PinyonShiftObserveSimulationDelta"
 registers = ["f31"]
 
+# Physics world step entry (CPhysicsWorld slot 22, f1 the step in seconds):
+# in a VR run, carry steps under pinyon_shift_min_physics_step_ms to the next one.
+[[midasm_hook]]
+address = 0x82D4E2E0
+name = "PinyonShiftPhysicsWorldStep"
+registers = ["r3", "f1"]
+
 # Player-vehicle presentation stabilization and authoritative M4 pose telemetry.
 # Runtime write-watch evidence maps
 # this address to the instruction immediately after the active transform slot's

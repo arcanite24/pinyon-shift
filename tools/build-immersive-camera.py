@@ -18,6 +18,13 @@ layers): TAG + TAG_STEP * group, replacing the value's own fraction. That
 is a stiffness or seed change too small to see, and no stock value has
 such a fraction. Keep these in step with the hook.
 
+Head tracking (#489) adds one layer per axis to the cockpit and hood
+cameras, groups 5 to 10 (yaw, pitch, roll in degrees, then x, y, z in
+metres): a constant input with a unit offset, unsprung so it never lags,
+tagged through the NoiseSeed of a still sine (the game drops the seed of a
+layer without noise). The sine's output range is 0 to 0, so a layer gives
+nothing unless the hook sets its factor to the head pose.
+
   build-immersive-camera.py [output]
 
 Without an output argument, regenerate both committed build variants.
@@ -37,6 +44,7 @@ DEFAULT_V4 = (ROOT / "mods_src" / "builtin" / "immersive_camera" / "merge-update
 
 TAG, TAG_STEP = 0.0419, 0.0002
 GFORCE, LEAN, SHAKE, HEAD = 1, 2, 3, 4
+HEAD_YAW, HEAD_PITCH, HEAD_ROLL, HEAD_X, HEAD_Y, HEAD_Z = 5, 6, 7, 8, 9, 10
 
 
 def f(v):
@@ -64,10 +72,11 @@ def layer(group, input_type, output, param, points=None, clamp=None, noise=None,
         a["InputClampMin"], a["InputClampMax"] = f(clamp[0]), f(clamp[1])
     a["InputMagAttackDecay"] = "0"
     if noise:
-        _, freq, seed = noise
+        _, freq, seed, *output_range = noise
+        low, high = output_range[0] if output_range else (-1, 1)
         a["InputToNoiseFreqMapping"] = "Linear"
         a["NoiseFreq"], a["NoiseSeed"] = f(freq), f(math.floor(seed) + tag)
-        a["NoiseOutputRangeMin"], a["NoiseOutputRangeMax"] = f(-1), f(1)
+        a["NoiseOutputRangeMin"], a["NoiseOutputRangeMax"] = f(low), f(high)
     if points is None:
         a["InputToParamMapping"] = "ConstantOne" if input_type == "ConstantOne" else "Linear"
     else:
@@ -123,8 +132,21 @@ def camera_layers(s, cockpit):
     return out
 
 
+def head_tracking_layers():
+    """Unit offsets the hook scales by the head pose."""
+    axes = ((HEAD_YAW, "CarSpaceYPROffset", (1, 0, 0)),
+            (HEAD_PITCH, "CarSpaceYPROffset", (0, 1, 0)),
+            (HEAD_ROLL, "CarSpaceYPROffset", (0, 0, 1)),
+            (HEAD_X, "CarSpaceXYZOffset", (1, 0, 0)),
+            (HEAD_Y, "CarSpaceXYZOffset", (0, 1, 0)),
+            (HEAD_Z, "CarSpaceXYZOffset", (0, 0, 1)))
+    return [layer(group, "ConstantOne", output, param, noise=("Sin", 0.0, 0.0, (0, 0)))
+            for group, output, param in axes]
+
+
 def main(path, stock=STOCK):
-    cams = {"DriverCam": camera_layers(1.0, True), "Hood": camera_layers(0.8, True),
+    cams = {"DriverCam": camera_layers(1.0, True) + head_tracking_layers(),
+            "Hood": camera_layers(0.8, True) + head_tracking_layers(),
             "BumperHigh": camera_layers(0.6, False), "FollowCam": camera_layers(0.5, False),
             "FollowCam2": camera_layers(0.5, False)}
     lines = ['<?xml version="1.0" encoding="utf-8"?>',
