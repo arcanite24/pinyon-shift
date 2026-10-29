@@ -8251,6 +8251,26 @@ void PinyonShiftImmersiveCameraLayer(PPCRegister& r1, PPCRegister& r31) {
     return;
   }
   const uint32_t layer = r31.u32;
+  // VR also drops the stock cockpit and hood vibration from the road surface
+  // (InputType at +68: 17-20 SurfaceBumpOffset_FL to _RR) and from tyre slip
+  // (9-11 Slip, Slip_Lateral, Slip_Longitudinal): gravel shakes the view and
+  // blurs the headset's image (vr_camera.h).
+  // The stock speed shake goes too: noise layers (NoiseType at +72) on 12
+  // Speed or 13 SpeedMPH, from about 140 mph, except the steering wheel
+  // model's wobble (OutputType at +76: 14 SteeringWheelAngle).
+  if (!pinyon_shift::vr::KeepsCameraShake()) {
+    const uint32_t input = LoadGuestU32(layer + 68);
+    const bool speed_shake = (input == 12 || input == 13) && LoadGuestU32(layer + 72) != 0 &&
+                             LoadGuestU32(layer + 76) != 14;
+    if (speed_shake || (input >= 9 && input <= 11) || (input >= 17 && input <= 20)) {
+      static std::atomic<bool> seen{};
+      if (!seen.exchange(true, std::memory_order_relaxed)) {
+        pinyon_shift::diagnostics::RecordEvent("camera.vr.vibration_off", {});
+      }
+      StoreGuestF32(r1.u32 + 96u, 0.0f);
+      return;
+    }
+  }
   // Sprung (+248), SpringK (+252); NoiseSeed (+156).
   const float tagged = LoadGuestF32(layer + (LoadGuestU8(layer + 248) ? 252u : 156u));
   if (!(tagged > 0.0f && tagged < 100000.0f)) return;

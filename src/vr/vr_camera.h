@@ -49,8 +49,9 @@ bool StereoConfigured();
 bool InVr();
 
 // Whether the immersive camera's shake group (speed shake, braking
-// vibration) applies: off for the whole of a VR run unless xr_camera_shake,
-// also on the VR screen's cameras, so it does not come and go with the view.
+// vibration) and the stock speed shake and road-bump and tyre-slip vibration
+// apply: off for the whole of a VR run unless xr_camera_shake, also on the
+// VR screen's cameras, so it does not come and go with the view.
 bool KeepsCameraShake();
 
 // The simulation step (the title's delta, in seconds) for VR stereo's paired
