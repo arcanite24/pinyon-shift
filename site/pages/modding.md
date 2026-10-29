@@ -186,6 +186,27 @@ python tools/build-fh1-radio.py D:\Music\Drive --state-root <state> --station Ra
 
 The tracks play on the game's radio like its own; the DJ lines are unchanged. The mod holds a copy of the game's 680 MB music bank plus your tracks. To hear your music without touching the radio, use **YOUR MUSIC** on the AUDIO page instead.
 
+## Existing FH1 mods
+
+Most mods made for the Xbox 360 or Xenia ship changed game files: a modded game folder, or files to copy over it. `tools/pinyon.py import-mod` turns one into a Pinyon Shift mod. It takes a folder, ZIP, 7z or RAR, compares it with your own game files and keeps only what differs, so a mod shipped as a whole game folder takes only the space of its changes:
+
+```text
+python tools/pinyon.py import-mod "Some FH1 Mod.7z" --title "Some FH1 Mod" --enable
+```
+
+It plays the shared modded copy of your save; `--new-save` gives it a new save of its own (for mods whose readme asks for one) and `--keeps-save` keeps yours (for mods that only change looks or sound). It targets the base disc unless `--any-build`. Without `--enable` it is installed switched off; either way it then shows in the launcher's **Mods** list ([Enabling](#enabling)), where you switch it on or off like any other mod.
+
+| What the mod ships | In Pinyon Shift |
+| --- | --- |
+| Changed or new game files | Works through `import-mod` |
+| The XE mod | Works through its own installer ([below](#the-xe-mod)) |
+| A changed `default.xex` (code edits) | The code changes don't carry over to a recompiled game; its files still import, with a warning |
+| Xenia patches | Not needed: FH1's four (no motion blur, no depth of field, no shadows, no hash checks) are **F6 > GRAPHICS > MOTION BLUR**, **DEPTH OF FIELD** and **SHADOWS**, and mods' files pass the hash check already |
+| Changed DLC or title update packages | Refused; put the changed files in a mod instead |
+| An edited save | Import it with **Import a save** |
+
+The full guidance is in [docs/MODDING.md](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/MODDING.md#existing-fh1-mods).
+
 ## The XE mod
 
 [Forza Horizon XE](https://www.moddb.com/mods/forza-horizon-xe-mod) adds about 170 cars and engine swaps. In the launcher (under DLC on Windows), **Download from ModDB** opens both XE downloads in your browser and installs them as soon as they finish in your Downloads folder. If you already have `Forza_Horizon_1_XE_Mod_v1.0.7z` and `FH1XE_v1.01_hotfix.7z`, choose **Install XE** instead, or run:

@@ -47,6 +47,7 @@ Other commands, each printing one JSON object with --json:
                 pinyon_common.py
   prepare-shaders  Vulkan shader preparation (LX-3.3); pinyon_shaders.py
   xe            the Forza Horizon XE mod (XE-1); pinyon_xe.py
+  import-mod    a mod from an FH1 mod of modified game files (FB-9.2); pinyon_game_mod.py
   assets        export the player's own game files (#446); pinyon_assets.py
   radio         custom radio stations (#445); pinyon_radio.py
   mods          list, switch, order, install and remove mods (FB-9.1); pinyon_mods.py
@@ -75,6 +76,7 @@ import pinyon_config  # noqa: E402
 import pinyon_crash  # noqa: E402
 import pinyon_deck  # noqa: E402
 import pinyon_dlc  # noqa: E402
+import pinyon_game_mod  # noqa: E402
 import pinyon_hardware  # noqa: E402
 import pinyon_mods  # noqa: E402
 import pinyon_radio  # noqa: E402
@@ -365,8 +367,8 @@ def main(argv: list[str] | None = None) -> int:
     start.add_argument("game_arguments", nargs="*", help="after --, passed to the game")
     modules = {"android": pinyon_android, "assets": pinyon_assets, "config": pinyon_config,
                "crash-report": pinyon_crash, "deck": pinyon_deck, "dlc": pinyon_dlc,
-               "hardware": pinyon_hardware, "import-save": pinyon_saves, "mods": pinyon_mods,
-               "paths": pinyon_common, "prepare-shaders": pinyon_shaders,
+               "hardware": pinyon_hardware, "import-mod": pinyon_game_mod, "import-save": pinyon_saves,
+               "mods": pinyon_mods, "paths": pinyon_common, "prepare-shaders": pinyon_shaders,
                "radio": pinyon_radio, "setup": pinyon_setup, "shortcuts": pinyon_steam,
                "title-update": pinyon_title_update, "xe": pinyon_xe}
     for module in dict.fromkeys(modules.values()):

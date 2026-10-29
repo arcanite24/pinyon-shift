@@ -727,6 +727,69 @@ while an XE car is shown (`AMB_FA_Autoshow.fsb`, logged and harmless).
 The route `config/render-tests/fh1-xe-buy-car.fh1test` buys an XE car and
 races it from a seed with XE installed.
 
+## Existing FH1 mods
+
+Mods made for the Xbox 360 or Xenia were not written for Pinyon Shift, but
+most of what they change can be carried over (FEATURE_BACKLOG FB-9.2). How
+depends on what the mod changes:
+
+| What the mod ships | In Pinyon Shift |
+| --- | --- |
+| Changed or new game files (a modded game folder, or files to copy over it) | Works: `pinyon.py import-mod` makes an asset mod of the files that differ from your game (below) |
+| The Forza Horizon XE mod | Works: its own installer ([above](#the-forza-horizon-xe-mod)) |
+| A changed `default.xex` (code edits) | The code changes do not carry over: the game is recompiled from the disc's executable, so a patched one is never run. Its files still import; the import warns, and parts of the mod may not work. A code change can be ported as a [native mod](#native-mods) |
+| Xenia game patches (`.patch.toml`) | Not loaded. FH1's four have built-in equivalents (next table) |
+| Changed DLC or title update packages | Refused: imported DLC and the v4 update are checked against the official packages (DLC_BACKLOG.md, TITLE_UPDATE_V4_BACKLOG.md). Put changed files in a mod instead |
+| An edited save | Import it like any save: **Import a save**, or `pinyon.py import-save` (a Xenia save with `--xenia`) |
+
+Xenia Canary's patch file for FH1 (`4D5309C9 - Forza Horizon.patch.toml` in
+[xenia-canary/game-patches](https://github.com/xenia-canary/game-patches),
+for the disc and for title update 4; checked 2026-10-23) has four patches,
+and each one is covered without patching code:
+
+| Xenia patch | Pinyon Shift |
+| --- | --- |
+| Disable Motion Blur | F6 > GRAPHICS > MOTION BLUR |
+| Disable Depth of Field | F6 > GRAPHICS > DEPTH OF FIELD |
+| Disable Shadows | F6 > GRAPHICS > SHADOWS > OFF BY DAY (at night the same passes light the road for the headlights) |
+| Disable hash checks | Not needed: files a mod replaces pass the title's hash check ([Asset mods](#asset-mods)) |
+
+### Importing a mod of game files
+
+```text
+pinyon.py import-mod SOURCE... [--name NAME] [--title TITLE] [--version V]
+                     [--new-save | --keeps-save] [--any-build] [--enable] [--replace]
+```
+
+Each source is a folder, a ZIP, or a 7z or RAR archive (extracted with
+7-Zip or bsdtar, as for XE); later sources apply over earlier ones, such as
+a hotfix over its release. The files may be a copy of the game folder (a
+`media` folder at most three levels down) or start inside `media` (`cars/`,
+`db/`, `UI/` and so on). The tool compares every file under `media/` with
+your game and keeps the changed and new ones in `<state>/mods/<name>/game/`,
+spelled as the disc spells the folders. Unchanged files are dropped, so a
+mod shipped as a whole game folder takes only the space of its changes.
+Executables are left out (see above), readmes are kept beside the mod, and
+anything else outside `media/` is listed as skipped. `import.json` records
+each kept file's SHA-256 and whether it replaces a game file.
+
+The mod plays the shared modded copy of your save. `--new-save` gives it its
+own new save instead, for mods whose readme asks for one (often because they
+renumber cars); the import warns when a mod replaces the database without
+it. `--keeps-save` keeps your own save, for mods that change only looks or
+sound. The mod targets the base disc unless `--any-build`: title update v4
+reads some files, the database among them, from its own archive, so a disc
+mod's copies of those do nothing on v4. It is installed switched off unless
+`--enable`; `--replace` replaces an earlier import of the same name.
+Either way it then shows in the launcher's **Mods** panel
+([Layout and enabling](#layout-and-enabling)) like any other mod, to
+switch on or off, order or remove there.
+Pinyon Shift's own mod names (`xe`, `custom_radio`, the generated `zz-` mods
+and the built-in mods) are refused.
+
+Nothing from the mod or the game is distributed: the import runs on the
+player's machine from their own download and their own game files.
+
 ## Native mods
 
 A native mod is a DLL built against the C header

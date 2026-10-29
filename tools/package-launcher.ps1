@@ -87,8 +87,9 @@ $include = @(
     'tools/build-mod-patches.py', 'tools/build-mod-archives.py', 'tools/mod_options.py', 'tools/install-sample-mod.py',
     'tools/pinyon.py', 'tools/pinyon_android.py', 'tools/build-android.ps1',
     # pinyon.py's other commands and the launchers' content panels: the XE mod,
-    # asset export (#446), custom radio stations (#445) and the mod manager (FB-9.1).
-    'tools/pinyon_xe.py', 'tools/manage-xe.ps1', 'tools/pinyon_assets.py', 'tools/fh1_audio_decode.cpp',
+    # mod import (FB-9.2), asset export (#446), custom radio stations (#445) and the
+    # mod manager (FB-9.1).
+    'tools/pinyon_xe.py', 'tools/manage-xe.ps1', 'tools/pinyon_game_mod.py', 'tools/pinyon_assets.py', 'tools/fh1_audio_decode.cpp',
     'tools/pinyon_radio.py', 'tools/manage-radio.ps1', 'tools/build-fh1-radio.py',
     'tools/pinyon_mods.py', 'tools/manage-mods.ps1',
     # Linux, the Steam Deck and macOS (docs/LINUX.md, docs/MACOS.md).
