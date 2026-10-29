@@ -7,7 +7,7 @@ verifies it, builds the game on your Mac and starts it.
 
 ## Requirements
 
-- An Apple silicon Mac (M1 or newer) with macOS 13 Ventura or newer. Intel
+- An Apple silicon Mac (M1 or newer) with macOS 13.3 Ventura or newer. Intel
   Macs are not supported.
 - Your ISO of the USA retail disc (`MS-2505`).
 - About 20 GB free.

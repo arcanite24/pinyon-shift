@@ -25,7 +25,7 @@ inline bool ValidDestination(const Destination& point) {
 }
 
 // Locale-independent float parse. std::from_chars for float is unavailable
-// below macOS 26 (libc++ availability), and the macOS build targets 13.0, so
+// below macOS 26 (libc++ availability), and the macOS build targets 13.3, so
 // this uses strtof in the "C" locale on a NUL-terminated copy. The whole token
 // must be consumed. Like from_chars, it rejects leading '+', whitespace and
 // hex floats, and treats a result outside the float range as an error.

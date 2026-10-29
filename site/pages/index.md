@@ -18,7 +18,7 @@ The download is the launcher. It doesn't contain the game: the launcher verifies
 | | |
 | --- | --- |
 | Game | USA retail disc of *Forza Horizon*, serial `MS-2505`, title ID `4D5309C9`, as an ISO or an [extracted folder](install.md#use-an-extracted-folder) |
-| System | Windows 10 or 11, x64; x86-64 Linux or SteamOS; macOS 13 on Apple silicon |
+| System | Windows 10 or 11, x64; x86-64 Linux or SteamOS; macOS 13.3 or newer on Apple silicon |
 | GPU | Vulkan 1.3. NVIDIA is tested; AMD and Intel are not qualified yet |
 | CPU | 4 cores for the Low-spec 60 preset |
 | Disk | About 30 GB free. The first build takes 20 to 60 minutes |

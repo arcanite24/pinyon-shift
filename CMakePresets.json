@@ -164,7 +164,7 @@
         "CMAKE_C_COMPILER": "clang",
         "CMAKE_CXX_COMPILER": "clang++",
         "CMAKE_OSX_ARCHITECTURES": "arm64",
-        "CMAKE_OSX_DEPLOYMENT_TARGET": "13.0",
+        "CMAKE_OSX_DEPLOYMENT_TARGET": "13.3",
         "PINYON_SHIFT_CPU_BASELINE": "armv8-a",
         "REXSDK_DIR": "${sourceDir}/thirdparty/shiftglue-sdk",
         "REXGLUE_USE_VULKAN": "ON",
