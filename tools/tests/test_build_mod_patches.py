@@ -133,6 +133,39 @@ class BuildModPatchesTests(unittest.TestCase):
             self.assertEqual({"6F6992766050D818245ADD408031E280FB5F4E634D": "plain"},
                              MODULE.hidden_dlc(state))
 
+    def test_reads_game_version_as_the_mod_host_does(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory)
+            cases = {"absent": ("", True, True),
+                     "empty": ('game_version = ""', True, True),
+                     "base": ('game_version = "DB40DF605ADE49A6"', True, False),
+                     "short": ('game_version = "DB40"', True, False),
+                     "long": ('game_version = "74B033805AB1BCAA0011"', False, True),
+                     "both": ('game_version = ["DB40DF605ADE49A6", "74B033805AB1BCAA"]', True, True),
+                     "none": ("game_version = []", False, False),
+                     "bad": ('game_version = ["DB40DF605ADE49A6", 4]', False, False),
+                     "unreadable": ("game_version = [", True, True)}
+            for mod, (line, _, _) in cases.items():
+                (state / "mods" / mod).mkdir(parents=True)
+                (state / "mods" / mod / "mod.toml").write_text(
+                    f'name = "{mod}"\nabi = 1\n{line}\n', encoding="utf-8")
+            (state / "mods" / "no_manifest").mkdir()
+            cases["no_manifest"] = ("", True, True)
+            for mod, (_, base, v4) in cases.items():
+                with self.subTest(mod=mod):
+                    self.assertEqual(base, MODULE.made_for(state, mod, MODULE.BASE_EXECUTABLE))
+                    self.assertEqual(v4, MODULE.made_for(state, mod, MODULE.V4_EXECUTABLE))
+
+    def test_leaves_out_the_scripts_of_mods_made_only_for_v4(self):
+        # The game: copy is the base disc's database, where the mod host
+        # rejects a v4-only mod; build-mod-archives.py patches v4's own.
+        with tempfile.TemporaryDirectory() as directory:
+            game, state = self.make(Path(directory))
+            (state / "mods" / "cheap" / "mod.toml").write_text(
+                'name = "cheap"\nabi = 1\ngame_version = "74B033805AB1BCAA"\n', encoding="utf-8")
+            self.assertFalse(MODULE.build(state, game)["patched"])
+            self.assertFalse((state / "mods" / MODULE.GENERATED).exists())
+
     def test_removes_the_generated_mod_without_scripts(self):
         with tempfile.TemporaryDirectory() as directory:
             game, state = self.make(Path(directory))

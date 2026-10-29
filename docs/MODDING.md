@@ -561,10 +561,11 @@ update Data_Car set BaseCost = 1000 where Id = 1496;
 ```
 
 Before each start, `tools/build-mod-patches.py` (run by
-`launch-preview.ps1`) copies the player's own database, applies every
-enabled mod's scripts in load order and file-name order, and serves the
-result as the generated mod `zz-db-patches`, listed first so it wins. With no
-scripts left the generated mod is removed and the stock database returns.
+`launch-preview.ps1`) copies the player's own database, applies the scripts
+of every enabled mod whose `game_version` accepts the base disc in load order
+and file-name order, and serves the result as the generated mod
+`zz-db-patches`, listed first so it wins. With no scripts left the generated
+mod is removed and the stock database returns.
 `zz-db-patches/patches.json` records the base and patched hashes and every
 script applied.
 
@@ -577,15 +578,18 @@ mod's replacement archive or `zipmanifest.xml` when one is enabled.
 The v4 title update doesn't read that file: it opens its own
 `db/gamedb.slt` from the update's `media.zip` on `update:`, which shadows
 any `game:` database. When the update is installed,
-`tools/build-mod-archives.py` therefore also applies the same scripts, in
-the same order, to v4's database. It reads the member from the installed
+`tools/build-mod-archives.py` therefore also applies the scripts of every
+enabled mod whose `game_version` accepts v4, in the same order, to v4's
+database. A mod made only for the base disc is left out there, as the mod
+host rejects it on v4, and a v4-only mod is likewise left out of the `game:`
+copy. It reads the member from the installed
 update (or from the winning mod's whole `update/media.zip` replacement),
 runs the scripts on that copy, and writes the result into
 `zz-archive-patches/update/media.zip` together with any `merge-update/`
 merges. The v4 host mounts that overlay ahead of the verified update, which
 stays untouched. `patches.json` lists the scripts as `database_scripts`
-under the `media.zip` entry. A script must therefore work on both
-databases; v4's is a superset of the disc's (the same tables plus the Rally
+under the `media.zip` entry. A script of a mod for both builds (or with no
+`game_version`) must therefore work on both databases; v4's is a superset of the disc's (the same tables plus the Rally
 cars). The v4 copy is built from the update's own database, never from an
 enabled mod's `game:` replacement such as the XE mod's.
 

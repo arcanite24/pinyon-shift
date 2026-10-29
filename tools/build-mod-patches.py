@@ -8,9 +8,10 @@ asset-only mod <state>/mods/zz-db-patches, listed first in enabled_mods so
 its database wins over the game's. Nothing from the disc is distributed: the
 patched copy is built on the player's machine from their files. With no
 scripts enabled the generated mod is removed. Run it after changing mods
-(the launcher runs it before each start). The v4 title update reads its own
-database from update:\\media.zip instead; build-mod-archives.py applies the
-same scripts there.
+(the launcher runs it before each start). Only mods whose game_version
+accepts the base disc are applied here: v4 reads its own database from
+update:\\media.zip, where build-mod-archives.py applies the scripts of the
+mods made for v4.
 
   build-mod-patches.py <state-root> [--game-root DIR]
 """
@@ -31,6 +32,9 @@ ROOT = Path(__file__).resolve().parents[1]
 GENERATED = "zz-db-patches"
 # Mods these tools write; never a base for another generated file.
 GENERATED_MODS = ("zz-db-patches", "zz-archive-patches")
+# Image SHA-256 prefixes the mod host checks game_version against.
+BASE_EXECUTABLE = "DB40DF605ADE49A6"
+V4_EXECUTABLE = "74B033805AB1BCAA"
 
 
 def enabled_mods(config: Path) -> list[str]:
@@ -250,14 +254,40 @@ def _mod_options():
     return mod_options
 
 
+def _read_manifest(state: Path, mod: str) -> dict | None:
+    """A mod's mod.toml, or None when it cannot be read."""
+    import tomllib  # noqa: PLC0415
+    try:
+        return tomllib.loads((state / "mods" / mod / "mod.toml").read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError):
+        return None
+
+
+def made_for(state: Path, mod: str, executable: str) -> bool:
+    """mod.toml's game_version accepts the executable as the mod host reads
+    it (src/mod/mod_host.cpp): one prefix or a list, either a prefix of the
+    other; empty or absent means any build, a list with a non-string entry
+    none. A mod.toml this cannot read counts as made for any build, as it
+    counts as having no options."""
+    manifest = _read_manifest(state, mod)
+    if manifest is None:
+        return True
+
+    def matches(game: str) -> bool:
+        return not game or executable.startswith(game) or game.startswith(executable)
+
+    games = manifest.get("game_version", "")
+    if isinstance(games, list):
+        return all(isinstance(g, str) for g in games) and any(matches(g) for g in games)
+    return matches(games if isinstance(games, str) else "")
+
+
 def option_values(state: Path, mod: str) -> dict[str, str] | None:
     """The values of a mod's options (tools/mod_options.py), or None for a mod
     without [[option]] tables, whose scripts run exactly as written. A mod.toml
     this cannot read counts as having none, as before options existed."""
-    import tomllib  # noqa: PLC0415
-    try:
-        manifest = tomllib.loads((state / "mods" / mod / "mod.toml").read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError):
+    manifest = _read_manifest(state, mod)
+    if manifest is None:
         return None
     tables = manifest.get("option")
     if not isinstance(tables, list) or not tables or not all(isinstance(t, dict) for t in tables):
@@ -266,11 +296,13 @@ def option_values(state: Path, mod: str) -> dict[str, str] | None:
     return options.chosen(state, mod, options.declared(manifest))
 
 
-def database_scripts(state: Path, mods: list[str]) -> list[tuple[str, Path]]:
-    """(mod, script) for every enabled mod's db/*.sql, in load order."""
+def database_scripts(state: Path, mods: list[str], executable: str) -> list[tuple[str, Path]]:
+    """(mod, script) for the db/*.sql of every enabled mod made for the
+    executable, in load order. The mod host rejects the others, so their
+    scripts must not change that build's database either."""
     scripts = []
     for mod in mods:
-        if mod in GENERATED_MODS:
+        if mod in GENERATED_MODS or not made_for(state, mod, executable):
             continue
         for script in sorted((state / "mods" / mod / "db").glob("*.sql")):
             scripts.append((mod, script))
@@ -303,7 +335,7 @@ def apply_scripts(state: Path, database: Path, scripts: list[tuple[str, Path]]) 
 def build(state: Path, game_root: Path) -> dict:
     config = state / "config" / "pinyon_shift.toml"
     mods = [m for m in enabled_mods(config) if m != GENERATED]
-    scripts = database_scripts(state, mods)
+    scripts = database_scripts(state, mods, BASE_EXECUTABLE)
     target = state / "mods" / GENERATED
     if not scripts:
         if target.exists():

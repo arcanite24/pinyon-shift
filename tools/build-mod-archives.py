@@ -498,8 +498,9 @@ def build_update_merges(state: Path, mods: list[str], staging: Path,
     """Explicit update: members, separate from game: and the disc manifest.
 
     v4 reads its database from update:\\media.zip, which the game: database
-    that build-mod-patches.py writes cannot shadow, so the enabled mods'
-    db/*.sql scripts are applied again to the update's own copy (#895).
+    that build-mod-patches.py writes cannot shadow, so the db/*.sql scripts
+    of the enabled mods made for v4 are applied to the update's own copy
+    (#895); a base-only mod's are not, as the mod host rejects it there.
     No installed v4 update means these optional patches are inactive. Never
     replace or write the verified title update itself.
     """
@@ -507,7 +508,7 @@ def build_update_merges(state: Path, mods: list[str], staging: Path,
     if not update.is_dir():
         return []
     patches = _patches_module()
-    scripts = patches.database_scripts(state, mods)
+    scripts = patches.database_scripts(state, mods, patches.V4_EXECUTABLE)
     merges = collect_merges(state, mods, "merge-update")
     if scripts:
         merges.setdefault(UPDATE_DATABASE[0], {})
@@ -569,7 +570,7 @@ def build(state: Path, game_root: Path, extractor: Path | None = None) -> dict:
         archives.setdefault(archive, {})
     target = state / "mods" / GENERATED
     update_merges = (state / "title-update-v4").is_dir() and (
-        collect_merges(state, mods, "merge-update") or patches.database_scripts(state, mods))
+        collect_merges(state, mods, "merge-update") or patches.database_scripts(state, mods, patches.V4_EXECUTABLE))
     if not archives and not update_merges:
         if target.exists():
             patches.remove_written_directory(target)

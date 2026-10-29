@@ -170,6 +170,51 @@ class BuildModArchivesTests(unittest.TestCase):
             self.assertEqual([{"divide": "4"}],
                              [s["options"] for s in result["archives"][0]["database_scripts"]])
 
+    def test_database_scripts_skip_mods_not_made_for_v4(self):
+        # The mod host rejects a base-only mod on v4, so its scripts must not
+        # change v4's database either; a mod for v4 or both builds still does.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            state, game = root / "state", root / "game"
+            v4_database = root / "v4.slt"
+            connection = sqlite3.connect(v4_database)
+            connection.executescript(
+                "create table Data_Car (Id integer, BaseCost integer);"
+                "insert into Data_Car values (1496, 120000);")
+            connection.commit()
+            connection.close()
+            update = state / "title-update-v4" / "media.zip"
+            update.parent.mkdir(parents=True)
+            with zipfile.ZipFile(update, "w", zipfile.ZIP_DEFLATED) as archive:
+                archive.write(v4_database, "db/gamedb.slt")
+            for mod, game_version, cost in (
+                    ("base_only", '"DB40DF605ADE49A6"', 1),
+                    ("both", '["DB40DF605ADE49A6", "74B033805AB1BCAA"]', 2),
+                    ("v4_only", '"74B033805AB1BCAA"', 4)):
+                (state / "mods" / mod / "db").mkdir(parents=True)
+                (state / "mods" / mod / "mod.toml").write_text(
+                    f'name = "{mod}"\nabi = 1\ngame_version = {game_version}\n', encoding="utf-8")
+                (state / "mods" / mod / "db" / f"10-{mod}.sql").write_text(
+                    f"update Data_Car set BaseCost = BaseCost + {cost} where Id = 1496;",
+                    encoding="utf-8")
+            config = state / "config" / "pinyon_shift.toml"
+            config.parent.mkdir()
+            config.write_text('enabled_mods = "base_only"\n')
+            # Only the base-only mod: nothing for v4, so no overlay at all.
+            self.assertFalse(MODULE.build(state, game)["patched"])
+            self.assertFalse((state / "mods" / MODULE.GENERATED).exists())
+            config.write_text('enabled_mods = "base_only,both,v4_only"\n')
+            result = MODULE.build(state, game)
+            patched = root / "patched.slt"
+            with zipfile.ZipFile(state / "mods" / MODULE.GENERATED / "update" / "media.zip") as archive:
+                patched.write_bytes(archive.read("db/gamedb.slt"))
+            connection = sqlite3.connect(patched)
+            cost = connection.execute("select BaseCost from Data_Car where Id = 1496").fetchone()[0]
+            connection.close()
+            self.assertEqual(120006, cost)
+            self.assertEqual(["both", "v4_only"],
+                             [s["mod"] for s in result["archives"][0]["database_scripts"]])
+
     def test_database_scripts_need_no_update_overlay_without_the_update(self):
         with tempfile.TemporaryDirectory() as directory:
             state = Path(directory)
