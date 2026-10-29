@@ -174,12 +174,6 @@ REXCVAR_DEFINE_DOUBLE(pinyon_shift_max_simulation_step_ms, 33.4, "Pinyon Shift",
                       "With pinyon_shift_host_simulation_delta, the longest simulation step "
                       "(ms); longer gaps between ticks are dropped")
     .range(4.0, 250.0);
-REXCVAR_DEFINE_DOUBLE(pinyon_shift_min_physics_step_ms, 1.0, "Pinyon Shift",
-                      "Physics steps shorter than this (ms) are added to the next one: a "
-                      "0.1 ms step, as VR stereo makes between its eyes, threw smashed "
-                      "fences and signs into the sky (0 runs every step)")
-    .range(0.0, 4.0)
-    .lifecycle(rex::cvar::Lifecycle::kHotReload);
 REXCVAR_DEFINE_BOOL(pinyon_shift_step_backpressure, true, "Pinyon Shift",
                     "Start a simulation step only when the title's render thread has taken "
                     "all but the latest one, so every frame shown advances the game by one "
@@ -7909,28 +7903,8 @@ void PinyonShiftObserveSimulationDelta(PPCRegister& f31) {
 }
 
 void PinyonShiftPhysicsWorldStep(PPCRegister& r3, PPCRegister& f1) {
-  // The physics world's step (CPhysicsWorld slot 22) does nothing for a step
-  // under 1e-5 s and otherwise solves its contacts over the step it is given.
-  // The title's shortest step, 0.0001 s, is what VR stereo runs between a
-  // pair's eyes and what two ticks in one millisecond get; over it, smashed
-  // fences, signs and mailboxes left the ground about 100 times as fast as
-  // over a normal step and ended up in the sky. A step that short is carried
-  // to the world's next one instead, and the world takes the title's own
-  // skip, so physics time still adds up to game time.
-  if (!(f1.f64 > 0.0)) return;
-  const double min_seconds = REXCVAR_GET(pinyon_shift_min_physics_step_ms) / 1000.0;
-  static std::mutex mutex;
-  static std::unordered_map<uint32_t, double> carried;
-  std::lock_guard lock(mutex);
-  double& carry = carried[r3.u32];
-  const double seconds = f1.f64 + carry;
-  if (seconds < min_seconds) {
-    carry = seconds;
-    f1.f64 = 0.0;
-  } else {
-    carry = 0.0;
-    f1.f64 = seconds;
-  }
+  // VR stereo's short steps go to the world's next step (vr_camera.h).
+  f1.f64 = pinyon_shift::vr::PhysicsStep(r3.u32, f1.f64);
 }
 
 void PinyonShiftTraceVehiclePose(PPCRegister& r1, PPCRegister& r30,
