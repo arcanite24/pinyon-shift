@@ -7,6 +7,7 @@
 #include <iterator>
 #include <mutex>
 #include <thread>
+#include <unordered_map>
 
 #include <rex/cvar.h>
 #include <rex/logging.h>
@@ -60,6 +61,12 @@ REXCVAR_DEFINE_BOOL(xr_camera_shake, false, "Display",
                     "Keep the immersive camera's speed shake and braking vibration, and the "
                     "game's speed shake and road-bump and tyre-slip vibration, in VR: the "
                     "headset did not make that motion, so it reads as the world shaking")
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+REXCVAR_DEFINE_DOUBLE(pinyon_shift_min_physics_step_ms, 1.0, "Pinyon Shift",
+                      "In a VR run, physics steps shorter than this (ms) are added to the "
+                      "next one: the 0.1 ms step VR stereo makes between its eyes threw "
+                      "smashed fences and signs into the sky (0 runs every step)")
+    .range(0.0, 4.0)
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
 
 REXCVAR_DECLARE(bool, xr_enabled);
@@ -329,6 +336,31 @@ static double PairStepImpl(double seconds) {
   const double step = frames * period;
   l.banked = std::clamp(elapsed - step, -period, kMaxBank);
   return step;
+}
+
+double PhysicsStep(uint32_t world, double seconds) {
+  // The physics world's step does nothing for a step under 1e-5 s and
+  // otherwise solves its contacts over the step it is given. The title's
+  // shortest step, 0.0001 s, is what PairStep gives the step after a pair's
+  // first eye; over it, smashed fences, signs and mailboxes left the ground
+  // about 100 times as fast as over a normal step and ended up in the sky. A
+  // step that short is carried to the world's next one instead, and the world
+  // takes the title's own skip, so physics time still adds up to game time.
+  // Flat play rarely steps that short (two ticks in one millisecond), so it
+  // keeps the title's steps.
+  if (!Engaged() || !(seconds > 0.0)) return seconds;
+  const double min_seconds = REXCVAR_GET(pinyon_shift_min_physics_step_ms) / 1000.0;
+  static std::mutex mutex;
+  static std::unordered_map<uint32_t, double> carried;
+  std::lock_guard lock(mutex);
+  double& carry = carried[world];
+  const double total = seconds + carry;
+  if (total < min_seconds) {
+    carry = total;
+    return 0.0;
+  }
+  carry = 0.0;
+  return total;
 }
 
 float AspectScale() {

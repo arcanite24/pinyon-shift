@@ -1,6 +1,7 @@
 // The headset's start space to head tracking's camera layer pose, and the
 // per-frame bookkeeping of VR stereo with the OpenXR output simulated
-// (xr_simulate): the flat path, eye order and tags, and paired steps.
+// (xr_simulate): the flat path, eye order and tags, paired steps, and the
+// physics step carry.
 
 #include <cmath>
 #include <cstdio>
@@ -107,6 +108,8 @@ int main() {
   Check(vr::AspectScale() == 0.0f, "flat: aspect untouched");
   Check(!vr::HidesHud(), "flat: HUD shown");
   Check(vr::CameraOffset() == head_tracking::Pose{}, "flat: no camera offset");
+  Check(vr::PhysicsStep(0x1000, 0.0001) == 0.0001, "flat: short physics step untouched");
+  Check(vr::PhysicsStep(0x1000, 0.016) == 0.016, "flat: nothing carried to the next");
 
   rex::cvar::SetFlagByName("xr_simulate", "true");
   rex::cvar::SetFlagByName("xr_simulate_hz", "50");
@@ -167,6 +170,20 @@ int main() {
     out += shortened + paired;
   }
   Check(std::abs(out - in) <= kPeriod + 1e-9, "paired steps keep the game's time");
+
+  // Physics in VR: a step under pinyon_shift_min_physics_step_ms (1 ms) is
+  // skipped and carried to the same world's next step; each world keeps its
+  // own carry, and 0 runs every step again.
+  constexpr uint32_t kWorld = 0x1000, kOther = 0x2000;
+  Check(vr::PhysicsStep(kWorld, 0.0001) == 0.0, "VR: short physics step skipped");
+  Check(vr::PhysicsStep(kOther, 0.0002) == 0.0, "VR: another world's short step skipped");
+  Check(std::abs(vr::PhysicsStep(kWorld, 0.016) - 0.0161) < 1e-12,
+        "VR: the next step takes the carried time");
+  Check(vr::PhysicsStep(kWorld, 0.016) == 0.016, "VR: carried only once");
+  Check(std::abs(vr::PhysicsStep(kOther, 0.016) - 0.0162) < 1e-12, "VR: each world its own carry");
+  Check(vr::PhysicsStep(kWorld, 0.0) == 0.0, "VR: a zero step passes through");
+  rex::cvar::SetFlagByName("pinyon_shift_min_physics_step_ms", "0");
+  Check(vr::PhysicsStep(kWorld, 0.0001) == 0.0001, "VR with 0: every step runs");
 
   if (failures == 0) std::printf("vr_camera: all checks passed\n");
   return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;

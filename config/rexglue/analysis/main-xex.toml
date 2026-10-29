@@ -834,7 +834,7 @@ name = "PinyonShiftObserveSimulationDelta"
 registers = ["f31"]
 
 # Physics world step entry (CPhysicsWorld slot 22, f1 the step in seconds):
-# carry steps under pinyon_shift_min_physics_step_ms to the next one.
+# in a VR run, carry steps under pinyon_shift_min_physics_step_ms to the next one.
 [[midasm_hook]]
 address = 0x82D4E2E0
 name = "PinyonShiftPhysicsWorldStep"

@@ -61,6 +61,13 @@ bool KeepsCameraShake();
 // does not read as depth. Unchanged outside stereo.
 double PairStep(double seconds);
 
+// The physics world's step (CPhysicsWorld slot 22; `world` its address, the
+// step in seconds) once VR stereo has run: a step under
+// pinyon_shift_min_physics_step_ms, such as the one PairStep shortens, is
+// carried to that world's next step and 0 returned, which the world skips.
+// Unchanged, without the lock, for players who never turn VR on.
+double PhysicsStep(uint32_t world, double seconds);
+
 // Whether the HUD is hidden for the VR run (xr_hide_hud): drawn at the same
 // place for both eyes, it would float at the wrong depth in stereo. Not
 // while the headset shows it on a panel of its own (xr_hud_panel, which the
