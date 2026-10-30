@@ -204,6 +204,7 @@ A faster clock exposed one more console assumption: the simulation steps on the 
 - **An old embedded SQLite plans like an old SQLite.** FH1 links SQLite 3.6.19, which has no automatic indexes and runs a subquery on the right of a LEFT JOIN once per outer row. One view took 158-186 ms per read. Indexes plus the same view written with plain joins, checked to return identical rows, cut it to a third. Check the version before assuming a modern planner.
 - **Profiling code can be the hitch.** The first SQL profile checked every byte of each statement's text with `VirtualQuery`, which made the queries it timed look slower. Check readability once per page.
 - **Never quote one GPU's saving for another.** The same switch saved 8 % on one GPU and nothing on the next.
+- **Hide the window to find a present stall.** On a laptop where one GPU renders and another drives the display, a GeForce 930MX stalled for about 600 ms every seven frames while its GPU sat idle. Frame counters, draw counts and cache misses looked normal. Running the same route with the window hidden removed the stalls, so presenting was the cause; timing each Vulkan call in the presenter and the recorder found none that blocked, which put the wait below the API. Sampling `nvidia-smi` (clock, state, utilization) during the run showed the GPU idle in the stalls, ruling out throttling. Check the window before the renderer, and a second GPU before either ([old laptop](performance.md#an-old-laptop)).
 
 ## Follow title-update data independently
 

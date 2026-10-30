@@ -1,0 +1,67 @@
+{
+  "schema": "pinyon-shift.low-spec-benchmark.v1",
+  "label": "UHD 620 ULTRA LOW 30",
+  "recorded": "2026-10-30T03:44:57+00:00",
+  "commit": "035556868d9f",
+  "sdk": "8e32080bfa43",
+  "route": "fh1-race-sync",
+  "machine": {
+    "host": "blindvac (ASUS X510UR laptop)",
+    "cpu": "Intel(R) Core(TM) i5-8250U CPU @ 1.60GHz (4 cores)",
+    "ram_gb": 15.9,
+    "gpu": "Intel(R) UHD Graphics 620",
+    "driver_version": "31.0.101.2140",
+    "os": "Windows 11 Home",
+    "display": "LG C5 TV over HDMI at 1920x1080, 60 Hz",
+    "note": "commit and sdk are the build's (pinyon_shift_build.json); the summarizer ran on multivac and stamped its own CPU and HEAD, corrected here"
+  },
+  "simulation": null,
+  "settings": {
+    "renderer": "vulkan",
+    "host_present_fps_limit": "0",
+    "disable_bloom": "true",
+    "disable_motion_blur": "true",
+    "disable_depth_of_field": "true"
+  },
+  "bands": {
+    "heavy": null,
+    "gameplay": {
+      "frames": 574,
+      "draws_median": 2676.0,
+      "frame_ms_p50": 50.627,
+      "frame_ms_p95": 57.889,
+      "frame_ms_p99": 62.265,
+      "target_fps": 60.0,
+      "over_budget_share": 1.0,
+      "long_frame_share": 1.0,
+      "presents_per_second": 19.65,
+      "deadline_misses_per_second": 0.0,
+      "decoder_cpu_ms": 34.923,
+      "recorder_cpu_ms": 23.713,
+      "recorder_busy_ms": 32.55,
+      "title_thread_cpu_ms": 18.295,
+      "reg_mem_wait_ms": 16.75,
+      "title_fence_wait_ms": 20.142,
+      "write_watch_protect_calls": 28.3,
+      "clock_mutex_contentions": 0.0,
+      "reg_mem_waits": 10.97,
+      "measured_threads_cores": 1.489,
+      "gate_cadence": false
+    }
+  },
+  "memory": {
+    "memory_device_usage_mb_peak": 802.0,
+    "memory_device_usage_mb_end": 802.0,
+    "memory_device_budget_mb_peak": 7470.0,
+    "memory_device_budget_mb_end": 7470.0,
+    "fh1_surface_count_peak": 34.0,
+    "fh1_surface_count_end": 34.0,
+    "fh1_surface_mb_peak": 99.0,
+    "fh1_surface_mb_end": 99.0,
+    "texture_cache_mb_peak": 170.0,
+    "texture_cache_mb_end": 170.0,
+    "process_resident_mb_peak": 1809.0,
+    "process_resident_mb_end": 1542.0,
+    "peak_share_of_budget": 0.107
+  }
+}
