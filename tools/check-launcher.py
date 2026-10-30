@@ -1,7 +1,7 @@
 """Exercise the real WPF launcher without launching a game or touching user saves.
 
 Covers folder selection, portable installs (portable.txt), preservation of existing
-files, graphics preparation, progress and layout. Every file it writes is in a
+files, graphics preparation, the Mods view, progress and layout. Every file it writes is in a
 temporary project directory; it never reads or writes %LOCALAPPDATA%\\PinyonShift.
 
 Run on Windows with .NET 8+: python tools/check-launcher.py [screenshot-directory]
@@ -28,6 +28,7 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using PinyonShift.Launcher;
+using PinyonShift.Launcher.Mods;
 using PinyonShift.Launcher.Updates;
 
 class Check {
@@ -396,6 +397,135 @@ class Check {
                 using var file = File.Create(Path.Combine(args[0], $"launcher-dlc-{size.Width}.png")); png.Save(file);
             }
         }
+        // FB-9.1: the Mods view, from the JSON tools/pinyon_mods.py prints. A long
+        // description, an image and a mod the game would refuse fit both sizes.
+        var modImage = Path.Combine(root, "mod preview.png");
+        var preview = new RenderTargetBitmap(640, 360, 96, 96, PixelFormats.Pbgra32);
+        var drawing = new DrawingVisual();
+        using (var context = drawing.RenderOpen())
+            context.DrawRectangle(new LinearGradientBrush(Colors.DarkGreen, Colors.Goldenrod, 20), null, new Rect(0, 0, 640, 360));
+        preview.Render(drawing);
+        using (var file = File.Create(modImage)) {
+            var png = new PngBitmapEncoder(); png.Frames.Add(BitmapFrame.Create(preview)); png.Save(file);
+        }
+        var modsJson = System.Text.Json.JsonSerializer.Serialize(new {
+            result = "ok", build = "base disc", mods_root = Path.Combine(state, "mods"), missing = new[] { "gone_mod" },
+            save = new { kind = "modded", profile = "user-modded" },
+            mods = new object[] {
+                new { name = "sharper_roads", title = "Sharper road textures", version = "2.1.0", author = "A modder",
+                      description = string.Join("\n\n", Enumerable.Repeat("Replaces the road and kerb textures with four times larger copies made from your own disc, so the tarmac stays sharp at 4K. Paint lines, cracks and patches keep their places.", 3)),
+                      url = "https://example.com/sharper-roads", images = new[] { modImage, modImage }, enabled = true,
+                      shares_save = true, contents = new[] { "textures" }, builds = new[] { "base disc", "title update v4" },
+                      options = new[] {
+                          new { key = "detail", title = "Road detail", description = "How much sharper the roads get.",
+                                value = "4", choices = new[] { new { value = "2", label = "2x" }, new { value = "4", label = "4x" } } },
+                          new { key = "kerbs", title = "Kerbs", description = "",
+                                value = "1", choices = new[] { new { value = "1", label = "As the game" }, new { value = "2", label = "Sharper" } } } },
+                      problems = Array.Empty<string>() },
+                new { name = "more_cars", title = "More cars", version = "1.0.0", author = "", description = "",
+                      url = "", images = Array.Empty<string>(), enabled = true, contents = new[] { "database", "text" },
+                      requires = new[] { "car_pack_base" }, problems = new[] { "needs car_pack_base, which is not installed" } },
+                new { name = "custom_radio", title = "custom_radio", enabled = false, managed_by = "Radio",
+                      contents = new[] { "archive members" }, problems = Array.Empty<string>() },
+                new { name = "photo_mode_limits", title = "Photo mode limits", builtin = true, enabled = false,
+                      shares_save = true, contents = new[] { "merged settings" }, problems = Array.Empty<string>() },
+            } });
+        var mods = ModsStatus.Parse("log line\n" + modsJson)!;
+        Require(mods.Mods[0].StateText == "On" && mods.Mods[1].State == "problem" &&
+            mods.Mods[1].StateText.StartsWith("On · won't load"), "Mod states are wrong");
+        Require(!mods.Mods[2].CanRemove && !mods.Mods[3].CanRemove && mods.Mods[0].CanRemove,
+            "Managed or built-in mods can be removed");
+        // The note above the mods says only what needs saying: nothing on a plain visit,
+        // missing mods always, and the save the next start plays when a change moved it.
+        var ownSave = new ModsStatus { Mods = mods.Mods, Save = new ModSave { Kind = "own", Profile = "user", ModdedCopy = true } };
+        Require(mods.Notice("") == "Switched on but not installed: gone_mod." && ownSave.Notice("") == "",
+            "The mods' note shows without a reason");
+        // The first mod that changes the save moves the game to a copy; switching the last one
+        // off goes back to the player's own save, with the modded progress kept in the copy.
+        var entering = mods.SaveChangeText(ownSave.Save);
+        var leaving = ownSave.SaveChangeText(mods.Save);
+        Require(entering.Contains("separate copy") && leaving.Contains("your own save") &&
+            leaving.Contains("modded progress") && mods.SaveChangeText(mods.Save) == "",
+            "Entering or leaving the modded copy is not explained");
+        Require(mods.Mods[0].ToggleAccessibleName == "Switch off Sharper road textures",
+            "Mod toggle omits its name for accessibility");
+        // A switch shows at the click, before the tool answers.
+        var switched = ModsStatus.Parse(modsJson)!;
+        switched.Preview(switched.Mods[2], true);
+        switched.Preview(switched.Mods[0], false);
+        Require(switched.Mods[2].StateText == "On" && switched.Mods[0].StateText == "Off",
+            "A switch does not show at the click");
+        // A failure stands out from the quiet line a success leaves.
+        typeof(MainWindow).GetMethod("ApplyMods", flags)!.Invoke(window, [mods, "sharper_roads", "roads.7z is a 7-Zip archive", true]);
+        var modsStatus = (TextBlock)window.FindName("ModsStatusText");
+        Require(modsStatus.Foreground == window.FindResource("AmberBrush") && modsStatus.Text == "Roads.7z is a 7-Zip archive.",
+            "A mods failure looks like a success");
+        // The tallest the view gets: the longest save note with a missing mod, under a switch.
+        typeof(MainWindow).GetField("_modsSaveChange", flags)!.SetValue(window, entering);
+        typeof(MainWindow).GetMethod("ApplyMods", flags)!.Invoke(window, [mods, "sharper_roads",
+            "Sharper road textures is on from the next start.", false]);
+        Require(modsStatus.Foreground == window.FindResource("MutedBrush"), "A mods success keeps the failure's colour");
+        Require(((TextBlock)window.FindName("ModsSaveText")).Visibility == Visibility.Visible,
+            "The mods' note is hidden while it has something to say");
+        typeof(MainWindow).GetMethod("ShowPanel", flags)!.Invoke(window, [Enum.Parse(viewType, "Mods")]);
+        update.Invoke(window, null);
+        Require(!((Button)window.FindName("PrimaryButton")).IsEnabled, "Launch remains available during mod management");
+        // A mod's options show as one list each, on its saved choice; a mod without options shows none.
+        var optionList = (ItemsControl)window.FindName("ModOptions");
+        Require(mods.Mods[0].Options[0].ValueLabel == "4x" && mods.Mods[1].Options.Count == 0 &&
+            optionList.Visibility == Visibility.Visible && optionList.Items.Count == 2, "The mod's options are not shown");
+        // The technical facts are behind Details: hidden at first, shown and hidden by the link.
+        var facts = (TextBlock)window.FindName("ModFactsText");
+        var factsButton = (Button)window.FindName("ModFactsButton");
+        var factsClick = typeof(MainWindow).GetMethod("ModFacts_Click", flags)!;
+        Require(facts.Visibility == Visibility.Collapsed && (string)factsButton.Content == "Details",
+            "The mod's technical details show without being asked for");
+        factsClick.Invoke(window, [factsButton, new RoutedEventArgs()]);
+        Require(facts.Visibility == Visibility.Visible && facts.Text.StartsWith("Changes: textures") &&
+            (string)factsButton.Content == "Hide details", "Details does not show the mod's technical details");
+        factsClick.Invoke(window, [factsButton, new RoutedEventArgs()]);
+        Require(facts.Visibility == Visibility.Collapsed, "Hide details leaves the details shown");
+        Require(((Image)window.FindName("ModImage")).Source is not null, "The mod's image is not shown");
+        foreach (var size in new[] { new Size(1080, 720), new Size(940, 640), new Size(1280, 1000) }) {
+            content.Measure(size); content.Arrange(new Rect(size)); content.UpdateLayout();
+            // Before the checks, so a failure leaves its picture.
+            if (args.Length != 0) {
+                var bitmap = new RenderTargetBitmap((int)size.Width, (int)size.Height, 96, 96, PixelFormats.Pbgra32);
+                bitmap.Render(content);
+                var png = new PngBitmapEncoder(); png.Frames.Add(BitmapFrame.Create(bitmap));
+                using var file = File.Create(Path.Combine(args[0], $"launcher-mods-{size.Width}.png")); png.Save(file);
+            }
+            // The list and details take the window's spare height, never less than their minimum.
+            var browser = (FrameworkElement)window.FindName("ModsBrowser");
+            var body = (FrameworkElement)window.FindName("BodyStack");
+            var bodyScroll = (ScrollViewer)window.FindName("BodyScroll");
+            Require(browser.ActualHeight >= 205 && (browser.ActualHeight < 207 ||
+                Math.Abs(body.ActualHeight + body.Margin.Bottom - bodyScroll.ViewportHeight) < 2),
+                $"The mods box does not fill the window at {size.Width} x {size.Height}");
+            if (size.Height >= 1000) Require(browser.ActualHeight > 400, "The mods box stays small in a tall window");
+            // The option's list shows its chosen label, not a type name.
+            ComboBox FindList(DependencyObject parent)
+            {
+                for (var i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+                    if (VisualTreeHelper.GetChild(parent, i) is var child && (child as ComboBox ?? FindList(child)) is { } found)
+                        return found;
+                return null;
+            }
+            Require(FindList(optionList) is { SelectionBoxItem: var shown } && shown?.ToString() == "4x",
+                "The mod's option list does not show its choice");
+            foreach (var name in new[] { "ModsControls", "ModControls", "ModsList" }) {
+                var control = (FrameworkElement)window.FindName(name);
+                Require(control.ActualHeight >= 30 && control.TranslatePoint(new Point(), content).Y +
+                    control.ActualHeight < size.Height - 44, $"Mods control clipped: {name}");
+            }
+            var removeButton = (FrameworkElement)window.FindName("ModRemoveButton");
+            Require(removeButton.TranslatePoint(new Point(removeButton.ActualWidth, 0), content).X <= size.Width,
+                "Mod buttons run off the window");
+        }
+        ((ListBox)window.FindName("ModsList")).SelectedIndex = 1;
+        Require(((TextBlock)window.FindName("ModsStatusText")).Text.Length > 0 &&
+            ((FrameworkElement)window.FindName("ModImagePanel")).Visibility == Visibility.Collapsed,
+            "A mod without images keeps the previous image");
         File.Delete(payloadMarker); // This next fixture represents a developer checkout.
         // Checkout detection takes precedence over packaged configuration.
         Directory.CreateDirectory(Path.Combine(root, "config"));
@@ -418,7 +548,7 @@ class Check {
         Require(!File.Exists(Path.Combine(brokenRoot, "source", "0.1.1", ".pinyon-source-sha256")),
             "Incomplete ZIP marked as installed");
         UpdateChecks(Path.Combine(root, "update checks"));
-        Console.WriteLine("Launcher folders, portable installs, preservation, graphics, DLC states, progress, layout and updates passed.");
+        Console.WriteLine("Launcher folders, portable installs, preservation, graphics, DLC states, mods, progress, layout and updates passed.");
         window.Close();
     }
 

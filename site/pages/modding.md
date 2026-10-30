@@ -23,11 +23,14 @@ Mods live in the state folder, never in the game files. They can replace files, 
   db/*.sql               database patches
   textures/<hash>.dds    texture replacements
   shaders/shader_<guest>_<modification>_<translated>.spv  Vulkan replacements
+  preview.png            images the launcher shows (optional)
 ```
 
 `<state>` for an installed preview is `%LOCALAPPDATA%\PinyonShift\source\<version>\.local\preview`.
 
 ## Enabling
+
+The launcher's **Mods** button lists the installed mods with each one's description and images; **Details** under the description shows what it changes, the builds it is made for, whether it keeps your own save and the mods it needs. When a switch moves the next start to another save, it says so: switching on the first mod that changes your save moves you to a separate copy of it, and switching off the last one sends you back to your own save, while the copy keeps what you played with mods until you switch one on again. **Install ZIP** and **Install folder** add a mod (it starts switched off); **Switch on** and **Remove** act on the selected one. A mod that offers options, such as how strong its change is, shows a list for each under its description. A mod the game would refuse, such as one made for the other build or missing a mod it needs, is marked with the reason. The Linux and macOS launcher also takes a dropped ZIP or folder. Changes apply at the next start. The in-game **SETTINGS > MODS** screen switches mods too.
 
 The built-in `hidden_cars` mod lists four hidden player-model variants.
 Traffic entries such as the tour bus are excluded because driving support
@@ -52,7 +55,7 @@ List mods, in load order, in `<state>/config/pinyon_shift.toml`:
 enabled_mods = "hello_telemetry,english_strings"
 ```
 
-The in-game **SETTINGS** screen lists the mods it finds. Changes apply at the next start. Each load or rejection is logged as `mod.loaded` or `mod.rejected` with the reason.
+`tools/pinyon.py mods` does the launcher's work from the command line ([commands](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/MODDING.md#layout-and-enabling)). Each load or rejection is logged as `mod.loaded` or `mod.rejected` with the reason.
 
 ## mod.toml
 
@@ -88,7 +91,7 @@ A mod that only changes how the game looks or sounds, and never what it saves, c
 | Strings (`strings/<language or ALL>/<Table>.toml`) | `IDS_` names with their text: existing names are changed, new ones added with their key, which the database refers to as `_&N` (`tools/fh1-strings.py`) |
 | Merged settings (`merge/`) | `.ini` keys and `.xml` elements are merged into the file, so several mods can change one settings file |
 | Title-update settings (`merge-update/`) | `.ini` and `.xml` member merges against the installed v4 update, such as `merge-update/media.zip/camera/cameraphysics.xml`. Built into the generated mod's `update/` overlay; inactive without the update. The verified update stays untouched |
-| Database (`db/*.sql`) | SQL scripts run in load order on a copy of `media/db/gamedb.slt`, or of the database an enabled mod replaces it with. With the v4 update installed they also run on v4's own database in the update's `media.zip`, which v4 reads instead, so a script must work on both |
+| Database (`db/*.sql`) | SQL scripts run in load order on a copy of `media/db/gamedb.slt`, or of the database an enabled mod replaces it with. With the v4 update installed they also run on v4's own database in the update's `media.zip`, which v4 reads instead, so a script must work on both. Each copy takes only the scripts of mods whose `game_version` accepts that build |
 | New cars (`tools/clone-fh1-car.py`) | A spec of cars that reuse an existing model with their own name, price, power and listed class becomes a `db/` script and `strings/` names. Once bought, the game rates a car from its physics, so a listed index should be the one the owned car shows. Clones upgrade and paint like any car; bought cars stay in the modded profile, which still loads if the mod is removed |
 | Textures (`textures/<hash>.dds`) | Find a texture's hash with `--texture_dump_dir`. A replacement keeps the format and may be 2, 4 or 8 times larger. **SETTINGS > MODS > RELOAD TEXTURES** reloads them in game. On a GPU without BC formats (most Android GPUs) only 8_8_8_8 replacements apply |
 
@@ -182,6 +185,27 @@ python tools/build-fh1-radio.py D:\Music\Drive --state-root <state> --station Ra
 ```
 
 The tracks play on the game's radio like its own; the DJ lines are unchanged. The mod holds a copy of the game's 680 MB music bank plus your tracks. To hear your music without touching the radio, use **YOUR MUSIC** on the AUDIO page instead.
+
+## Existing FH1 mods
+
+Most mods made for the Xbox 360 or Xenia ship changed game files: a modded game folder, or files to copy over it. `tools/pinyon.py import-mod` turns one into a Pinyon Shift mod. It takes a folder, ZIP, 7z or RAR, compares it with your own game files and keeps only what differs, so a mod shipped as a whole game folder takes only the space of its changes:
+
+```text
+python tools/pinyon.py import-mod "Some FH1 Mod.7z" --title "Some FH1 Mod" --enable
+```
+
+It plays the shared modded copy of your save; `--new-save` gives it a new save of its own (for mods whose readme asks for one) and `--keeps-save` keeps yours (for mods that only change looks or sound). It targets the base disc unless `--any-build`. Without `--enable` it is installed switched off; either way it then shows in the launcher's **Mods** list ([Enabling](#enabling)), where you switch it on or off like any other mod.
+
+| What the mod ships | In Pinyon Shift |
+| --- | --- |
+| Changed or new game files | Works through `import-mod` |
+| The XE mod | Works through its own installer ([below](#the-xe-mod)) |
+| A changed `default.xex` (code edits) | The code changes don't carry over to a recompiled game; its files still import, with a warning |
+| Xenia patches | Not needed: FH1's four (no motion blur, no depth of field, no shadows, no hash checks) are **F6 > GRAPHICS > MOTION BLUR**, **DEPTH OF FIELD** and **SHADOWS**, and mods' files pass the hash check already |
+| Changed DLC or title update packages | Refused; put the changed files in a mod instead |
+| An edited save | Import it with **Import a save** |
+
+The full guidance is in [docs/MODDING.md](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/MODDING.md#existing-fh1-mods).
 
 ## The XE mod
 
