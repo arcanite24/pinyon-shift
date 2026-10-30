@@ -147,10 +147,20 @@ source = """src/pinyon_shift_runtime_hooks.cpp QueueRallyRaceTrace"""
 [[finding]]
 group = """Profile values"""
 name = """wristband and XP fields gate events"""
-what = """Setting `Main/WristbandLevel` to 8 and `Main/XP` to 450000 at load is kept in the title's own later saves, and the event card's goal changes from COLLECT BLUE WRISTBAND to GET TO THE HORIZON FINAL, opening the events the wristbands gate."""
-how = """Load-time field edit on the buy-car route."""
+what = """Setting `Main/WristbandLevel` to 8 and `Main/XP` to 450000 at load is kept in the title's own later saves, and the event card's goal changes from COLLECT BLUE WRISTBAND to GET TO THE HORIZON FINAL, opening the events the wristbands gate. `Main/XP` is the only XP field under `Main` (124 fields; `OnlineXP` is separate), and the wristband meter reads it: with `Main/WristbandLevel` 0, raising `Main/XP` from 0 to 100000 turns the pause menu's "Nxt Lvl 220 PTS" (the Green threshold in `CareerWristbandLevels`) into COLLECT GREEN WRISTBAND."""
+how = """Load-time field edit on the buy-car route; a local test native mod (not in the repository) setting `Main/XP` at load, with the pause menu captured from a pinned seed (#491)."""
 confidence = """confirmed"""
-source = """docs/NATIVE_PORT_BACKLOG.md NP-8.5"""
+source = """docs/NATIVE_PORT_BACKLOG.md NP-8.5; docs/MODDING.md Built-in mods"""
+
+[[finding]]
+group = """Profile values"""
+name = """the stored driver level is not recomputed from XP"""
+what = """`Main/Level` is kept as saved, not derived from `Main/XP` and `PlayerLevelDef` when the profile loads or saves. A profile edited at load to XP 100000 at level 11 (stock `PlayerLevelDef`: level 11 from 95,000) was saved twice as level 11 in about two minutes of free roam, both with the stock table and with `festival_pacing`'s default halved one, where 100,000 XP is level 18. Whether the next XP gain moves it to the new curve's level is not tested."""
+how = """A local test native mod (not in the repository) setting `Main/XP`, `Main/Level` and `Main/LastRewardedLevel` at the after-decrypt hook and logging them at every before-encrypt save, from pinned stock and paced seeds; a burnout meant to earn skill XP stalled in reverse against a wall and earned none."""
+confidence = """confirmed"""
+negative = true
+issue = """#491"""
+source = """docs/MODDING.md Built-in mods; docs/FEATURE_BACKLOG.md FB-12.16"""
 
 [[finding]]
 group = """Profile values"""

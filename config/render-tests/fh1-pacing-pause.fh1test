@@ -1,0 +1,24 @@
+pinyon-shift-fh1-render-test-v1
+# #491 festival pacing: boot the seed into free roam, wait for the vehicle and
+# open the pause menu, which shows the balance and driver level, then resume
+# and let the title settle. Run once from a seed with festival_pacing enabled
+# and once without (PINYON_SHIFT_M5_SAVE_TRACE=1 keeps the loaded and saved
+# profile bodies) to compare what an existing save does under the new curves.
+input 0 0000 0 0 0 0 0 0
+input 360 1000 0 0 0 0 0 0
+input 366 0000 0 0 0 0 0 0
+input 480 1000 0 0 0 0 0 0
+input 486 0000 0 0 0 0 0 0
+input 600 1000 0 0 0 0 0 0
+input 606 0000 0 0 0 0 0 0
+input 720 1000 0 0 0 0 0 0
+input 726 0000 0 0 0 0 0 0
+wait 1400 3000 vehicle
+capture 1560 free-roam
+input 1620 0010 0 0 0 0 0 0
+input 1626 0000 0 0 0 0 0 0
+capture 1740 pause
+input 1800 2000 0 0 0 0 0 0
+input 1806 0000 0 0 0 0 0 0
+capture 1920 resumed
+stop 2400

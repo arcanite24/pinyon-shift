@@ -1,0 +1,34 @@
+pinyon-shift-fh1-render-test-v1
+# #491 festival pacing: the upgrade shop's prices, from a seed parked at
+# Dak's Garage (pacing-*-2026-10-22). Enter the garage (Back), choose AUTO
+# UPGRADE (A), close its tip (A), step the class picker up one class (Right)
+# and pick it (A); the next screens list the parts and their cost. Run from a
+# seed with festival_pacing enabled and once without, then compare captures.
+input 0 0000 0 0 0 0 0 0
+input 360 1000 0 0 0 0 0 0
+input 366 0000 0 0 0 0 0 0
+input 480 1000 0 0 0 0 0 0
+input 486 0000 0 0 0 0 0 0
+input 600 1000 0 0 0 0 0 0
+input 606 0000 0 0 0 0 0 0
+input 720 1000 0 0 0 0 0 0
+input 726 0000 0 0 0 0 0 0
+wait 1400 3000 vehicle
+capture 1560 free-roam
+input 1680 0020 0 0 0 0 0 0
+input 1686 0000 0 0 0 0 0 0
+capture 2400 garage
+input 2460 1000 0 0 0 0 0 0
+input 2466 0000 0 0 0 0 0 0
+input 2880 1000 0 0 0 0 0 0
+input 2886 0000 0 0 0 0 0 0
+capture 3120 class
+input 3240 0008 0 0 0 0 0 0
+input 3246 0000 0 0 0 0 0 0
+capture 3300 class-up
+input 3360 1000 0 0 0 0 0 0
+input 3366 0000 0 0 0 0 0 0
+capture 3480 cost-1
+capture 3720 cost-2
+capture 3960 cost-3
+stop 4020

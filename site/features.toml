@@ -49,6 +49,12 @@ xbox = "Stock cameras"
 pinyon = "Live chase height, distance, FOV and stiffness; optional immersive camera motion"
 
 [[original]]
+feature = "Career pace"
+link = "playing.md#festival-pacing"
+xbox = "Fixed"
+pinyon = "Optional festival pacing on the base game: set what cars and upgrades cost and what races pay, from a quarter to five times stock"
+
+[[original]]
 feature = "Music"
 link = "playing.md#your-music"
 xbox = "Three stations; a dashboard soundtrack replaces them"
@@ -64,7 +70,7 @@ pinyon = "Engine, other cars, tyres, wind, ambience and music levels, and the co
 feature = "Mods"
 link = "modding.md"
 xbox = "No"
-pinyon = "Asset, database, texture, Vulkan shader and native mods; the Forza Horizon XE mod installs from the launcher"
+pinyon = "Asset, database, texture, Vulkan shader and native mods, installed, switched on and ordered from the launcher; the Forza Horizon XE mod installs from the launcher too"
 
 [[original]]
 feature = "DLC and title update"

@@ -1,0 +1,53 @@
+name = "festival_pacing"
+version = "1.1.0"
+title = "Festival pacing"
+description = """
+Changes how fast the career goes, with two settings below. Prices sets what
+cars, upgrades and rims cost. Rewards sets what you earn: credits for race
+finishes, event prizes and car-make loyalty bonuses, wristband points, and
+how quickly driver levels come. At the defaults everything costs half and
+pays twice.
+
+Plays the modded copy of your save. DLC cars and parts keep their prices, and
+a save that already has XP keeps the level it had. Base game only for now: it
+has not been tried on the title update v4 build."""
+url = "https://github.com/arcanite24/pinyon-shift/issues/491"
+abi = 1
+# Festival pacing pack (#491): two factors filled into db/*.sql
+# (tools/mod_options.py). {{prices}} multiplies car, part and rim prices;
+# {{rewards}} multiplies payouts and wristband points and divides the XP per
+# driver level. A database mod, so it plays the modded profile; Stock is the
+# mod off, or both at 1x.
+# Base build only until it is tried on v4; build-mod-archives.py leaves its
+# scripts out of v4's database too.
+game_version = "DB40DF605ADE49A6"
+
+[[option]]
+key = "prices"
+title = "Prices"
+description = "What cars, upgrades and rims cost, compared with the stock game."
+default = "0.5"
+choices = [
+    { value = "0.25", label = "0.25x (a quarter)" },
+    { value = "0.5", label = "0.5x (half)" },
+    { value = "0.75", label = "0.75x" },
+    { value = "1", label = "1x (stock)" },
+    { value = "1.5", label = "1.5x" },
+    { value = "2", label = "2x (double)" },
+    { value = "3", label = "3x" },
+]
+
+[[option]]
+key = "rewards"
+title = "Rewards"
+description = "Credits, wristband points and XP toward driver levels, compared with the stock game."
+default = "2"
+choices = [
+    { value = "0.5", label = "0.5x (half)" },
+    { value = "0.75", label = "0.75x" },
+    { value = "1", label = "1x (stock)" },
+    { value = "1.5", label = "1.5x" },
+    { value = "2", label = "2x (double)" },
+    { value = "3", label = "3x" },
+    { value = "5", label = "5x" },
+]
