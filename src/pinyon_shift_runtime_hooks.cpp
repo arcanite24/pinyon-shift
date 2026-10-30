@@ -124,8 +124,8 @@ REXCVAR_DEFINE_BOOL(
     pinyon_shift_stabilize_vehicle_presentation, false, "Pinyon Shift",
     "Suppress isolated implausible player-vehicle presentation transforms");
 REXCVAR_DEFINE_DOUBLE(pinyon_shift_fov_scale, 1.0, "Display",
-                      "Multiply the cameras' vertical field of view (0.8 to 1.3)")
-    .range(0.8, 1.3)
+                      "Multiply the cameras' vertical field of view (0.8 to 2.0)")
+    .range(0.8, 2.0)
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
 REXCVAR_DEFINE_DOUBLE(pinyon_shift_chase_height, 0.0, "Display", "Chase height offset in metres")
     .range(-0.5, 1.5).lifecycle(rex::cvar::Lifecycle::kHotReload);
