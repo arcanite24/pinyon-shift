@@ -348,7 +348,7 @@ folded clears (A60-1).
   architectural work, not ruled out for weak GPUs: the
   [R02 study](native-renderer/SUB_1X_RENDER_SCALE.md) sizes a fixed half-scale
   compatibility path and analyzes an archived Odin GPU profile. A current-pin
-  measurement and the 25% race GPU gate remain open.
+  measurement and the 25% race GPU gate remain open. The plan is now [RENDER_SCALE_BACKLOG.md](RENDER_SCALE_BACKLOG.md).
 - **A simulation slower than the source rate with interpolated frames.** Frame
   generation is now planned (#523-#526) as an opt-in on top of a
   steady base rate, not as a way to run the simulation slower; the old
