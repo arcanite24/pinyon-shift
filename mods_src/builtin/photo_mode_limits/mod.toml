@@ -1,5 +1,10 @@
 name = "photo_mode_limits"
 version = "1.0.0"
+title = "Photo mode limits"
+description = """
+Lets the photo mode camera climb to 30 m instead of 2 m, roam a wider circle
+around the car and zoom further. Changes only camera settings, so you keep
+your own save."""
 abi = 1
 # Widens the photo mode camera's limits (#488): only camera settings, never
 # saved data, so the player keeps their own save.

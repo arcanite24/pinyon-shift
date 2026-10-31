@@ -49,6 +49,7 @@ Other commands, each printing one JSON object with --json:
   xe            the Forza Horizon XE mod (XE-1); pinyon_xe.py
   assets        export the player's own game files (#446); pinyon_assets.py
   radio         custom radio stations (#445); pinyon_radio.py
+  mods          list, switch, order, install and remove mods (FB-9.1); pinyon_mods.py
   android       build, install and run on Android (AP-6.1); pinyon_android.py
   deck          copy a Linux build to a Steam Deck (LX-2.1); pinyon_deck.py
 """
@@ -75,6 +76,7 @@ import pinyon_crash  # noqa: E402
 import pinyon_deck  # noqa: E402
 import pinyon_dlc  # noqa: E402
 import pinyon_hardware  # noqa: E402
+import pinyon_mods  # noqa: E402
 import pinyon_radio  # noqa: E402
 import pinyon_saves  # noqa: E402
 import pinyon_setup  # noqa: E402
@@ -363,7 +365,7 @@ def main(argv: list[str] | None = None) -> int:
     start.add_argument("game_arguments", nargs="*", help="after --, passed to the game")
     modules = {"android": pinyon_android, "assets": pinyon_assets, "config": pinyon_config,
                "crash-report": pinyon_crash, "deck": pinyon_deck, "dlc": pinyon_dlc,
-               "hardware": pinyon_hardware, "import-save": pinyon_saves,
+               "hardware": pinyon_hardware, "import-save": pinyon_saves, "mods": pinyon_mods,
                "paths": pinyon_common, "prepare-shaders": pinyon_shaders,
                "radio": pinyon_radio, "setup": pinyon_setup, "shortcuts": pinyon_steam,
                "title-update": pinyon_title_update, "xe": pinyon_xe}

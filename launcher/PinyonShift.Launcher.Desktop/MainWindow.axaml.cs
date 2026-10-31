@@ -226,23 +226,26 @@ public partial class MainWindow : Window
         if (path is not null) SetDisc(path);
     }
 
-    // Dropping selects the game source during setup, or imports DLC while
-    // the DLC panel is open.
-    // Setup takes one path; the DLC panel takes any number of files and folders.
+    // Dropping selects the game source during setup, imports DLC while the
+    // DLC panel is open, or installs a mod while the Mods panel is open.
+    // Setup and the Mods panel take one path; the DLC panel takes any number
+    // of files and folders.
     private List<string>? DroppedPaths(DragEventArgs e)
     {
         var paths = e.DataTransfer.TryGetFiles()?.Select(item => item.TryGetLocalPath()).OfType<string>()
             .Where(path => File.Exists(path) || Directory.Exists(path)).ToList();
-        return paths is { Count: > 0 } && (_mode != Mode.Setup || paths.Count == 1) ? paths : null;
+        var single = _mode == Mode.Setup || _panel == Panel.Mods;
+        return paths is { Count: > 0 } && (!single || paths.Count == 1) ? paths : null;
     }
 
-    private bool AcceptsDrop => !_busy && (_mode == Mode.Setup || (_mode == Mode.Ready && _panel == Panel.Dlc));
+    private bool AcceptsDrop => !_busy && (_mode == Mode.Setup || (_mode == Mode.Ready && _panel is Panel.Dlc or Panel.Mods));
 
     private void OnDragOver(object? sender, DragEventArgs e)
     {
         var accepted = AcceptsDrop && DroppedPaths(e) is not null;
         e.DragEffects = accepted ? DragDropEffects.Copy : DragDropEffects.None;
-        DropOverlayText.Text = _mode == Mode.Setup ? "Drop to use this disc image or folder" : "Drop to import this DLC";
+        DropOverlayText.Text = _mode == Mode.Setup ? "Drop to use this disc image or folder"
+            : _panel == Panel.Mods ? "Drop to install this mod" : "Drop to import this DLC";
         DropOverlay.IsVisible = accepted;
     }
 
@@ -251,6 +254,7 @@ public partial class MainWindow : Window
         DropOverlay.IsVisible = false;
         if (!AcceptsDrop || DroppedPaths(e) is not { } paths) return;
         if (_mode == Mode.Setup) SetDisc(paths[0]);
+        else if (_panel == Panel.Mods) await InstallModAsync(paths[0]);
         else await ImportDlcAsync(paths);
     }
 

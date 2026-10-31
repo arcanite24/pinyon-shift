@@ -104,6 +104,8 @@
                             ToolTip.Tip="Choose the resolution, output scaling and the Treasure Map."/>
                     <Button x:Name="DlcButton" Classes="quiet nav" Content="DLC and v4" Click="DlcButton_Click"
                             ToolTip.Tip="Import and manage your owned downloadable content and title update v4."/>
+                    <Button x:Name="ModsButton" Classes="quiet nav" Content="Mods" Click="ModsButton_Click"
+                            ToolTip.Tip="Install, switch on and order mods."/>
                     <Button x:Name="RadioButton" Classes="quiet nav" Content="Radio" Click="RadioButton_Click"
                             ToolTip.Tip="Make radio stations from your own music."/>
                     <Button x:Name="AndroidButton" Classes="quiet nav" Content="Android" Click="AndroidButton_Click"
@@ -274,6 +276,66 @@
                                         Click="XeInstall_Click" Margin="0,0,10,8"/>
                             </WrapPanel>
                         </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- Mods (FEATURE_BACKLOG FB-9.1): install and switch on the mods in
+                     <state>/mods, with what each mod.toml says about the mod (pinyon.py mods). -->
+                <Border x:Name="ModsPanel" IsVisible="False" Margin="0,20,0,0" Padding="26,22"
+                        CornerRadius="14" Background="{StaticResource SurfaceBrush}">
+                    <StackPanel Spacing="12">
+                        <TextBlock x:Name="ModsSaveText" FontSize="13" TextWrapping="Wrap" LineHeight="20"
+                                   Foreground="{StaticResource MutedBrush}"/>
+                        <TextBlock x:Name="ModsEmptyText" FontSize="14" TextWrapping="Wrap" IsVisible="False"
+                                   Text="No mods installed. Install a mod's ZIP or folder (or drop it here); it starts switched off."/>
+                        <Grid x:Name="ModsBrowser" ColumnDefinitions="280,22,*">
+                            <ScrollViewer MaxHeight="320" VerticalScrollBarVisibility="Auto"
+                                          HorizontalScrollBarVisibility="Disabled" VerticalAlignment="Top">
+                                <StackPanel x:Name="ModsList" Spacing="4" Margin="0,0,10,0"/>
+                            </ScrollViewer>
+                            <StackPanel Grid.Column="2" x:Name="ModDetail" Spacing="8">
+                                <Border x:Name="ModImageFrame" CornerRadius="8" Background="{StaticResource InkBrush}"
+                                        Height="170" ClipToBounds="True" HorizontalAlignment="Left" Width="300">
+                                    <Image x:Name="ModImage" Stretch="Uniform"/>
+                                </Border>
+                                <StackPanel x:Name="ModImageControls" Orientation="Horizontal" Spacing="10">
+                                    <Button Classes="quiet" Content="&#x2039;" Click="ModImagePrevious_Click"
+                                            AutomationProperties.Name="Previous image"/>
+                                    <TextBlock x:Name="ModImageCount" FontSize="12" VerticalAlignment="Center"
+                                               Foreground="{StaticResource MutedBrush}"/>
+                                    <Button Classes="quiet" Content="&#x203A;" Click="ModImageNext_Click"
+                                            AutomationProperties.Name="Next image"/>
+                                </StackPanel>
+                                <TextBlock x:Name="ModTitleText" FontSize="20" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                                <TextBlock x:Name="ModBylineText" FontSize="12" TextWrapping="Wrap"
+                                           Foreground="{StaticResource MutedBrush}"/>
+                                <TextBlock x:Name="ModProblemText" FontSize="12.5" TextWrapping="Wrap"
+                                           Foreground="{StaticResource AmberBrush}"/>
+                                <TextBlock x:Name="ModDescriptionText" FontSize="13" TextWrapping="Wrap" LineHeight="20"/>
+                                <!-- The mod's options (mod.toml [[option]]), filled by ShowSelectedMod. -->
+                                <StackPanel x:Name="ModOptionsPanel" Spacing="10"/>
+                                <StackPanel Orientation="Horizontal" Spacing="6" Margin="-8,0,0,0">
+                                    <Button x:Name="ModPageButton" Classes="link" Content="Mod page" Click="ModPage_Click"/>
+                                    <!-- What the mod changes, its builds, save and requirements: technical, so shown on request. -->
+                                    <Button x:Name="ModFactsButton" Classes="link" Content="Details" Click="ModFacts_Click"/>
+                                </StackPanel>
+                                <TextBlock x:Name="ModFactsText" FontSize="12" TextWrapping="Wrap" LineHeight="19"
+                                           Foreground="{StaticResource MutedBrush}" IsVisible="False"/>
+                                <WrapPanel x:Name="ModControls">
+                                    <Button x:Name="ModToggleButton" Classes="quiet" MinWidth="110" Click="ModToggle_Click"
+                                            Margin="0,0,10,8"/>
+                                    <Button x:Name="ModRemoveButton" Classes="quiet" Content="Remove" Click="ModRemove_Click"
+                                            Margin="0,0,10,8" AutomationProperties.Name="Remove this mod from this computer"/>
+                                </WrapPanel>
+                            </StackPanel>
+                        </Grid>
+                        <TextBlock x:Name="ModsStatusText" TextWrapping="Wrap" FontSize="12.5"
+                                   Foreground="{StaticResource MutedBrush}"/>
+                        <WrapPanel x:Name="ModsControls">
+                            <Button Classes="quiet" Content="Install ZIP" Click="InstallModZip_Click" Margin="0,0,10,8"/>
+                            <Button Classes="quiet" Content="Install folder" Click="InstallModFolder_Click" Margin="0,0,10,8"/>
+                            <Button Classes="link" Content="Open the mods folder" Click="OpenModsFolder_Click" Margin="0,0,0,8"/>
+                        </WrapPanel>
                     </StackPanel>
                 </Border>
 
