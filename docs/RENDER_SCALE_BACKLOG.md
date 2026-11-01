@@ -138,9 +138,9 @@ retained traffic eats the prize.
 
 | Item | Work | Gives | Size | Status |
 | --- | --- | --- | --- | --- |
-| RS-0.1 | **Guest-side spike**: start the title with `video_mode_width/_height` at 640x360 and at the SD 640x480 mode and see whether FH1 sizes its surfaces from the video mode; then look for where the main view's 1280x720 comes from (the Hor+ hook reads it at `sub_823E22C8`; the leftover split-screen code in `site/findings/systems.toml` suggests the engine can draw a scene into a smaller view). If the game can render natively small, there is no reconstruction at all and this backlog may shrink to a presenter change. Record the answer either way in `site/findings` | Rules out (or in) a near-free path | S (hours to 2 days) | Open |
-| RS-0.2 | **Current-pin GPU profiles at 1x** with `fh1_native_gpu_profile` on Blindvac (UHD 620), the Deck, the Odin and the RTX 4080: race and free roam, the device's own preset, plus 2x where the device can run it. The 1x-to-2x growth bounds the area-proportional work from above (`T(2) - T(1) <= 3 x pixel work at 1x`, an overestimate because resolves also grow) | A per-device ceiling for the prize | S-M | Open |
-| RS-0.3 | **Raster-only probe**: first, `fh1_coarse_shading=2x2` on the scene renderings where the device has the extension (no code; fragment work only). Then a debug cvar that multiplies `draw_coordinate_scale()` by `f` for scene-surface draws and nothing else. The image is wrong (a corner of the frame, stretched later), but the GPU does exactly the raster work the real path would. In-run A/B of `f = 1, 0.75, 0.5` on the same devices. This measures the prize directly, before the 3-4 weeks of real work | The gate number | S-M | Open |
+| RS-0.1 | **Guest-side spike**: start the title with `video_mode_width/_height` at 640x360 and at the SD 640x480 mode and see whether FH1 sizes its surfaces from the video mode; then look for where the main view's 1280x720 comes from (the Hor+ hook reads it at `sub_823E22C8`; the leftover split-screen code in `site/findings/systems.toml` suggests the engine can draw a scene into a smaller view). If the game can render natively small, there is no reconstruction at all and this backlog may shrink to a presenter change. Record the answer either way in `site/findings` | Rules out (or in) a near-free path | S (hours to 2 days) | **Video mode done, negative** (see Progress); the main-view and split-screen dig is open |
+| RS-0.2 | **Current-pin GPU profiles at 1x** with `fh1_native_gpu_profile` on Blindvac (UHD 620), the Deck, the Odin and the RTX 4080: race and free roam, the device's own preset, plus 2x where the device can run it. The 1x-to-2x growth bounds the area-proportional work from above (`T(2) - T(1) <= 3 x pixel work at 1x`, an overestimate because resolves also grow) | A per-device ceiling for the prize | S-M | Open; on Blindvac the RS-0.3 probe measured the slope directly, so only the phase breakdown is left there |
+| RS-0.3 | **Raster-only probe**: first, `fh1_coarse_shading=2x2` on the scene renderings where the device has the extension (no code; fragment work only). Then a debug cvar that multiplies `draw_coordinate_scale()` by `f` for scene-surface draws and nothing else. The image is wrong (a corner of the frame, stretched later), but the GPU does exactly the raster work the real path would. In-run A/B of `f = 1, 0.75, 0.5` on the same devices. This measures the prize directly, before the 3-4 weeks of real work | The gate number | S-M | **Probe built** (`fh1_debug_raster_percent`, `fh1_debug_raster_pitches`); **UHD 620 and RTX 4080 done** (see Progress); Deck and Odin open |
 | RS-0.4 | **Decision**: keep going, cut to 50 % only, or record the rejection in `lessons.md` with the numbers | Go / no-go | S | Open |
 
 ### RS-1 Surface policy
@@ -233,4 +233,58 @@ RS-4.2, RS-5.4 and the rest. Planning estimates, not measurements.
 
 ## Progress
 
-(none yet)
+**2026-10-31, RS-0.1 (video mode).** With `--video_mode_width=640
+--video_mode_height=480` (not widescreen, not HD) `fh1-race-sync` drew and
+presented exactly as at 720p: all captures 1280x720 with the 16:9 HUD. The
+title calls `VdQueryVideoMode` but does not size its targets from it, so the
+video mode cannot make it render smaller (finding "render size ignores the
+video mode" in `site/findings/rendering.toml`). Whether the main view's size
+can be changed in guest code is still open.
+
+**2026-10-31, RS-0.3 (raster probe), ShiftGlue `a069c91f` plus the probe,
+Release `5998377`.** `fh1_debug_raster_percent` (hot reload) shrinks the
+viewport and scissor of draws into surfaces whose pitch (32bpp tiles) is in
+`fh1_debug_raster_pitches`, into the top-left corner; resolves, transfers
+and clears keep their size, so the image is wrong by design. Route: seed
+`appdata-2026-09-27`, `fh1-race-sync` to the moving race, then 13 blocks of
+240 (Blindvac) or 480 (multivac) output frames in the order
+100/50/75/100/75/50 twice and a final 100, a capture marking each switch.
+Per block: median `guest_frame_gpu_time_ns` from the perf CSV, the first
+second after a switch dropped. Ratio = block over the mean of its
+neighbouring 100 % blocks; four pairs per fraction in one run.
+
+| Device, preset | Surfaces shrunk (pitch) | 50 %: GPU ratio (4 pairs) | 75 %: GPU ratio | 100 % GPU ms |
+| --- | --- | --- | --- | --- |
+| RTX 4080, 1x, uncapped | 16 | 0.991-1.024 (median 1.006) | median 1.000 | 5.9-8.7 (drifts with the route) |
+| UHD 620 (Blindvac), LOW-SPEC 60, 1x | 16 | 0.784-0.839 (median 0.809) | 0.858-0.901 (0.890) | 65-73 |
+| UHD 620 | 16, 32 (all 1280-wide surfaces) | 0.673-0.713 (**0.705**) | 0.817-0.836 (0.818) | 73-76 |
+| UHD 620 | 13 (the 1024x1024 shadow maps) | 0.992-0.997 (0.995) | 0.985-1.006 (0.996) | 70-72 |
+| UHD 620 | 4-32 (every surface but tiny ones) | 0.655-0.665 (0.662) | 0.798-0.832 (0.810) | 73-75 |
+
+What it shows:
+
+- **The UHD 620 is GPU-bound** (frame time follows GPU time within 1 ms)
+  and about 40 % of its frame scales with the area of the 1280-wide
+  surfaces: fitting `T = fixed + pixels x f^2` gives 39 % from the 50 %
+  blocks and 42 % from the 75 % blocks. Shrinking them to 50 % saves
+  **29.5 %**, above the 25 % gate; 75 % saves 18 %.
+- **Pitch 32 matters as much as pitch 16.** Pitch 16 alone saved 19 %;
+  the 1280-wide surfaces at pitch 32 (wider formats) add the rest. RS-1.1's
+  policy must key on the width in pixels, not on one pitch.
+- **Shadow maps are not where the time goes** on this route: shrinking the
+  three 1024x1024 maps changed nothing, so RS-1.3 is dropped unless another
+  device disagrees. The 640x360 chain and the other small surfaces add
+  about 4 points more.
+- **The RTX 4080 saves nothing**, as DR-0.1 predicted (front end and
+  barriers, not pixels). Sub-1x is for weak GPUs only.
+- 50 % takes the UHD 620 from about 74 to 52 ms, not to 33: below 1x helps
+  the weakest GPUs, but it does not bring them to 30 fps alone.
+
+Limits: one device passes so far, one run per configuration (two of the
+six runs had to be repeated: a Vulkan device loss while loading and a
+route wait timeout before the race, both before the probe was active). The
+probe also shrank the front buffer and HUD, which RS-3.2 keeps full size,
+and it has none of the real path's resolve reconstruction, so the real
+saving will be smaller; RS-0.2's phase breakdown should size the resolves.
+Next: the same probe on the Deck and the Odin (the gate needs two
+devices), then RS-0.4.
