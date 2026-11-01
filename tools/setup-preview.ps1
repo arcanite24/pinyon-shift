@@ -108,15 +108,14 @@ try {
         $prefetch.WaitForExit()
     }
     & (Join-Path $PSScriptRoot 'provision-toolchain.ps1') -JsonEvents:$JsonEvents | Out-Host
-    # TP-2/TP-3: a prebuilt ShiftGlue kit replaces the clone and the SDK build.
-    Write-PinyonEvent tools 34 'Preparing the prebuilt ShiftGlue kit.' -JsonEvents:$JsonEvents
-    if (-not (Install-PinyonShiftGlueKit)) {
-        & (Join-Path $PSScriptRoot 'prepare-rexglue.ps1') -JsonEvents:$JsonEvents | Out-Host
-    }
-
-    Write-PinyonEvent extract 42 'Checking the local game extraction.' -JsonEvents:$JsonEvents
+    Write-PinyonEvent extract 36 'Checking the local game extraction.' -JsonEvents:$JsonEvents
+    $stagingRoot = Resolve-PinyonLocalPath -RelativePath '.local/game/base.extracting'
+    $extraction = $null
     $extractedValid = $false
-    if (Test-Path -LiteralPath (Join-Path $gameRoot 'default.xex') -PathType Leaf) {
+    # A staging folder left behind means the last extraction never finished:
+    # the game folder may hold only the executables.
+    if ((Test-Path -LiteralPath (Join-Path $gameRoot 'default.xex') -PathType Leaf) -and
+        -not (Test-Path -LiteralPath $stagingRoot)) {
         try {
             $check = if ($folderInput -or $contentCheck) {
                 & (Join-Path $PSScriptRoot 'verify-extracted-game.ps1') -ExtractedRoot $gameRoot -Json | ConvertFrom-Json
@@ -148,45 +147,84 @@ try {
         }
         if (Test-Path -LiteralPath $gameRoot) { Remove-Item -LiteralPath $checkedGameRoot -Recurse -Force }
         [void](New-Item -ItemType Directory -Force -Path $gameRoot)
-        if ($folderInput) {
-            Write-PinyonEvent extract 46 'Copying verified game files locally. The source folder is not modified.' -JsonEvents:$JsonEvents
+        if (-not $folderInput) {
+            # TP-7: the translation reads only the three executables, so they
+            # come out first and extract-xiso copies the rest into a staging
+            # folder while the kit is prepared and the game compiles; it is
+            # checked and swapped in after the build.
+            if (Test-Path -LiteralPath $stagingRoot) { Remove-Item -LiteralPath $stagingRoot -Recurse -Force }
+            [void](New-Item -ItemType Directory -Force -Path $stagingRoot)
+            $extractExe = Join-Path (Join-Path $root $config.extract_xiso.install_path) `
+                $config.extract_xiso.executable
+            Write-PinyonEvent extract 37 'Extracting your disc image in the background. The original file is not modified.' -JsonEvents:$JsonEvents
+            $extraction = Start-Process -FilePath $extractExe -PassThru -WindowStyle Hidden `
+                -RedirectStandardOutput (Join-Path $logs 'extract.log') `
+                -RedirectStandardError (Join-Path $logs 'extract-error.log') `
+                -ArgumentList @('-q', '-s', '-x', '-d', "`"$stagingRoot`"", "`"$resolvedIso`"")
+            # Without the handle cached now, ExitCode reads empty after the exit.
+            $null = $extraction.Handle
+            Write-PinyonEvent extract 38 'Copying the game executables.' -JsonEvents:$JsonEvents
+            $copyOutput = & (Get-PinyonPython) (Join-Path $PSScriptRoot 'copy-disc-executables.py') `
+                --iso $resolvedIso --output $gameRoot 2>&1
+            if ($LASTEXITCODE -ne 0) {
+                throw "The game executables could not be read from the disc image. $($copyOutput -join ' ')"
+            }
+        }
+        else {
+            Write-PinyonEvent extract 37 'Copying verified game files locally. The source folder is not modified.' -JsonEvents:$JsonEvents
             foreach ($item in Get-ChildItem -LiteralPath $resolvedSource -Force) {
                 if ($item.Name -ne '$SystemUpdate') {
                     Copy-Item -LiteralPath $item.FullName -Destination $gameRoot -Recurse
                 }
             }
             $check = & (Join-Path $PSScriptRoot 'verify-extracted-game.ps1') -ExtractedRoot $gameRoot -Json | ConvertFrom-Json
+        }
+        if ($folderInput -and (-not $check.recognized -or -not $check.extracted_executables_match)) {
+            throw 'Extracted game executables failed verification.'
+        }
+    }
+    if (-not $extraction) {
+        Write-PinyonEvent extract 40 'Local game files are verified and ready.' -JsonEvents:$JsonEvents
+    }
+
+    # TP-2/TP-3: a prebuilt ShiftGlue kit replaces the clone and the SDK build.
+    Write-PinyonEvent tools 42 'Preparing the prebuilt ShiftGlue kit.' -JsonEvents:$JsonEvents
+    if (-not (Install-PinyonShiftGlueKit)) {
+        & (Join-Path $PSScriptRoot 'prepare-rexglue.ps1') -JsonEvents:$JsonEvents | Out-Host
+    }
+
+    & (Join-Path $PSScriptRoot 'build-preview.ps1') -JsonEvents:$JsonEvents | Out-Host
+    if ($extraction) {
+        if (-not $extraction.HasExited) {
+            Write-PinyonEvent extract 96 'Finishing the disc image extraction.' -JsonEvents:$JsonEvents
+        }
+        $extraction.WaitForExit()
+        if ($extraction.ExitCode -ne 0) { throw 'Disc-image extraction failed.' }
+        # The event goes out before the assignment: with -JsonEvents it is
+        # pipeline output and would land in $check beside the result (#462).
+        if ($contentCheck) {
+            Write-PinyonEvent extract 96 'Checking every extracted file against the supported retail disc.' -JsonEvents:$JsonEvents
+        }
+        $check = if ($contentCheck) {
+            & (Join-Path $PSScriptRoot 'verify-extracted-game.ps1') -ExtractedRoot $stagingRoot -Json | ConvertFrom-Json
         } else {
-            $extractExe = Join-Path (Join-Path $root $config.extract_xiso.install_path) `
-                $config.extract_xiso.executable
-            Write-PinyonEvent extract 46 'Extracting your disc image locally. The original file is not modified.' -JsonEvents:$JsonEvents
-            & $extractExe -q -s -x -d $gameRoot $resolvedIso
-            if ($LASTEXITCODE -ne 0) { throw 'Disc-image extraction failed.' }
-            # The event goes out before the assignment: with -JsonEvents it is
-            # pipeline output and would land in $check beside the result (#462).
-            if ($contentCheck) {
-                Write-PinyonEvent extract 54 'Checking every extracted file against the supported retail disc.' -JsonEvents:$JsonEvents
-            }
-            $check = if ($contentCheck) {
-                & (Join-Path $PSScriptRoot 'verify-extracted-game.ps1') -ExtractedRoot $gameRoot -Json | ConvertFrom-Json
-            } else {
-                & (Join-Path $PSScriptRoot 'verify-game.ps1') -IsoPath $resolvedIso `
-                    -ExtractedRoot $gameRoot -Json | ConvertFrom-Json
-            }
+            & (Join-Path $PSScriptRoot 'verify-game.ps1') -IsoPath $resolvedIso `
+                -ExtractedRoot $stagingRoot -Json | ConvertFrom-Json
         }
         if ($contentCheck -and -not $check.recognized) {
             # Not this disc's files: leave nothing half-usable behind.
-            Remove-Item -LiteralPath $checkedGameRoot -Recurse -Force
+            Remove-Item -LiteralPath $stagingRoot -Recurse -Force
+            Remove-Item -LiteralPath $gameRoot -Recurse -Force
             throw 'This disc image is not a supported revision: its files differ from the supported retail disc (Forza Horizon, USA, MS-2505). Other regions, demos and modified images are not supported.'
         }
         if (-not $check.recognized -or -not $check.extracted_executables_match) {
             throw 'Extracted game executables failed verification.'
         }
         if ($contentCheck) { $verification = $check }
+        Remove-Item -LiteralPath $gameRoot -Recurse -Force
+        Move-Item -LiteralPath $stagingRoot -Destination $gameRoot
+        Write-PinyonEvent extract 97 'Local game files are verified and ready.' -JsonEvents:$JsonEvents
     }
-    Write-PinyonEvent extract 58 'Local game files are verified and ready.' -JsonEvents:$JsonEvents
-
-    & (Join-Path $PSScriptRoot 'build-preview.ps1') -JsonEvents:$JsonEvents | Out-Host
     & (Join-Path $PSScriptRoot 'prepare-fh1-shaders.ps1') -GameRoot $gameRoot -JsonEvents:$JsonEvents | Out-Host
     $state = [ordered]@{
         schema_version = 1
@@ -202,6 +240,9 @@ try {
     Write-PinyonEvent play 100 'Ready to play.' -JsonEvents:$JsonEvents
 }
 catch {
+    if ($extraction -and -not $extraction.HasExited) {
+        try { $extraction.Kill() } catch { }
+    }
     # Report the failure as plain text and exit with a code. Write-Error under
     # $ErrorActionPreference = 'Stop' turns into a second, terminating error
     # whose position is the Write-Error line itself ("At ...:92 char:5"),

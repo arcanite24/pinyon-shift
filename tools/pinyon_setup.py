@@ -547,9 +547,38 @@ def check_paths(files: list[tuple[str, int, int]], expected: dict) -> list[str]:
     return mismatches
 
 
-def extract_iso(iso: Path, progress: Progress) -> dict:
+def copy_executables(iso: Path, destination: Path) -> None:
+    """Copies the three .xex files out of the disc image, checked against the
+    supported dump. They are all the translation reads, so the build can
+    start while the rest of the game is extracted (extract_iso with
+    replace=False, or extract-xiso on Windows)."""
+    dump, expected = load_catalog()
+    disc = DiscImage(iso)
+    try:
+        listing = [entry for entry in disc.files()
+                   if not entry[0].split("/", 1)[0].lower() == SYSTEM_UPDATE.lower()]
+        # Another disc fails here, in seconds, not after the build.
+        mismatches = check_paths(listing, expected)
+        if mismatches:
+            raise SetupError("This disc image is not the supported Forza Horizon (USA, "
+                             f"MS-2505) dump: {mismatches[0]}", "verify")
+        files = {path.lower(): (sector, size) for path, sector, size in listing}
+        destination.mkdir(parents=True, exist_ok=True)
+        for executable in dump["executables"]:
+            name = executable["guest_path"]
+            found = files.get(name.lower())
+            if found is None or found[1] != executable["size_bytes"] or                     disc.copy(found[0], found[1], destination / name) != executable["sha256"]:
+                raise SetupError(f"This disc image is not the supported Forza Horizon (USA, "
+                                 f"MS-2505) dump: {name} differs", "verify")
+    finally:
+        disc.close()
+
+
+def extract_iso(iso: Path, progress: Progress, replace: bool = True) -> tuple[dict, Path]:
     """Copies the game out of the disc image, checking each file against the
-    catalog; an image that is not the supported dump leaves nothing behind."""
+    catalog; an image that is not the supported dump leaves nothing behind.
+    Without replace, the checked copy stays in the staging folder it
+    returns, for the caller to swap in with replace_game."""
     dump, expected = load_catalog()
     disc = DiscImage(iso)
     try:
@@ -580,8 +609,10 @@ def extract_iso(iso: Path, progress: Progress) -> dict:
                          f"Copying the game files ({done / 1e9:.1f} of {total / 1e9:.1f} GB)")
     finally:
         disc.close()
+    if not replace:
+        return dump, staging
     replace_game(staging)
-    return dump
+    return dump, GAME
 
 
 def verify_folder(source: Path, progress: Progress) -> dict:
@@ -622,6 +653,29 @@ def verify_folder(source: Path, progress: Progress) -> dict:
     return dump
 
 
+class Extraction:
+    """extract_iso on a thread, its progress kept quiet so it does not fight
+    the build's; result() waits and re-raises its error."""
+
+    def __init__(self, iso: Path):
+        self._result = None
+        self._error = None
+        self._thread = threading.Thread(target=self._run, args=(iso,), daemon=True)
+        self._thread.start()
+
+    def _run(self, iso: Path) -> None:
+        try:
+            self._result = extract_iso(iso, lambda *_: None, replace=False)
+        except BaseException as error:  # noqa: BLE001 (re-raised in result)
+            self._error = error
+
+    def result(self) -> tuple[dict, Path]:
+        self._thread.join()
+        if self._error:
+            raise self._error
+        return self._result
+
+
 def replace_game(staging: Path) -> None:
     if GAME.is_symlink():
         raise SetupError(f"{GAME} is a link; remove it first", "extract")
@@ -631,7 +685,11 @@ def replace_game(staging: Path) -> None:
 
 
 def game_ready() -> bool:
-    """The extracted game is there and its executables still match."""
+    """The extracted game is there and its executables still match. A
+    staging folder left behind means the last extraction never finished and
+    the game folder may hold only the executables (copy_executables)."""
+    if GAME.with_name(GAME.name + ".extracting").exists():
+        return False
     dump, _ = load_catalog()
     for executable in dump["executables"]:
         path = GAME / executable["guest_path"]
@@ -1371,6 +1429,7 @@ def run_setup(args: argparse.Namespace) -> int:
             return 0
         dump = None
         source_kind = None
+        extraction = None
         # TP-7: the tool and kit downloads run while the game is checked and
         # extracted.
         fetching = (args.iso or args.extracted) and not args.verify_only
@@ -1392,11 +1451,21 @@ def run_setup(args: argparse.Namespace) -> int:
                         raise SetupError(f"Not the supported dump: {mismatches[0]}", "verify")
                     progress("verify", 100, "The disc image has the supported dump's files")
                     return 0
-                dump = extract_iso(args.iso, progress)
+                # The executables first, then the rest of the game in the
+                # background while the tools are provisioned and the code
+                # compiles; it is swapped in before setup finishes.
+                progress("extract", 10, "Copying the game executables")
+                if GAME.is_symlink():
+                    raise SetupError(f"{GAME} is a link; remove it first", "extract")
+                if GAME.exists():
+                    shutil.rmtree(GAME)
+                copy_executables(args.iso, GAME)
+                extraction = Extraction(args.iso)
             else:
                 source_kind = "extracted"
                 dump = verify_folder(args.extracted.resolve(), progress)
-            progress("extract", 100, "Game files ready")
+            progress("extract", 100, "Extracting the game files in the background"
+                     if extraction else "Game files ready")
         elif not game_ready():
             raise SetupError("choose your disc image (--iso) first", "verify")
         if downloads:
@@ -1407,6 +1476,11 @@ def run_setup(args: argparse.Namespace) -> int:
         sdk = install_kit(progress, config, name) or prepare_shiftglue(progress, config)
         jobs = args.jobs or job_count()
         build(progress, tools, sdk, python, name, jobs, args.configuration)
+        if extraction:
+            progress("extract", 50, "Finishing the game file extraction")
+            dump, staging = extraction.result()
+            replace_game(staging)
+            progress("extract", 100, "Game files ready")
         if dump is None:
             dump, _ = load_catalog()
         state = {
