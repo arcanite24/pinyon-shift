@@ -43,6 +43,16 @@ source = """config/rexglue/analysis/main-xex.toml dirty-disc hooks; docs/NATIVE_
 
 [[finding]]
 group = """Media layout and file access"""
+base = """XamShowDirtyDiscErrorUI (xam import)"""
+name = """a failed open of a needed file stops the title"""
+what = """When the title can't open a file it needs, it calls `XamShowDirtyDiscErrorUI`, and once that returns it stops itself with a breakpoint exception: exit `0x80000003` in `pinyon_shift.exe`, with the same offset for every player of a release (`+0x244f878` on 0.7.1, `+0x2be7328` on 0.7.0). The last `NtCreateFile` failure logged before the call names the file. Crash reports detect this stop (`pinyon_crash.disc_read_error`) and the launcher reports it as a file read error rather than a crash."""
+how = """About 25 crash reports from #901 and a reproduction from pinned seeds (XE 1.0 with UDLC, `fh1-opening-sync`); the runtime log shows the failed open, the dirty-disc call and then the breakpoint exit."""
+confidence = """confirmed"""
+source = """docs/MODDING.md The Forza Horizon XE mod; tools/pinyon_crash.py disc_read_error"""
+issue = """#901"""
+
+[[finding]]
+group = """Media layout and file access"""
 base = """sub_82C03E90, 0x82C041A4, sub_82A7CDB8"""
 v4 = """0x82CC359C"""
 name = """file size check"""

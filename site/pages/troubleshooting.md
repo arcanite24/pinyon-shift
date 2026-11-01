@@ -126,6 +126,8 @@ When the crash was inside the graphics card's Vulkan driver, as most reported cr
 
 When the game's log shows the graphics card running out of memory, the launcher says that instead. Higher resolution scales need much more graphics memory: a report at 3x ran out within 30 seconds ([#558](https://github.com/arcanite24/pinyon-shift/issues/558)). Choose 1x or 2x, or **Low-spec 60**, in Settings.
 
+When the game stopped because it couldn't open one of its files (its "dirty disc" error, exit `0x80000003`), the launcher says that and names the file. This almost always comes from a mod or DLC pack that changes the game's files. Turn off the one you added last. With the XE mod, install the 1.01 hotfix too ([#901](https://github.com/arcanite24/pinyon-shift/issues/901)).
+
 Memory dumps in `.local/preview/crashes` can hold fragments of process memory, so they never go into the public report. Keep them local.
 
 ## Start over

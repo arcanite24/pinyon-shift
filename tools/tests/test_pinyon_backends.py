@@ -296,6 +296,20 @@ class CrashReportTests(unittest.TestCase):
             "[error] [gpu] XELOG_GPU PRESENT: swap_texture_view=NULL",
             "[warning] [krnl] attmpted allocation to devkit memory area"]))
 
+    def test_disc_read_error_names_the_last_failed_open_before_it(self):
+        # #901: the XE mod with UDLC; the burble with no name is a directory.
+        self.assertEqual((True, "game:\\Media\\Audio\\Cars\\Engines\\Soundbanks\\Burbles\\"),
+                         pinyon_crash.disc_read_error([
+            "[warning] [krnl] [NtCreateFile] FAILED: path='DLCRoot4:\\media\\x\\' -> 0xc000000f",
+            "[warning] [krnl] [NtCreateFile] FAILED: "
+            "path='game:\\Media\\Audio\\Cars\\Engines\\Soundbanks\\Burbles\\' -> 0xc00000ba",
+            "[error] [krnl] XamShowDirtyDiscErrorUI called! user_index=0",
+            "[warning] [krnl] [NtCreateFile] FAILED: path='game:\\later.zip' -> 0xc000000f"]))
+        self.assertEqual((True, ""), pinyon_crash.disc_read_error([
+            "[error] [krnl] XamShowDirtyDiscErrorUI called! user_index=0"]))
+        self.assertEqual((False, ""), pinyon_crash.disc_read_error([
+            "[warning] [krnl] [NtCreateFile] FAILED: path='game:\\a.zip' -> 0xc000000f"]))
+
     def test_no_pending_report(self):
         with tempfile.TemporaryDirectory() as directory:
             code, result = run_json(["crash-report", "pending", "--state-root", directory,

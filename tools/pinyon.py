@@ -332,7 +332,8 @@ def launch(args: argparse.Namespace) -> dict:
             result["config"] = str(state / "config" / "pinyon_shift.toml")
     elif exit_code:
         report = crash_report(state, executable, started, process.pid, exit_code)
-        for key in ("crash_id", "bundle", "issue_url", "graphics_driver", "graphics_memory"):
+        for key in ("crash_id", "bundle", "issue_url", "graphics_driver", "graphics_memory",
+                    "disc_read_error", "missing_file"):
             if key in report:
                 result[key] = report[key]
     return result

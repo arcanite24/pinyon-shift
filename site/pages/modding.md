@@ -194,7 +194,7 @@ python tools/pinyon.py xe install --find --open-pages --wait 14400
 
 Pinyon Shift never downloads XE itself: ModDB doesn't allow automated downloads, so your browser does it.
 
-The archives are checked against ModDB's sizes and MD5s, and only the files that differ from your game are kept (2.4 GB; 7 GB free is needed while installing). XE runs on the base disc build, hides Horizon Rally and plays its own new save in `<state>/user-xe`, as its readme asks. Your own save isn't touched. `xe disable` turns it off and `xe remove` deletes its files but keeps its save.
+Both downloads are needed: XE 1.0 without the 1.01 hotfix, together with the UDLC pack, stops the game right after the opening intro on a new save. If you installed XE 1.0 alone with an earlier release, the launcher says the hotfix is missing and hides UDLC while XE is on; choose **Reinstall** with both downloads to get it back. The archives are checked against ModDB's sizes and MD5s, and only the files that differ from your game are kept (2.4 GB; 7 GB free is needed while installing). XE runs on the base disc build, hides Horizon Rally and plays its own new save in `<state>/user-xe`, as its readme asks. Your own save isn't touched. `xe disable` turns it off and `xe remove` deletes its files but keeps its save.
 
 The archives are extracted with [7-Zip](https://www.7-zip.org) when it is installed, otherwise with the system `tar`. Some Windows `tar.exe` builds can't read XE's LZMA archives; the install then stops before extracting and asks you to install 7-Zip and choose **Install XE** again.
 

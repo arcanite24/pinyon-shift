@@ -586,8 +586,8 @@ automated clients on `/downloads/start/` and `/downloads/mirror/`, the pages a
 scripted download would need (checked 2026-10-10, #426), so the player's
 browser downloads it, from ModDB, with credit to Teancum shown in the launcher.
 
-`install` checks each archive's size and MD5 against ModDB's, extracts them
-(the hotfix over 1.0) with 7-Zip or bsdtar (`tar.exe` on Windows 10 and
+`install` needs both archives. It checks each one's size and MD5 against
+ModDB's, extracts them (the hotfix over 1.0) with 7-Zip or bsdtar (`tar.exe` on Windows 10 and
 later), and keeps only the files that differ from the player's game: 10
 replaced files (seven cars, the database, the UI textures and
 `zipmanifest.xml`) and about 1,140 new ones, 2.4 GB in `<state>/mods/xe`. It
@@ -603,6 +603,21 @@ launcher starts the base build even if title update v4 is chosen. `disable`
 returns to the player's own save, and `remove` deletes the mod's files but
 keeps `user-xe`. Smaller mods made for XE can be enabled before it; their
 database scripts apply to XE's database.
+
+XE 1.0 without the hotfix stops the game on a new save when the community
+UDLC pack is installed (#901). Right after the new-player opening's intro,
+when the drive loads, the game opens
+`media\Audio\Cars\Engines\Soundbanks\Burbles\` with no file name, gets
+`0xC00000BA` (a directory opened as a file) and stops itself on its
+dirty-disc error (exit `0x80000003`). It reproduces from pinned seeds with
+`fh1-opening-sync`: XE 1.0 plus UDLC stops, while XE 1.0 alone, XE 1.0 with
+the hotfix, and XE 1.0 with the hotfix plus UDLC all reach the opening drive.
+Releases before 0.7.2 installed 1.0 alone when the hotfix was missing, so for
+an install recorded as 1.0 the `mod.toml` also hides UDLC and its Traffic Car
+Unlocker. Each start rewrites an older install's `mod.toml`
+(`pinyon_xe.refresh_manifest`, run by `build-mod-patches.py`), and the
+launcher asks for a reinstall with both downloads. `install` now refuses 1.0
+alone.
 
 Known XE issues, present on the console too: some new cars have black
 thumbnails, and the Autoshow asks for an ambience bank XE does not ship
