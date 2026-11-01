@@ -265,7 +265,7 @@ def seed_vulkan_shader_storage(source: Path, destination: Path) -> list[str]:
     source_directory = source / "cache" / "shaders" / "shareable"
     names = sorted(
         path.name
-        for pattern in ("*.xsh", "*.fbo.vk.xpso", "*.fbo.vk.signs.xpso")
+        for pattern in ("*.xsh", "*.fbo.vk.xpso", "*.fbo.vk.signs.xpso", "*.fbo.aot.xpso")
         for path in source_directory.glob(pattern)
         if path.is_file()
     )

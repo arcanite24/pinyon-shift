@@ -104,6 +104,7 @@ $include = @(
     'tools/pinyon_common.py', 'tools/pinyon_dlc.py', 'tools/pinyon_title_update.py',
     'tools/pinyon_saves.py', 'tools/import-xenia-save.ps1', 'tools/pinyon_crash.py',
     'tools/pinyon_config.py', 'tools/pinyon_hardware.py', 'tools/pinyon_shaders.py',
+    'tools/fh1_aot_pipelines.py', 'config/fh1-aot-pipelines.json',
     'config/android-toolchain.json', 'android',
     'tools/fh1-profile.py', 'tools/fh1-strings.py', 'tools/inspect-fh1-ui.py',
     'tools/native-shader-pack.py',

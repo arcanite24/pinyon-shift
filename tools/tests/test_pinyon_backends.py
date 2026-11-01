@@ -552,6 +552,33 @@ class ShaderPreparationTests(unittest.TestCase):
             pinyon_shaders.prepare(self.state, self.root, self.build, True)
         self.assertEqual(seen, [b"patch"])
 
+    def test_ahead_of_time_pipelines_are_written_once_per_catalog_and_content(self):
+        (self.build / common.EXTRACTOR).write_bytes(b"extractor")
+        catalog = self.root / "catalog.json"
+        catalog.write_text("{}", encoding="utf-8")
+        package = self.state / pinyon_shaders.CONTENT / "RALLY"
+        package.mkdir(parents=True)
+        calls = []
+
+        def generate(corpus, catalog_path, output):
+            calls.append(output)
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_bytes(b"XEAO")
+            return {"pipelines": 2, "shaders": 3}
+
+        extracted = subprocess.CompletedProcess([], 0, stdout="", stderr="")
+        with mock.patch.object(pinyon_shaders, "CATALOG", catalog),                 mock.patch.object(common, "ROOT", self.root),                 mock.patch.object(pinyon_shaders.aot, "generate", side_effect=generate),                 mock.patch.object(subprocess, "run", return_value=extracted) as run:
+            first = pinyon_shaders.prepare_aot(self.state, self.root, self.build, True)
+            second = pinyon_shaders.prepare_aot(self.state, self.root, self.build, True)
+            self.assertIn(f"--content-root={package}", run.call_args_list[0].args[0])
+            # New DLC rebuilds the list.
+            (package.parent / "OTHER").mkdir()
+            pinyon_shaders.prepare_aot(self.state, self.root, self.build, True)
+        self.assertEqual(first, "2 pipelines from 3 shaders")
+        self.assertEqual(second, "ready")
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[0].name, pinyon_shaders.AOT_FILE)
+
 
 if __name__ == "__main__":
     unittest.main()

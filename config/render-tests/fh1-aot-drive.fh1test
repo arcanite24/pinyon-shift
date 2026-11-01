@@ -1,0 +1,49 @@
+pinyon-shift-fh1-render-test-v1
+# clock-hz 60
+# AOT-5 probe: fast travel to a far road, then 100 s of driving with
+# alternating steering, no captures. Run with pinyon_shift_cheats=true on a
+# private seed; count "First draw with pipeline" log lines and slow frames.
+input 0 0000 0 0 0 0 0 0
+input 360 1000 0 0 0 0 0 0
+input 366 0000 0 0 0 0 0 0
+input 480 1000 0 0 0 0 0 0
+input 486 0000 0 0 0 0 0 0
+input 600 1000 0 0 0 0 0 0
+input 606 0000 0 0 0 0 0 0
+input 720 1000 0 0 0 0 0 0
+input 726 0000 0 0 0 0 0 0
+wait 960 3600 freeroam
+cvar 1220 cheat_fast_travel_anywhere true
+input 1260 0020 0 0 0 0 0 0
+input 1290 0000 0 0 0 0 0 0
+input 1380 0000 0 0 16000 10000 0 0
+input 1440 0000 0 0 0 0 0 0
+input 1560 4000 0 0 0 0 0 0
+input 1590 0000 0 0 0 0 0 0
+input 1680 1000 0 0 0 0 0 0
+input 1710 0000 0 0 0 0 0 0
+input 2460 0000 0 255 0 0 0 0
+wait 2580 1200 vehicle-moved 3
+input 2700 0000 0 255 9000 0 0 0
+input 3000 0000 0 255 -9000 0 0 0
+input 3300 0000 0 255 9000 0 0 0
+input 3600 0000 0 255 -9000 0 0 0
+input 3900 0000 0 255 9000 0 0 0
+input 4200 0000 0 255 -9000 0 0 0
+input 4500 0000 0 255 9000 0 0 0
+input 4800 0000 0 255 -9000 0 0 0
+input 5100 0000 0 255 9000 0 0 0
+input 5400 0000 0 255 -9000 0 0 0
+input 5700 0000 0 255 9000 0 0 0
+input 6000 0000 0 255 -9000 0 0 0
+input 6300 0000 0 255 9000 0 0 0
+input 6600 0000 0 255 -9000 0 0 0
+input 6900 0000 0 255 9000 0 0 0
+input 7200 0000 0 255 -9000 0 0 0
+input 7500 0000 0 255 9000 0 0 0
+input 7800 0000 0 255 -9000 0 0 0
+input 8100 0000 0 255 9000 0 0 0
+input 8400 0000 0 255 -9000 0 0 0
+input 8700 0000 0 0 0 0 0 0
+capture 8720 end
+stop 8760
