@@ -26,10 +26,10 @@ $pending = @(foreach ($name in $names) {
         $tool.url
     }
 })
-# TP-4: with a prebuilt kit, an opted-in PC fetches the Microsoft C++
-# libraries and the Windows SDK with xwin instead of the Build Tools.
-$useSysroot = $kitPinned -and [string]::IsNullOrWhiteSpace($vsRoot) -and
-    ($env:PINYON_SHIFT_MSVC_SYSROOT -eq '1' -or $null -ne (Get-PinyonMsvcSysroot))
+# TP-4: with a prebuilt kit and the player's acceptance of Microsoft's
+# license, xwin fetches the Microsoft C++ libraries and the Windows SDK
+# instead of the Build Tools install (Test-PinyonUseMsvcSysroot).
+$useSysroot = Test-PinyonUseMsvcSysroot
 if ($useSysroot) {
     if ($null -eq (Get-PinyonMsvcSysroot)) { $pending += @($config.msvc_sysroot.xwin.url, 'https://aka.ms/') }
 }
@@ -119,7 +119,7 @@ function Invoke-BuildToolsInstaller {
 
 $restartPending = $false
 if ($useSysroot) {
-    Write-PinyonEvent tools 20 'Fetching the Microsoft C++ libraries and the Windows SDK (about 300 MB, once).' -JsonEvents:$JsonEvents
+    Write-PinyonEvent tools 20 'Fetching the Microsoft C++ libraries and the Windows SDK from Microsoft (about 770 MB, once).' -JsonEvents:$JsonEvents
     Install-PinyonMsvcSysroot -AcceptMicrosoftLicense:($env:PINYON_SHIFT_ACCEPT_MICROSOFT_LICENSE -eq '1')
 }
 elseif ([string]::IsNullOrWhiteSpace($vsRoot)) {

@@ -55,7 +55,9 @@ try {
     }
     if (-not $VerifyOnly) {
         $firstBuild = -not (Test-Path -LiteralPath (Join-Path $root '.local/build.json') -PathType Leaf)
-        $buildToolsMissing = [string]::IsNullOrWhiteSpace((Get-PinyonVisualStudioRoot -AllowMissing))
+        # The fetched sysroot (TP-4) lives on the install drive with the tools.
+        $buildToolsMissing = -not (Test-PinyonUseMsvcSysroot) -and
+            [string]::IsNullOrWhiteSpace((Get-PinyonVisualStudioRoot -AllowMissing))
         Assert-PinyonFreeSpace -Root $root -FirstBuild:$firstBuild -BuildToolsMissing:$buildToolsMissing
     }
     # TP-7: the tool and kit downloads need nothing from the game, so they

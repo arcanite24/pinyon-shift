@@ -385,16 +385,28 @@ if(WIN32 AND DEFINED ENV{VCToolsRedistDir})
     set(PINYON_SHIFT_VC_REDIST_DIR "$ENV{VCToolsRedistDir}" CACHE PATH
         "Visual C++ redistributable folder of the build toolset")
 endif()
-if(WIN32 AND PINYON_SHIFT_VC_REDIST_DIR)
-    file(GLOB PINYON_SHIFT_VC_RUNTIME_DLLS
-        "${PINYON_SHIFT_VC_REDIST_DIR}/x64/Microsoft.VC*.CRT/*.dll")
+if(WIN32 AND (PINYON_SHIFT_VC_REDIST_DIR OR PINYON_SHIFT_SHIFTGLUE_KIT))
+    set(PINYON_SHIFT_VC_RUNTIME_DLLS)
+    if(PINYON_SHIFT_VC_REDIST_DIR)
+        file(GLOB PINYON_SHIFT_VC_RUNTIME_DLLS
+            "${PINYON_SHIFT_VC_REDIST_DIR}/x64/Microsoft.VC*.CRT/*.dll")
+    endif()
     # A prebuilt kit carries the runtime its DLLs were built against; the
     # newer of the two toolsets' runtimes serves both (Microsoft keeps it
-    # backward compatible).
+    # backward compatible). The fetched sysroot (TP-4) has no runtime, so the
+    # kit's is the only one; it must be at least as new as the sysroot's
+    # C++ library.
     if(PINYON_SHIFT_SHIFTGLUE_KIT AND EXISTS "${PINYON_SHIFT_SHIFTGLUE_KIT}/redist")
         string(JSON _pinyon_kit_toolset GET "${_pinyon_kit}" msvc_toolset)
-        if(_pinyon_kit_toolset VERSION_GREATER "$ENV{VCToolsVersion}")
+        if(NOT PINYON_SHIFT_VC_RUNTIME_DLLS OR _pinyon_kit_toolset VERSION_GREATER "$ENV{VCToolsVersion}")
             file(GLOB PINYON_SHIFT_VC_RUNTIME_DLLS "${PINYON_SHIFT_SHIFTGLUE_KIT}/redist/*.dll")
+        endif()
+        string(REGEX MATCH "^[0-9]+\\.[0-9]+" _pinyon_kit_runtime "${_pinyon_kit_toolset}")
+        string(REGEX MATCH "^[0-9]+\\.[0-9]+" _pinyon_headers "$ENV{VCToolsVersion}")
+        if(NOT PINYON_SHIFT_VC_REDIST_DIR AND _pinyon_headers AND
+           _pinyon_kit_runtime VERSION_LESS _pinyon_headers)
+            message(WARNING "The kit's C++ runtime (${_pinyon_kit_toolset}) is older than "
+                "the C++ library this build compiles against ($ENV{VCToolsVersion}).")
         endif()
     endif()
     if(PINYON_SHIFT_VC_RUNTIME_DLLS)

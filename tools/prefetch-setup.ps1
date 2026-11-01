@@ -3,8 +3,8 @@ param()
 
 # TP-7 (docs/TIME_TO_PLAY_BACKLOG.md): download the pinned tool archives and
 # the prebuilt ShiftGlue kit while setup checks and copies the game, so
-# provisioning finds them in .local/downloads. Downloads only: nothing is
-# installed, nothing asks for administrator rights, and a failure here is
+# provisioning finds them in .local/downloads. Downloads only, apart from the
+# Microsoft libraries below: nothing asks for administrator rights, and a failure here is
 # left for provisioning to retry and report. The destinations are the ones
 # provision-toolchain.ps1 and Install-PinyonShiftGlueKit use.
 
@@ -48,4 +48,12 @@ if ($null -ne $kit -and $null -eq (Get-PinyonShiftGlueKitRoot)) {
             Join-Path $downloads "shiftglue-kit-$($kit.revision.Substring(0, 12))-windows-x64.zip")
     }
     catch { Write-Warning "Prefetching the ShiftGlue kit failed: $($_.Exception.Message)" }
+}
+
+# The Microsoft libraries (TP-4) are the longest fetch, and xwin only
+# downloads and unpacks them; provisioning waits for this process, so the two
+# never run it at once. Only with the player's acceptance of the license.
+if ((Test-PinyonUseMsvcSysroot) -and $env:PINYON_SHIFT_ACCEPT_MICROSOFT_LICENSE -eq '1') {
+    try { Install-PinyonMsvcSysroot -AcceptMicrosoftLicense }
+    catch { Write-Warning "Prefetching the Microsoft C++ libraries failed: $($_.Exception.Message)" }
 }

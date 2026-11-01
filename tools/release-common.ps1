@@ -303,8 +303,7 @@ function Get-PinyonVisualStudioRoot {
 # Microsoft's own Visual Studio packages after the player accepts Microsoft's
 # license. A build from the prebuilt ShiftGlue kit needs nothing else from the
 # Build Tools: clang reads INCLUDE, lld-link reads LIB, llvm-rc replaces rc.exe
-# and the link step embeds manifests in place of mt.exe. Opt-in (PINYON_SHIFT_MSVC_SYSROOT=1) until the
-# license review is done; the Build Tools stay the default.
+# and the link step embeds manifests in place of mt.exe.
 function Get-PinyonMsvcSysroot {
     $config = Get-PinyonReleaseToolchain
     if (-not ($config.PSObject.Properties.Name -contains 'msvc_sysroot')) { return $null }
@@ -314,9 +313,25 @@ function Get-PinyonMsvcSysroot {
     $data = Get-Content -LiteralPath $record -Raw | ConvertFrom-Json
     [pscustomobject]@{
         Root = $root
+        # VC/Tools/MSVC/<version>/include
+        MsvcVersion = (@($data.include)[0] -split '/')[3]
         Include = @($data.include | ForEach-Object { [IO.Path]::Combine($root, $_) })
         Lib = @($data.lib | ForEach-Object { [IO.Path]::Combine($root, $_) })
     }
+}
+
+# Whether this build uses the fetched sysroot instead of Visual Studio. It is
+# the default for builds from the prebuilt kit, which carries the C++ runtime
+# DLLs the sysroot lacks, once the player accepted Microsoft's license (the
+# launcher asks), and it is preferred over an installed Visual Studio so every
+# install compiles against the same pinned C++ library. Declining falls back
+# to the Build Tools. Source builds opt in with PINYON_SHIFT_MSVC_SYSROOT=1;
+# PINYON_SHIFT_MSVC_SYSROOT=0 always uses Visual Studio.
+function Test-PinyonUseMsvcSysroot {
+    if ($env:PINYON_SHIFT_MSVC_SYSROOT -eq '0') { return $false }
+    if ($env:PINYON_SHIFT_MSVC_SYSROOT -eq '1') { return $true }
+    if ($null -eq (Get-PinyonShiftGlueKitEntry)) { return $false }
+    $env:PINYON_SHIFT_ACCEPT_MICROSOFT_LICENSE -eq '1' -or $null -ne (Get-PinyonMsvcSysroot)
 }
 
 # The pinned CLI uses narrow argv and file APIs. A UTF-8 process code page
@@ -335,7 +350,7 @@ function Install-PinyonMsvcSysroot {
     if (-not $AcceptMicrosoftLicense) {
         $failure = [Exception]::new("Fetching the Microsoft C++ libraries and the Windows SDK needs Microsoft's license to be accepted: $($sysroot.license_url)")
         $failure.Data['step'] = 'Fetch the Microsoft C++ libraries'
-        $failure.Data['hint'] = 'Accept the license, or leave PINYON_SHIFT_MSVC_SYSROOT unset to install the Microsoft C++ Build Tools instead.'
+        $failure.Data['hint'] = "Tick the launcher's Microsoft license box, or leave it unticked to install the Microsoft C++ Build Tools instead."
         throw $failure
     }
     $xwinRoot = Resolve-PinyonLocalPath -RelativePath $sysroot.xwin.install_path
@@ -1094,12 +1109,16 @@ function Enter-PinyonBuildEnvironment {
     }
     $root = Get-PinyonRepoRoot
     $config = Get-PinyonReleaseToolchain
-    $sysroot = Get-PinyonMsvcSysroot
+    $sysroot = if (Test-PinyonUseMsvcSysroot) { Get-PinyonMsvcSysroot } else { $null }
     if ($sysroot) {
         # TP-4: no Build Tools; the fetched CRT and Windows SDK instead.
         $vsRoot = ''
         $env:INCLUDE = $sysroot.Include -join ';'
         $env:LIB = $sysroot.Lib -join ';'
+        # What the developer prompt would say: the game build compares it with
+        # the kit's runtime and fingerprints the host objects with it.
+        $env:VCToolsVersion = $sysroot.MsvcVersion
+        Remove-Item Env:VCToolsRedistDir -ErrorAction SilentlyContinue
     }
     else {
         $vsRoot = Get-PinyonVisualStudioRoot

@@ -29,11 +29,10 @@ jobs:
       - name: Build the trimmed LLVM and the ShiftGlue kit
         shell: powershell
         env:
-          # The Windows runtime links NVIDIA's NGX loader; whether a prebuilt
-          # runtime may ship under NVIDIA's DLSS approval is still open
-          # (docs/TIME_TO_PLAY_BACKLOG.md TP-3). Until the maintainer sets
-          # this repository variable, the kit is built but not attached, and
-          # Windows setup builds ShiftGlue from source.
+          # The Windows runtime links NVIDIA's NGX loader. The maintainer
+          # confirmed on 2026-10-31 that NVIDIA's DLSS approval covers the
+          # prebuilt runtime (docs/TIME_TO_PLAY_BACKLOG.md TP-3); the
+          # repository variable stays as the switch to hold it back.
           PUBLISH_KIT: ${{ vars.PINYON_SHIFT_PUBLISH_WINDOWS_KIT }}
         run: |
           . ./tools/release-common.ps1

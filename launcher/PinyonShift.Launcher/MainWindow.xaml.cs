@@ -357,6 +357,7 @@ public partial class MainWindow : Window
         BrowseButton.IsEnabled = false;
         BrowseFolderButton.IsEnabled = false;
         OwnershipCheckBox.IsEnabled = false;
+        MicrosoftLicenseCheckBox.IsEnabled = false;
         PrimaryButton.IsEnabled = false;
         SetPrimaryText("Building…");
         ShowPanel(View.Log);
@@ -391,6 +392,8 @@ public partial class MainWindow : Window
             startInfo.ArgumentList.Add(Directory.Exists(IsoPathTextBox.Text) ? "-ExtractedPath" : "-IsoPath");
             startInfo.ArgumentList.Add(IsoPathTextBox.Text);
             startInfo.ArgumentList.Add("-JsonEvents");
+            if (MicrosoftLicenseCheckBox.IsChecked == true)
+                startInfo.Environment["PINYON_SHIFT_ACCEPT_MICROSOFT_LICENSE"] = "1";
 
             using var process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
             process.OutputDataReceived += (_, args) => Dispatcher.Invoke(() => HandleOutput(args.Data));
@@ -437,6 +440,7 @@ public partial class MainWindow : Window
             BrowseButton.IsEnabled = true;
             BrowseFolderButton.IsEnabled = true;
             OwnershipCheckBox.IsEnabled = true;
+            MicrosoftLicenseCheckBox.IsEnabled = true;
             UpdatePrimaryButton();
         }
     }
@@ -1607,6 +1611,11 @@ public partial class MainWindow : Window
 
     private static void OpenUrl(string url) =>
         Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+
+    // The license the Visual Studio installer itself presents for the Build
+    // Tools; xwin fetches the same packages (config/release-toolchain.json).
+    private void MicrosoftLicenseLink_Click(object sender, RoutedEventArgs e) =>
+        OpenUrl("https://go.microsoft.com/fwlink/?LinkId=2179911");
 
     private void ProjectButton_Click(object sender, RoutedEventArgs e) =>
         Process.Start(new ProcessStartInfo("https://github.com/arcanite24/pinyon-shift") { UseShellExecute = true });
