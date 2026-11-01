@@ -134,6 +134,17 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
     endif()
 endif()
 
+# NN-1.11/NN-3.6: every handheld the Android build targets is ARMv8.2 or
+# later, so atomics compile to LSE instructions instead of LL/SC loops and
+# calls to the __aarch64_* outline helpers, in the SDK and its libraries too
+# (the Android shell's kit is built with the same -march, TP-5).
+if(ANDROID)
+    set(PINYON_SHIFT_ANDROID_MARCH "armv8.2-a" CACHE STRING
+        "-march for every Android target, the SDK and its libraries included")
+    add_compile_options(-march=${PINYON_SHIFT_ANDROID_MARCH})
+    set(REXGLUE_ARM64_MARCH ${PINYON_SHIFT_ANDROID_MARCH})
+endif()
+
 if(REXSDK_DIR)
     # Keep the consumer build's runtime, GPU plugin, and tools inside its own
     # binary tree. ReXGlue's standalone source build retains its pinned out/
@@ -141,15 +152,6 @@ if(REXSDK_DIR)
     set(REXGLUE_OUTPUT_DIRECTORY
         "${CMAKE_CURRENT_BINARY_DIR}/rexglue-artifacts"
         CACHE PATH "ReXGlue artifacts for the Pinyon Shift host build" FORCE)
-    # NN-1.11/NN-3.6: every handheld the Android build targets is ARMv8.2 or
-    # later, so atomics compile to LSE instructions instead of LL/SC loops and
-    # calls to the __aarch64_* outline helpers, in the SDK and its libraries too.
-    if(ANDROID)
-        set(PINYON_SHIFT_ANDROID_MARCH "armv8.2-a" CACHE STRING
-            "-march for every Android target, the SDK and its libraries included")
-        add_compile_options(-march=${PINYON_SHIFT_ANDROID_MARCH})
-        set(REXGLUE_ARM64_MARCH ${PINYON_SHIFT_ANDROID_MARCH})
-    endif()
     add_subdirectory("${REXSDK_DIR}" rexglue-sdk EXCLUDE_FROM_ALL)
     # NN-3.6: calls inside the runtime libraries bind locally instead of
     # through the PLT, as libmain's already do. Nothing interposes on their
@@ -218,11 +220,31 @@ else()
     endif()
     set_property(DIRECTORY "${PROJECT_SOURCE_DIR}" APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
         "${PINYON_SHIFT_SHIFTGLUE_KIT}/kit.json")
-    find_package(rexglue CONFIG REQUIRED NO_DEFAULT_PATH PATHS "${PINYON_SHIFT_SHIFTGLUE_KIT}")
+    # The kit is on the build host: a cross toolchain's sysroot (sniper, the
+    # NDK) would otherwise re-root the search under itself, for the kit and
+    # for the dependencies its package finds through its own prefix.
+    set(_pinyon_find_root_mode "${CMAKE_FIND_ROOT_PATH_MODE_PACKAGE}")
+    set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE BOTH)
+    find_package(rexglue CONFIG REQUIRED NO_DEFAULT_PATH NO_CMAKE_FIND_ROOT_PATH
+        PATHS "${PINYON_SHIFT_SHIFTGLUE_KIT}")
+    set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE "${_pinyon_find_root_mode}")
     set(PINYON_SHIFT_SDK_SOURCE_DIR "${PINYON_SHIFT_SHIFTGLUE_KIT}/share/rexglue/source")
-    # The upscaler runtimes the SDK's configure fetched, staged as a source
-    # build stages them (rexglue_helpers.cmake).
+    # The upscaler runtimes, staged as a source build stages them
+    # (rexglue_helpers.cmake). AMD's and NVIDIA's Windows DLLs are vendor
+    # binaries no release ships (docs/LEGAL.md): the kit's copies of the
+    # SDK's fetch modules download them here, pinned and hashed. A
+    # FidelityFX library built from source (Linux, macOS, Android) is in the
+    # kit.
+    foreach(_pinyon_module IN ITEMS rexglue_ffx_api_headers rexglue_dlss)
+        set(_pinyon_module "${PINYON_SHIFT_SHIFTGLUE_KIT}/share/rexglue/cmake/${_pinyon_module}.cmake")
+        if(WIN32 AND EXISTS "${_pinyon_module}")
+            include("${_pinyon_module}")
+        endif()
+    endforeach()
     set(_pinyon_kit_upscalers "${PINYON_SHIFT_SHIFTGLUE_KIT}/share/rexglue/upscalers")
+    if(REXGLUE_FFX_RUNTIME_DLL)
+        set(REXGLUE_FFX_LICENSE "${_pinyon_kit_upscalers}/fidelityfx/LICENSE.txt")
+    endif()
     file(GLOB _pinyon_kit_ffx "${_pinyon_kit_upscalers}/fidelityfx/*.dll"
         "${_pinyon_kit_upscalers}/fidelityfx/*.so" "${_pinyon_kit_upscalers}/fidelityfx/*.dylib")
     if(_pinyon_kit_ffx)
@@ -239,8 +261,11 @@ else()
         set(REXGLUE_DLSS_RUNTIME_DIR "${_pinyon_kit_dlss}")
         set(REXGLUE_DLSS_INCLUDE_DIR "${_pinyon_kit_dlss}")
     endif()
+    # A cross build's kit (the Android shell, TP-5) holds no generator for
+    # the build host; it passes the host kit's or source tree's instead.
     set(PINYON_SHIFT_REXGLUE_CODEGEN
-        "${PINYON_SHIFT_SHIFTGLUE_KIT}/bin/rexglue${CMAKE_HOST_EXECUTABLE_SUFFIX}")
+        "${PINYON_SHIFT_SHIFTGLUE_KIT}/bin/rexglue${CMAKE_HOST_EXECUTABLE_SUFFIX}"
+        CACHE FILEPATH "The ReXGlue generator for the build host")
     set(PINYON_SHIFT_REXGLUE_CODEGEN_DEPENDS "${PINYON_SHIFT_REXGLUE_CODEGEN}")
     message(STATUS "Using the prebuilt ShiftGlue kit: ${PINYON_SHIFT_SHIFTGLUE_KIT}")
 endif()

@@ -90,9 +90,9 @@ $include = @(
     'config/render-tests',
     'config/performance/symbol-order-base.txt', 'config/performance/symbol-order-v4.txt',
     'tools/build-preview.ps1', 'tools/create-crash-report.ps1', 'tools/install-build-tools.ps1',
-    'tools/launch-preview.ps1', 'tools/prepare-rexglue.ps1',
+    'tools/launch-preview.ps1', 'tools/prepare-rexglue.ps1', 'tools/prefetch-setup.ps1',
     'tools/build-mod-patches.py', 'tools/build-mod-archives.py', 'tools/install-sample-mod.py',
-    'tools/pinyon.py', 'tools/pinyon_android.py', 'tools/build-android.ps1',
+    'tools/pinyon.py', 'tools/pinyon_android.py', 'tools/apk_sign.py', 'tools/build-android.ps1',
     # pinyon.py's other commands and the launchers' content panels: the XE mod,
     # asset export (#446) and custom radio stations (#445).
     'tools/pinyon_xe.py', 'tools/manage-xe.ps1', 'tools/pinyon_assets.py', 'tools/fh1_audio_decode.cpp',
