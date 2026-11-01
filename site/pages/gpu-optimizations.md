@@ -186,7 +186,7 @@ MSAA. At 2x it averaged 59.8/53.6/39.6 fps respectively. QUALITY 60's
 2x/4x cell had median/p95/p99 23.16/34.53/38.69 ms and mean whole-frame
 GPU time 24.01 ms. Its heap usage was 3671 MiB and peak native surfaces
 467 MiB; RSS is not total Metal memory. These are single runs over 36.6–36.7 s,
-not an A/B speedup claim ([method and all resource columns](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/MACOS.md#renderer-qualification)).
+not an A/B speedup claim ([method and all resource columns](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/MACOS.md#renderer-qualification)). All of these ran hidden; full screen on a high-density display the drawable's size matters more than any of them ([full-screen drawable](platforms.md#macos-on-apple-silicon)).
 
 The 1x untiled-predicated-tiling saving did not qualify a quality-mode gain:
 an unpaired 2x/4x live control returned 34.1 fps against 43.5 with it off,

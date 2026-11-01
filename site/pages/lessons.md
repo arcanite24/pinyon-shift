@@ -48,6 +48,10 @@ cancel/reuse testing confirm that FH1's watch allocator grows beyond its
 renderer's reset strategy; make slow fallbacks visible in counters.
 [Capacity inventory and soak method](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/native-renderer/CACHE_CAPACITY_AUDIT.md).
 
+## Measure where players look
+
+Scripted routes run hidden to be repeatable, and every Mac qualification did. Players run full screen. On a Mac with a high-density display that means a drawable of up to 20 million backing pixels, which cost the M4 Pro 3 ms of GPU a frame and halved its frame rate while the game's own frame time didn't move. Reports of 10 fps on screen beside 80 fps in the frame log are the sign: the frame is made in time and lost in presentation. Run at least one measurement visible, full screen, on the display the players have, and compare presented frames with game frames ([macOS drawable](platforms.md#macos-on-apple-silicon)).
+
 ## Waits are performance
 
 The largest CPU savings outside the renderer came from how the host waits, not from translated code:
@@ -282,6 +286,8 @@ Negative results, so they aren't retried without a new reason:
 
 | Idea | Result |
 | --- | --- |
+| Apple thread QoS instead of fixed priorities on macOS (2026-11-01) | Threads at the user-initiated QoS class, latency-critical ones overridden to user-interactive, no SCHED_FIFO. M4 Pro full screen, two interleaved pairs: 1x held 120 fps either way; 2x 82.5/81.7 fps with QoS against 82.9/83.4 without. At full 6K density 63 fps against 73. Not kept |
+| MoltenVK switches on the M4 Pro (2026-11-01) | 2x, MSAA off, full screen, two runs each: asynchronous queue submits (`MVK_CONFIG_SYNCHRONOUS_QUEUE_SUBMITS=0`) 83.0/84.1 fps against 83.8/82.9; Metal heaps (`MVK_CONFIG_USE_MTLHEAP=1`) 82.0/82.4; fast math always on 78.8/83.0 against 81.6/82.3. Within noise; defaults unchanged |
 | Unconditional sharing of the 1x/4x depth alias | RTX 4080, 1x/3x race and free-roam trials: a full-4x variant removed all five alias copies and gave off/on MAE 1.17–9.82, but its color draw reads interpolator 0; low final-image MAE did not establish equivalent shader inputs at a different pixel rate. Reduced host sample counts also collapse depth/stencil values during the existing copies. Keep the guarded full-sample helper path, which removes three copies and saves 1.092 ms at 3x over 12 in-run blocks. A broader path needs proof of interpolation and sample-collapse equivalence. [Evidence](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/DEPTH_ALIAS_RESEARCH.md) |
 | Render below 1x (R02 study, then the RS-0 probe, 2026-10-31) | A debug probe (`fh1_debug_raster_percent`) shrank only the viewport and scissor of draws into the 1280-wide surfaces, without the real path's resolve reconstruction; in-run A/B on `fh1-race-sync`. At 50 % the GPU frame fell 29.5 % on an Intel UHD 620 (Low-spec 60), 14.5 % on a Steam Deck LCD, 8.5 % on an Odin 2 Portal (GPU-bound) and 0 % on an RTX 4080; at 75 % 18, 10, 5 and 0 %. Shrinking the shadow maps saved nothing. Only one device cleared the 25 % gate, so the full path (3-4 weeks) is shelved; the game also ignores the reported video mode, so it cannot be told to render smaller. Reopen if a low-end Android or integrated GPU saves 25 % with the probe while GPU-bound. [Measurements and design](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/RENDER_SCALE_BACKLOG.md) |
 | Skip alpha-tested shadow casters (R03) | RTX 4080 at 3x, shadows on and MSAA off, pinned race and free-roam drive, both toggle orders and ten disjoint A/B comparisons per route: the effective-alpha filter saved median 0.12/0.08 ms GPU (ranges -0.20 to 0.31 / -0.32 to 0.37 ms), below the 0.5 ms gate. Raw alpha flags also removed the player car's self-shadowing. Odin was unreachable over ADB, so its gate remains unverified; no option is shipped. [Census and selector](game-rendering.md#alpha-tested-shadow-casters). |

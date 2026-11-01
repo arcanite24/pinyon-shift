@@ -31,10 +31,11 @@ verifies it, builds the game on your Mac and starts it.
    awake until the build is done: about 20 minutes on an M4 Pro.
 5. Choose **Play**. Press **F6** in game for settings.
 
-On an M4 Pro, the 2026-10-18 free-roam qualification averaged 59.9 fps at
-1x with MSAA off and a 60 fps limit. QUALITY 60 (2x, 4x MSAA) averaged
-39.6 fps, so its name is a target, not a guarantee on this Mac. Start with
-LOW-SPEC 60; see the renderer matrix below for the settings and limits.
+On an M4 Pro, full screen at 120 Hz with the limits off, the 2026-11-01
+free-roam drive held 120 fps at 1x (MSAA off or 4x), about 82 fps at 2x
+with MSAA off and 51 fps at 2x with 4x MSAA. QUALITY 60's name is a target,
+not a guarantee on this Mac; see the
+[full-screen results](#full-screen-drawable-2026-11-01) below.
 The title starts at once; the stored pipelines
 are compiled behind it, so the first seconds of a new scene can still hitch.
 
@@ -90,6 +91,11 @@ external drive.
   defaults to a borderless window on the current desktop; it does not open a
   separate Space. `SDL_VIDEO_MAC_FULLSCREEN_SPACES=1` restores SDL's Space
   behavior for diagnosis, but that path has reported black output.
+- **Low frame rate full screen on a 5K, 6K or scaled 4K display.** The
+  drawable is capped at 3840x2160 pixels by default
+  (`window_max_pixel_density = 0`) and macOS scales it to the screen.
+  Drawing every backing pixel (`4`) cost an M4 Pro half its frame rate on a
+  6016x3384 backing; `1` draws one pixel per point, the cheapest.
 - **Free roam is too bright and flashes.** Two paths need correct luminance
   data. GPU memory tracks 4 KB guest pages so writes beside the exposure
   resolve do not discard it, even on a Mac with 16 KB host pages. Completed
@@ -244,6 +250,39 @@ QUALITY 60 keeps its existing off setting. A separate uncapped 1x/MSAA-off run w
 it on reached 105.5 fps, median 9.30 ms, p95 11.65 ms. The older 8.35 ms,
 120 Hz result on the site used a different 40 s drive and two-run medians;
 it is historical, not a guarantee for every route or current build.
+
+### Full-screen drawable, 2026-11-01
+
+Every earlier result here ran hidden. Visible and full screen on the Mac
+mini's LG TV (4K panel at 120 Hz, macOS "looks like 3008x1692", so 6016x3384
+backing pixels), the same `fh1-macos-quality` drive at 1x/MSAA off, limits
+off, from the `appdata-2026-09-27` seed plus a warm-up run's shader catalogs:
+
+| Drawable | Game fps | Frame median / p95 | GPU ms | CPU |
+| --- | ---: | --- | ---: | ---: |
+| Hidden | 119.2 | 8.35 / 9.96 ms | 8.43 | 246 % |
+| 6016x3384, full density | 63.1–73.5 | 8.7 / 28 ms | 11.2–14.7 | 145–164 % |
+| 1280x720 window, 2560x1440 | 120.0 | 8.37 / 10.07 ms | 8.21 | 263 % |
+| 4512x2538, cap 1.5 | 119.9 | 8.42 / 10.03 ms | 8.39 | 246 % |
+| 3840x2160, automatic cap | 120.0 | 8.32 / 9.95 ms | 7.77 | 249 % |
+| 3008x1692, cap 1 | 119.4–120.0 | 8.28–8.33 / 9.9 ms | 7.9–8.3 | 250–260 % |
+
+GPU ms is `guest_frame_gpu_time_ns`; the extra ~3 ms at full density is the
+large drawable's cost on the same GPU. The game's frame alternated between
+8.3 and 28 ms, presenting on every second or third 120 Hz refresh.
+`window_max_pixel_density` (ShiftGlue `ff5965ab`) now defaults to an
+automatic cap of 3840x2160 drawable pixels on macOS; built-in MacBook panels
+stay below it. The `fh1-macos-fullscreen` route passed with it: 3840x2160
+full screen, 2560x1440 windowed.
+
+At 2x the game is GPU-bound and the cap changes nothing: 2x/MSAA off 82–84
+fps (12.0 ms GPU), 2x/2x MSAA 66 fps (15.0 ms), 2x/4x MSAA 51 fps (19.5 ms)
+at both full density and cap 1. 1x/4x MSAA held 120 fps.
+
+Rejected in the same round (two interleaved runs each, see the site's
+"What didn't pay off" table): Apple QoS classes instead of SCHED_FIFO
+thread priorities, and MoltenVK asynchronous submits, Metal heaps and
+always-on fast math.
 
 ### Image and fullscreen gates
 

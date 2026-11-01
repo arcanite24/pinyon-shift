@@ -23,12 +23,18 @@ A native build for Apple silicon. The game's Vulkan renderer runs on Metal throu
 4. Choose your disc image, confirm ownership and choose **Verify and build**.
 5. Choose **Play**. Press **F6** in game for settings.
 
-On the M4 Pro Mac mini, the 2026-10-18 free-roam qualification averaged
-about 60 fps at 1x with a 60 fps limit, but about 40 fps with QUALITY 60
-(2x, 4x MSAA). Start with LOW-SPEC 60, then raise scale or MSAA separately;
-the [platform measurements](platforms.md#macos-on-apple-silicon) explain
-the tested workload and its limits. The older 120 Hz result used a different
-optimization route.
+On the M4 Pro Mac mini, full screen on a 120 Hz 4K TV with the frame-rate
+limits off, a 40 s free-roam drive (2026-11-01) held 120 fps at 1x, with
+MSAA off or 4x. At 2x it averaged about 82 fps with MSAA off and 51 fps
+with 4x MSAA (QUALITY 60), so that preset's 60 is a target this Mac misses.
+Raise scale and MSAA separately; the
+[platform measurements](platforms.md#macos-on-apple-silicon) explain the
+workload and its limits.
+
+On a 5K or 6K display, or a 4K one in a scaled mode, the game draws at most
+3840 × 2160 pixels and macOS scales them to the screen; drawing all 6016 ×
+3384 backing pixels halved the frame rate. `window_max_pixel_density = 4`
+in the config restores full density, and `1` draws one pixel per point.
 
 Fullscreen uses a borderless window on the current desktop. The presenter
 keeps the Metal drawable at the swapchain size through fullscreen changes;
