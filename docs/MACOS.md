@@ -285,6 +285,12 @@ and 50.4 fps for 2x/4x, and its parked capture matches the 4x one, so the
 macOS QUALITY 60 preset sets `fh1_msaa_2x = true`. Peak surfaces fall from 848 to 584 MiB and
 Vulkan device memory from 4111 to 3865 MiB (1x/MSAA off: 99 and 988 MiB).
 
+Process CPU at 1x/120 fps is about 250 % of a core, spread over the guest and
+GPU threads: in a 10 s `ps -M` window the busiest thread used 49 % and the
+next four 35, 26, 26 and 19 %, so no thread limits the frame on this Mac.
+The fragment shading rate extension that `fh1_coarse_shading` needs is not
+in MoltenVK 1.4.1, so coarse shading cannot cut the 2x shading cost here.
+
 Rejected in the same round (two interleaved runs each, see the site's
 "What didn't pay off" table): Apple QoS classes instead of SCHED_FIFO
 thread priorities, and MoltenVK asynchronous submits, Metal heaps and
