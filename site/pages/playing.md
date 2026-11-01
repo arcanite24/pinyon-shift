@@ -57,12 +57,12 @@ Keys can be rebound in **F6 > CONTROLS**, and **RESET KEYS** returns to this lay
 | Low-spec 60 | 1x | Off | Bilinear | 60 | The default for a new install. The game's own texture filtering, no FXAA. Needs 4 CPU cores and about 1.1 GB of graphics memory |
 | Balanced 40 | 1x | Off | Bilinear | 40 | As Low-spec 60 at a third of the CPU work of 120. Paces evenly on 120 Hz and 40 Hz displays. Recommended below 4 CPU cores |
 | Performance 120 | 1x | Off | FSR 1 | 120 | The default on a discrete GPU with 6 GB or more, 6 or more CPU threads and a 120 Hz display |
-| Quality 60 | 2x | 4x | Bilinear | 60 | |
+| Quality 60 | 2x | 4x (2x on a Mac) | Bilinear | 60 | On a Mac the game's 4x surfaces keep two samples each: 4x held 51 fps on an M4 Pro, 2x 60 |
 
 The lowest hardware tried so far, a 2017 laptop with an Intel i5-8250U and either an Intel UHD 620 or a GeForce 930MX, reached 20 fps on Ultra Low 30 and 10 fps or less with the 930MX ([numbers](performance.md#an-old-laptop)). Ultra Low 30 is a target there, not a promise.
 
-On the M4 Pro Mac mini, the current free-roam qualification averages about
-60 fps at 1x, but 40 fps with QUALITY 60. Start with LOW-SPEC 60 and raise
+On the M4 Pro Mac mini, full screen, a free-roam drive holds 120 fps at 1x
+and 60 fps with QUALITY 60. Start with LOW-SPEC 60 and raise
 scale or MSAA separately; [the measured matrix](platforms.md#macos-on-apple-silicon) gives
 the limits of that test.
 

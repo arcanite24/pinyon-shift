@@ -26,7 +26,8 @@ A native build for Apple silicon. The game's Vulkan renderer runs on Metal throu
 On the M4 Pro Mac mini, full screen on a 120 Hz 4K TV with the frame-rate
 limits off, a 40 s free-roam drive (2026-11-01) held 120 fps at 1x, with
 MSAA off or 4x. At 2x it averaged about 82 fps with MSAA off and 51 fps
-with 4x MSAA (QUALITY 60), so that preset's 60 is a target this Mac misses.
+with 4x MSAA. On a Mac QUALITY 60 therefore uses 2x MSAA, which holds its
+60 fps limit on the M4 Pro.
 Raise scale and MSAA separately; the
 [platform measurements](platforms.md#macos-on-apple-silicon) explain the
 workload and its limits.

@@ -33,8 +33,8 @@ verifies it, builds the game on your Mac and starts it.
 
 On an M4 Pro, full screen at 120 Hz with the limits off, the 2026-11-01
 free-roam drive held 120 fps at 1x (MSAA off or 4x), about 82 fps at 2x
-with MSAA off and 51 fps at 2x with 4x MSAA. QUALITY 60's name is a target,
-not a guarantee on this Mac; see the
+with MSAA off and 51 fps at 2x with 4x MSAA. On a Mac QUALITY 60 uses 2x MSAA,
+which held its 60 limit (59.6 and 60.0 fps); see the
 [full-screen results](#full-screen-drawable-2026-11-01) below.
 The title starts at once; the stored pipelines
 are compiled behind it, so the first seconds of a new scene can still hitch.
@@ -277,7 +277,13 @@ full screen, 2560x1440 windowed.
 
 At 2x the game is GPU-bound and the cap changes nothing: 2x/MSAA off 82–84
 fps (12.0 ms GPU), 2x/2x MSAA 66 fps (15.0 ms), 2x/4x MSAA 51 fps (19.5 ms)
-at both full density and cap 1. 1x/4x MSAA held 120 fps.
+at both full density and cap 1. 1x/4x MSAA held 120 fps. With
+`vulkan_debug_flat_pixel_shaders` 2x/4x drops to 11.5 ms of GPU, so about
+8 ms is pixel shading; the frame has about 180 renderings. At the 60 limit
+2x/2x MSAA ran 59.6 and 60.0 fps (16.7 ms GPU, p95 19.6 ms) against 51.9
+and 50.4 fps for 2x/4x, and its parked capture matches the 4x one, so the
+macOS QUALITY 60 preset sets `fh1_msaa_2x = true`. Peak surfaces fall from 848 to 584 MiB and
+Vulkan device memory from 4111 to 3865 MiB (1x/MSAA off: 99 and 988 MiB).
 
 Rejected in the same round (two interleaved runs each, see the site's
 "What didn't pay off" table): Apple QoS classes instead of SCHED_FIFO
