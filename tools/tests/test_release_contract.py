@@ -263,9 +263,14 @@ catch { [Console]::Error.Write($_.Exception.Message); exit 2 }
         self.assertNotIn("--ignore-stamp", integration)
         self.assertIn("rexglue-sdk EXCLUDE_FROM_ALL", integration)
         self.assertIn("PINYON_SHIFT_REXGLUE_CODEGEN_DEPENDS", integration)
-        self.assertIn("$<TARGET_FILE:rexruntime>", integration)
-        self.assertIn("$<TARGET_FILE:rexgpu-fh1>", integration)
-        self.assertIn("DEPENDS ${target_name} rexruntime rexgpu-fh1", integration)
+        # The staging target copies the source build's libraries, or the
+        # prebuilt kit's imported ones (TP-3).
+        self.assertIn("set(_pinyon_runtime rexruntime)", integration)
+        self.assertIn("set(_pinyon_gpu rexgpu-fh1)", integration)
+        self.assertIn("set(_pinyon_stage_depends ${target_name} rexruntime rexgpu-fh1)", integration)
+        self.assertIn("set(_pinyon_runtime rex::runtime)", integration)
+        self.assertIn("$<TARGET_FILE:${_pinyon_runtime}>", integration)
+        self.assertIn("$<TARGET_FILE:${_pinyon_gpu}>", integration)
         graphics_cmake = (
             ROOT / "thirdparty/shiftglue-sdk/src/graphics/CMakeLists.txt"
         ).read_text(encoding="utf-8")
@@ -330,7 +335,9 @@ catch { [Console]::Error.Write($_.Exception.Message); exit 2 }
         self.assertNotIn("Get-Command git.exe", get_git)
         self.assertIn("$config.git.install_path", get_git)
         self.assertNotIn("Get-Command git.exe", provision)
-        self.assertIn("$config.git.install_path", provision)
+        install_git = common.split("function Install-PinyonGit", 1)[1].split("\nfunction ", 1)[0]
+        self.assertIn("$config.git.install_path", install_git)
+        self.assertIn("Install-PinyonGit", provision)
         self.assertIn("ConvertTo-PinyonCommandPath", common)
         self.assertIn("$inheritedPath = $env:PATH", common)
 

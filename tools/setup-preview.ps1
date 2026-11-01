@@ -87,7 +87,11 @@ try {
     if ($VerifyOnly) { return }
 
     & (Join-Path $PSScriptRoot 'provision-toolchain.ps1') -JsonEvents:$JsonEvents | Out-Host
-    & (Join-Path $PSScriptRoot 'prepare-rexglue.ps1') -JsonEvents:$JsonEvents | Out-Host
+    # TP-2/TP-3: a prebuilt ShiftGlue kit replaces the clone and the SDK build.
+    Write-PinyonEvent tools 34 'Preparing the prebuilt ShiftGlue kit.' -JsonEvents:$JsonEvents
+    if (-not (Install-PinyonShiftGlueKit)) {
+        & (Join-Path $PSScriptRoot 'prepare-rexglue.ps1') -JsonEvents:$JsonEvents | Out-Host
+    }
 
     Write-PinyonEvent extract 42 'Checking the local game extraction.' -JsonEvents:$JsonEvents
     $extractedValid = $false

@@ -1,5 +1,12 @@
 [CmdletBinding()]
-param([string]$Configuration = 'Release')
+param(
+    [string]$Configuration = 'Release',
+    # TP-1 to TP-3: the release's prebuilt assets (with their .json sidecars)
+    # and the URL they are attached at; tools/apply-prebuilt-pins.py pins
+    # them in the payload's toolchain config.
+    [string]$PrebuiltAssets = '',
+    [string]$ReleaseBaseUrl = ''
+)
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -142,6 +149,13 @@ $sourceProvenancePath = Join-Path $payloadRoot 'config/source-provenance.json'
 [IO.File]::WriteAllText($sourceProvenancePath,
     ($sourceProvenance | ConvertTo-Json) + [Environment]::NewLine,
     [Text.UTF8Encoding]::new($false))
+
+if ($PrebuiltAssets) {
+    if (-not $ReleaseBaseUrl) { throw '-PrebuiltAssets needs -ReleaseBaseUrl.' }
+    & python (Join-Path $root 'tools/apply-prebuilt-pins.py') --config (Join-Path $payloadRoot 'config/release-toolchain.json') `
+        --assets $PrebuiltAssets --base-url $ReleaseBaseUrl
+    if ($LASTEXITCODE -ne 0) { throw 'Could not pin the prebuilt assets in the payload.' }
+}
 
 Get-ChildItem -LiteralPath $payloadRoot -Recurse -File | Where-Object {
     $_.Extension -in @('.exe', '.dll', '.obj', '.lib', '.pdb', '.iso', '.xex', '.dxil', '.pnsp',

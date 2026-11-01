@@ -10,6 +10,9 @@ if (Test-Path variable:PSNativeCommandUseErrorActionPreference) {
 . (Join-Path $PSScriptRoot 'release-common.ps1')
 $root = Get-PinyonRepoRoot
 $config = Get-PinyonReleaseToolchain
+# Setup skips Git when a prebuilt ShiftGlue kit is pinned; this is the
+# fallback when that kit could not be installed.
+Install-PinyonGit
 $git = Get-PinyonGit
 $sdkRoot = Resolve-PinyonRexGlueRoot
 $isRepositoryCheckout = Test-Path -LiteralPath (Join-Path $root '.git')

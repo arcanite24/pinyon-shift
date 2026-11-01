@@ -194,19 +194,55 @@ if(REXSDK_DIR)
         target_compile_definitions(rexruntime PRIVATE REXGLUE_TRACE_IMPORTS=1)
     endif()
     message(STATUS "Using ReXGlue SDK from source tree: ${REXSDK_DIR}")
+    set(PINYON_SHIFT_SDK_SOURCE_DIR "${REXSDK_DIR}")
 else()
-    if(REXSDK_VERSION)
-        find_package(rexglue ${REXSDK_VERSION} EXACT QUIET CONFIG)
-    else()
-        find_package(rexglue 0.10.0 EXACT QUIET CONFIG)
-    endif()
-    if(NOT rexglue_FOUND)
+    # TP-3 (docs/TIME_TO_PLAY_BACKLOG.md): the prebuilt ShiftGlue kit
+    # (tools/build-shiftglue-kit.ps1, tools/pinyon_setup.py) instead of the
+    # source tree. It holds the generator, the runtime and graphics backend
+    # with their CMake package, and the few SDK sources and headers the host
+    # compiles itself. It must be built from the pinned ShiftGlue revision.
+    set(PINYON_SHIFT_SHIFTGLUE_KIT "" CACHE PATH "Unpacked prebuilt ShiftGlue kit")
+    if(NOT EXISTS "${PINYON_SHIFT_SHIFTGLUE_KIT}/kit.json")
         message(FATAL_ERROR
-            "ReXGlue SDK 0.10.0 not found. Set REXSDK_DIR to the pinned source tree "
-            "or install the exact SDK package.")
+            "Set REXSDK_DIR to the pinned ShiftGlue source tree, or "
+            "PINYON_SHIFT_SHIFTGLUE_KIT to an unpacked ShiftGlue kit.")
     endif()
-    set(PINYON_SHIFT_REXGLUE_CODEGEN $<TARGET_FILE:rex::rexglue>)
-    set(PINYON_SHIFT_REXGLUE_CODEGEN_DEPENDS rexglue)
+    file(READ "${PINYON_SHIFT_SHIFTGLUE_KIT}/kit.json" _pinyon_kit)
+    file(READ "${CMAKE_CURRENT_SOURCE_DIR}/config/release-toolchain.json" _pinyon_toolchain)
+    string(JSON _pinyon_kit_revision GET "${_pinyon_kit}" shiftglue_revision)
+    string(JSON _pinyon_pinned_revision GET "${_pinyon_toolchain}" rexglue revision)
+    if(NOT _pinyon_kit_revision STREQUAL _pinyon_pinned_revision)
+        message(FATAL_ERROR
+            "The ShiftGlue kit was built from ${_pinyon_kit_revision}, but "
+            "config/release-toolchain.json pins ${_pinyon_pinned_revision}.")
+    endif()
+    set_property(DIRECTORY "${PROJECT_SOURCE_DIR}" APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+        "${PINYON_SHIFT_SHIFTGLUE_KIT}/kit.json")
+    find_package(rexglue CONFIG REQUIRED NO_DEFAULT_PATH PATHS "${PINYON_SHIFT_SHIFTGLUE_KIT}")
+    set(PINYON_SHIFT_SDK_SOURCE_DIR "${PINYON_SHIFT_SHIFTGLUE_KIT}/share/rexglue/source")
+    # The upscaler runtimes the SDK's configure fetched, staged as a source
+    # build stages them (rexglue_helpers.cmake).
+    set(_pinyon_kit_upscalers "${PINYON_SHIFT_SHIFTGLUE_KIT}/share/rexglue/upscalers")
+    file(GLOB _pinyon_kit_ffx "${_pinyon_kit_upscalers}/fidelityfx/*.dll"
+        "${_pinyon_kit_upscalers}/fidelityfx/*.so" "${_pinyon_kit_upscalers}/fidelityfx/*.dylib")
+    if(_pinyon_kit_ffx)
+        if(WIN32)
+            set(REXGLUE_FFX_RUNTIME_DLL "${_pinyon_kit_ffx}")
+        else()
+            set(REXGLUE_FFX_RUNTIME_LIBRARY "${_pinyon_kit_ffx}")
+        endif()
+        set(REXGLUE_FFX_LICENSE "${_pinyon_kit_upscalers}/fidelityfx/LICENSE.txt")
+    endif()
+    file(GLOB _pinyon_kit_dlss LIST_DIRECTORIES true "${_pinyon_kit_upscalers}/dlss/*")
+    if(_pinyon_kit_dlss)
+        get_filename_component(REXGLUE_DLSS_VERSION "${_pinyon_kit_dlss}" NAME)
+        set(REXGLUE_DLSS_RUNTIME_DIR "${_pinyon_kit_dlss}")
+        set(REXGLUE_DLSS_INCLUDE_DIR "${_pinyon_kit_dlss}")
+    endif()
+    set(PINYON_SHIFT_REXGLUE_CODEGEN
+        "${PINYON_SHIFT_SHIFTGLUE_KIT}/bin/rexglue${CMAKE_HOST_EXECUTABLE_SUFFIX}")
+    set(PINYON_SHIFT_REXGLUE_CODEGEN_DEPENDS "${PINYON_SHIFT_REXGLUE_CODEGEN}")
+    message(STATUS "Using the prebuilt ShiftGlue kit: ${PINYON_SHIFT_SHIFTGLUE_KIT}")
 endif()
 
 # TITLE_UPDATE_V4_BACKLOG: build the FH1 v4 title update from the USA disc.
@@ -441,12 +477,10 @@ function(pinyon_shift_attach_rexglue target_name)
         "${CMAKE_CURRENT_SOURCE_DIR}/src"
         "${PINYON_SHIFT_GENERATED_DIR}"
     )
-    # The source-tree helper injects rex_app.cpp into the consumer, while imgui
-    # remains a private SDK dependency. Keep its include local to source builds.
-    if(REXSDK_DIR)
-        target_include_directories(${target_name} PRIVATE
-            "${REXSDK_DIR}/thirdparty/imgui")
-    endif()
+    # The helper injects rex_app.cpp into the consumer, while imgui remains a
+    # private SDK dependency: its headers come from the source tree or the kit.
+    target_include_directories(${target_name} PRIVATE
+        "${PINYON_SHIFT_SDK_SOURCE_DIR}/thirdparty/imgui")
     target_link_libraries(${target_name} PRIVATE rex::runtime)
     target_compile_definitions(${target_name} PRIVATE
         PINYON_SHIFT_CPU_BASELINE="${PINYON_SHIFT_CPU_BASELINE}"
@@ -458,27 +492,36 @@ function(pinyon_shift_attach_rexglue target_name)
         # by the injected rex_app.cpp consumer source.
         set_property(SOURCE "${REXGLUE_SHARE_DIR}/rex_app.cpp" APPEND PROPERTY
             INCLUDE_DIRECTORIES "${CMAKE_CURRENT_BINARY_DIR}/rexglue-sdk/include")
-
-        # ReXGlue's target helper copies runtime DLLs only after the host links.
-        # An incremental SDK-only relink would therefore leave older runtime or
-        # graphics backend DLLs next to an otherwise current host. This target
-        # runs on every build (copying only changed files) and makes the
-        # executable's load-time artifacts exact. PinyonStageFile.cmake retries
-        # while antivirus briefly holds a fresh DLL and otherwise names the
-        # locked file and the fix instead of a bare "Error copying file".
-        add_custom_target(${target_name}_stage_rexruntime ALL
-            COMMAND ${CMAKE_COMMAND}
-                -DSOURCE=$<TARGET_FILE:rexruntime>
-                -DDESTINATION=$<TARGET_FILE_DIR:${target_name}>/$<TARGET_FILE_NAME:rexruntime>
-                -P ${PINYON_SHIFT_STAGE_FILE_SCRIPT}
-            COMMAND ${CMAKE_COMMAND}
-                -DSOURCE=$<TARGET_FILE:rexgpu-fh1>
-                -DDESTINATION=$<TARGET_FILE_DIR:${target_name}>/$<TARGET_FILE_NAME:rexgpu-fh1>
-                -P ${PINYON_SHIFT_STAGE_FILE_SCRIPT}
-            DEPENDS ${target_name} rexruntime rexgpu-fh1
-            COMMENT "Staging the current ReXGlue runtime and graphics backend beside ${target_name}"
-            VERBATIM)
+        set(_pinyon_runtime rexruntime)
+        set(_pinyon_gpu rexgpu-fh1)
+        set(_pinyon_stage_depends ${target_name} rexruntime rexgpu-fh1)
+    else()
+        # The kit's imported libraries; they change only with the kit.
+        set(_pinyon_runtime rex::runtime)
+        set(_pinyon_gpu rex::gpu-fh1)
+        set(_pinyon_stage_depends ${target_name})
     endif()
+
+    # ReXGlue's target helper copies runtime DLLs only after the host links.
+    # An incremental SDK-only relink would therefore leave older runtime or
+    # graphics backend DLLs next to an otherwise current host. This target
+    # runs on every build (copying only changed files) and makes the
+    # executable's load-time artifacts exact. PinyonStageFile.cmake retries
+    # while antivirus briefly holds a fresh DLL and otherwise names the
+    # locked file and the fix instead of a bare "Error copying file". Off
+    # Windows it is the only step that puts librexruntime beside the game.
+    add_custom_target(${target_name}_stage_rexruntime ALL
+        COMMAND ${CMAKE_COMMAND}
+            -DSOURCE=$<TARGET_FILE:${_pinyon_runtime}>
+            -DDESTINATION=$<TARGET_FILE_DIR:${target_name}>/$<TARGET_FILE_NAME:${_pinyon_runtime}>
+            -P ${PINYON_SHIFT_STAGE_FILE_SCRIPT}
+        COMMAND ${CMAKE_COMMAND}
+            -DSOURCE=$<TARGET_FILE:${_pinyon_gpu}>
+            -DDESTINATION=$<TARGET_FILE_DIR:${target_name}>/$<TARGET_FILE_NAME:${_pinyon_gpu}>
+            -P ${PINYON_SHIFT_STAGE_FILE_SCRIPT}
+        DEPENDS ${_pinyon_stage_depends}
+        COMMENT "Staging the current ReXGlue runtime and graphics backend beside ${target_name}"
+        VERBATIM)
 endfunction()
 
 # The manifest intentionally lives under config/rexglue while generated trees

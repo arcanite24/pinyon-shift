@@ -81,7 +81,7 @@ set(PINYON_SHIFT_HOST_SOURCES
     src/platform/display_hdr.cpp
     src/platform/host_platform.cpp
     src/platform/sha256.cpp
-    ${REXSDK_DIR}/thirdparty/crypto/sha256.cpp
+    ${PINYON_SHIFT_SDK_SOURCE_DIR}/thirdparty/crypto/sha256.cpp
     src/native_renderer/d3d_census.cpp
     src/native_renderer/d3d_draw.cpp
     src/native_renderer/d3d_program.cpp
@@ -160,6 +160,10 @@ else()
     )
 endif()
 
+# The host tests and developer tools compile SDK sources and private headers,
+# so they need the source tree; a build from the prebuilt kit (TP-3) has only
+# the game.
+if(REXSDK_DIR)
 add_executable(pinyon_shift_fh1_ui_api_tests EXCLUDE_FROM_ALL
     tests/ui/fh1_ui_api_test.cpp
     src/ui/fh1_ui_api.cpp
@@ -312,20 +316,14 @@ foreach(pinyon_host_check IN LISTS pinyon_host_checks)
             $<IF:$<CXX_COMPILER_ID:MSVC>,/UNDEBUG,-UNDEBUG>)
     endif()
 endforeach()
+endif()  # REXSDK_DIR
 
 add_executable(pinyon_shift_fh1_archive_extract EXCLUDE_FROM_ALL
     tools/fh1_archive_extract.cpp
     src/ui/hostui/fh1_archive.cpp
 )
 
-add_executable(pinyon_shift_fh1_texture_import EXCLUDE_FROM_ALL
-    tools/fh1_texture_import.cpp
-    ${REXSDK_DIR}/src/graphics/pipeline/texture/util.cpp
-    ${REXSDK_DIR}/src/graphics/pipeline/texture/info_formats.cpp)
-target_include_directories(pinyon_shift_fh1_texture_import PRIVATE
-    ${REXSDK_DIR}/include)
-target_include_directories(pinyon_shift_fh1_archive_extract PRIVATE
-    src ${REXSDK_DIR}/include)
+target_include_directories(pinyon_shift_fh1_archive_extract PRIVATE src)
 target_link_libraries(pinyon_shift_fh1_archive_extract PRIVATE rex::runtime)
 if(UNIX AND NOT APPLE)
     # As the game: find librexruntime.so beside the extractor (or in the
@@ -335,6 +333,14 @@ if(UNIX AND NOT APPLE)
         INSTALL_RPATH "$ORIGIN:$ORIGIN/rexglue-artifacts"
         BUILD_WITH_INSTALL_RPATH ON)
 endif()
+
+if(REXSDK_DIR)
+add_executable(pinyon_shift_fh1_texture_import EXCLUDE_FROM_ALL
+    tools/fh1_texture_import.cpp
+    ${REXSDK_DIR}/src/graphics/pipeline/texture/util.cpp
+    ${REXSDK_DIR}/src/graphics/pipeline/texture/info_formats.cpp)
+target_include_directories(pinyon_shift_fh1_texture_import PRIVATE
+    ${REXSDK_DIR}/include)
 
 # FSB4 banks to WAV for the asset export (#446), with the SDK's FFmpeg (MP3
 # and the XMA frame decoder the game's audio runs on).
@@ -353,6 +359,7 @@ if(WIN32)
     target_include_directories(pinyon_shift_vram_balloon PRIVATE
         ${REXSDK_DIR}/thirdparty/vulkan-headers/include)
 endif()
+endif()  # REXSDK_DIR
 
 if(NOT PINYON_SHIFT_HOST_TESTS_ONLY)
 pinyon_shift_attach_rexglue(pinyon_shift)
@@ -381,6 +388,15 @@ endif()
 if(WIN32 AND PINYON_SHIFT_VC_REDIST_DIR)
     file(GLOB PINYON_SHIFT_VC_RUNTIME_DLLS
         "${PINYON_SHIFT_VC_REDIST_DIR}/x64/Microsoft.VC*.CRT/*.dll")
+    # A prebuilt kit carries the runtime its DLLs were built against; the
+    # newer of the two toolsets' runtimes serves both (Microsoft keeps it
+    # backward compatible).
+    if(PINYON_SHIFT_SHIFTGLUE_KIT AND EXISTS "${PINYON_SHIFT_SHIFTGLUE_KIT}/redist")
+        string(JSON _pinyon_kit_toolset GET "${_pinyon_kit}" msvc_toolset)
+        if(_pinyon_kit_toolset VERSION_GREATER "$ENV{VCToolsVersion}")
+            file(GLOB PINYON_SHIFT_VC_RUNTIME_DLLS "${PINYON_SHIFT_SHIFTGLUE_KIT}/redist/*.dll")
+        endif()
+    endif()
     if(PINYON_SHIFT_VC_RUNTIME_DLLS)
         add_custom_target(pinyon_shift_stage_vc_runtime ALL
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -401,9 +417,9 @@ endif()
 # The mod ABI header (NP-7) and the TOML parser mod.toml is read with.
 target_include_directories(pinyon_shift PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${REXSDK_DIR}/thirdparty/tomlplusplus/include
-    ${REXSDK_DIR}/thirdparty/renderdoc
-    ${REXSDK_DIR})
+    ${PINYON_SHIFT_SDK_SOURCE_DIR}/thirdparty/tomlplusplus/include
+    ${PINYON_SHIFT_SDK_SOURCE_DIR}/thirdparty/renderdoc
+    ${PINYON_SHIFT_SDK_SOURCE_DIR})
 endif()  # NOT PINYON_SHIFT_HOST_TESTS_ONLY
 
 # Sample mods (NP-7.6): plain C libraries against include/pinyon_mod.h. Not

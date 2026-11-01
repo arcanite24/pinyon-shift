@@ -898,6 +898,72 @@ function Assert-PinyonFreeSpace {
 # Reachability of the hosts the remaining downloads need, checked once before
 # the first download so a proxy, firewall or offline PC is named up front
 # instead of failing one tool at a time (#393).
+# TP-2/TP-3: the prebuilt ShiftGlue kit for the pinned revision, when the
+# toolchain config names one (config/release-toolchain.json shiftglue_kit).
+# A kit for another revision is ignored: the build then uses the source tree.
+# PINYON_SHIFT_SOURCE_SDK=1 forces the source tree.
+function Get-PinyonShiftGlueKitEntry {
+    $config = Get-PinyonReleaseToolchain
+    if ($env:PINYON_SHIFT_SOURCE_SDK -eq '1') { return $null }
+    $kits = $config.PSObject.Properties['shiftglue_kit']
+    if ($null -eq $kits) { return $null }
+    $entry = $kits.Value.PSObject.Properties['windows-x64']
+    if ($null -eq $entry -or $entry.Value.revision -ne $config.rexglue.revision) { return $null }
+    $entry.Value
+}
+# The unpacked kit's folder when it holds the pinned revision, else $null.
+function Get-PinyonShiftGlueKitRoot {
+    if ($env:PINYON_SHIFT_SOURCE_SDK -eq '1') { return $null }
+    $config = Get-PinyonReleaseToolchain
+    $kitRoot = Resolve-PinyonLocalPath -RelativePath '.local/shiftglue-kit'
+    $manifest = Join-Path $kitRoot 'kit.json'
+    if (-not (Test-Path -LiteralPath $manifest -PathType Leaf)) { return $null }
+    $kit = Get-Content -LiteralPath $manifest -Raw | ConvertFrom-Json
+    if ($kit.shiftglue_revision -ne $config.rexglue.revision -or $kit.platform -ne 'windows-x64') { return $null }
+    $kitRoot
+}
+# Downloads and unpacks the pinned kit. Returns its folder, or $null (with the
+# reason on the warning stream) so setup can fall back to the source tree.
+function Install-PinyonShiftGlueKit {
+    $existing = Get-PinyonShiftGlueKitRoot
+    if ($existing) { return $existing }
+    $entry = Get-PinyonShiftGlueKitEntry
+    if ($null -eq $entry) { return $null }
+    $kitRoot = Resolve-PinyonLocalPath -RelativePath '.local/shiftglue-kit'
+    $staging = "$kitRoot-staging"
+    try {
+        $archive = Resolve-PinyonLocalPath -RelativePath ".local/downloads/shiftglue-kit-$($entry.revision.Substring(0, 12))-windows-x64.zip"
+        Invoke-PinyonDownload -Uri $entry.url -Destination $archive -Sha256 $entry.sha256
+        if (Test-Path -LiteralPath $staging) { Remove-Item -LiteralPath $staging -Recurse -Force }
+        Expand-PinyonZip -Archive $archive -Destination $staging
+        $children = @(Get-ChildItem -LiteralPath $staging -Directory)
+        if ($children.Count -ne 1) { throw 'The ShiftGlue kit archive layout is not recognized.' }
+        if (Test-Path -LiteralPath $kitRoot) { Remove-Item -LiteralPath $kitRoot -Recurse -Force }
+        Move-Item -LiteralPath $children[0].FullName -Destination $kitRoot
+        Remove-Item -LiteralPath $staging -Recurse -Force
+    }
+    catch {
+        Write-Warning "The prebuilt ShiftGlue kit could not be installed; building ShiftGlue from source instead. $($_.Exception.Message)"
+        return $null
+    }
+    Get-PinyonShiftGlueKitRoot
+}
+# A repacked tool archive (tools/repack-toolchain.py) holds each binary once and
+# lists its other names in pinyon-links.json; make those names hard links (no
+# extra disk), or copies where the volume has none.
+function Install-PinyonToolLinks {
+    param([Parameter(Mandatory)] [string]$Root)
+    $list = Join-Path $Root 'pinyon-links.json'
+    if (-not (Test-Path -LiteralPath $list -PathType Leaf)) { return }
+    $links = Get-Content -LiteralPath $list -Raw | ConvertFrom-Json
+    foreach ($property in $links.PSObject.Properties) {
+        $link = Join-Path $Root $property.Name
+        $target = Join-Path (Split-Path $link -Parent) $property.Value
+        if (Test-Path -LiteralPath $link) { Remove-Item -LiteralPath $link -Force }
+        try { [void](New-Item -ItemType HardLink -Path $link -Target $target -ErrorAction Stop) }
+        catch { Copy-Item -LiteralPath $target -Destination $link -Force }
+    }
+}
 function Assert-PinyonDownloadHosts {
     param([Parameter(Mandatory)] [AllowEmptyCollection()] [string[]]$Uris)
     $hosts = @($Uris | Where-Object { $_ } | ForEach-Object { ([Uri]$_).GetLeftPart([UriPartial]::Authority) } |
@@ -1038,7 +1104,7 @@ function Reset-PinyonRelocatedCMakeCache {
 function Set-PinyonGitEnvironment {
     param(
         [Parameter(Mandatory)] [string]$Root,
-        [Parameter(Mandatory)] [string]$Git
+        [AllowEmptyString()] [string]$Git = ''
     )
 
     # Settings for this process and every git it starts, passed as command
@@ -1080,6 +1146,17 @@ function Set-PinyonGitEnvironment {
     [Environment]::SetEnvironmentVariable('GIT_CONFIG_COUNT', [string]$count)
 }
 
+# The pinned MinGit, downloaded once.
+function Install-PinyonGit {
+    $root = Get-PinyonRepoRoot
+    $config = Get-PinyonReleaseToolchain
+    $gitRoot = [IO.Path]::GetFullPath((Join-Path $root $config.git.install_path))
+    if (Test-Path -LiteralPath (Join-Path $gitRoot $config.git.executable) -PathType Leaf) { return }
+    $archive = Resolve-PinyonLocalPath -RelativePath ".local/downloads/mingit-$($config.git.version).zip"
+    Invoke-PinyonDownload -Uri $config.git.url -Destination $archive -Sha256 $config.git.sha256
+    [void](New-Item -ItemType Directory -Force -Path $gitRoot)
+    Expand-PinyonZip -Archive $archive -Destination $gitRoot
+}
 function Get-PinyonGit {
     $root = Get-PinyonRepoRoot
     $config = Get-PinyonReleaseToolchain
@@ -1094,7 +1171,7 @@ function Get-PinyonGit {
 function Get-PinyonSourceProvenance {
     param(
         [Parameter(Mandatory)] [string]$Root,
-        [Parameter(Mandatory)] [string]$Git
+        [AllowEmptyString()] [string]$Git = ''
     )
 
     $sourceCommit = $null
@@ -1102,7 +1179,7 @@ function Get-PinyonSourceProvenance {
     # Launcher payloads are source archives, not Git working trees. Avoid
     # invoking Git there because Windows PowerShell promotes native stderr to a
     # terminating error before the packaged provenance fallback can run.
-    if (Test-Path -LiteralPath (Join-Path $Root '.git')) {
+    if ($Git -and (Test-Path -LiteralPath (Join-Path $Root '.git'))) {
         $gitCommit = @(& $Git -C $Root rev-parse HEAD 2>$null | Select-Object -First 1)
         if ($gitCommit.Count -eq 1 -and $gitCommit[0] -match '^[0-9a-fA-F]{40}$') {
             $sourceCommit = $gitCommit[0].ToLowerInvariant()

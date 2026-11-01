@@ -24,9 +24,13 @@ if (Test-Path variable:PSNativeCommandUseErrorActionPreference) {
 $root = Get-PinyonRepoRoot
 $config = Get-PinyonReleaseToolchain
 $environment = Enter-PinyonBuildEnvironment
+# TP-2/TP-3: a prebuilt ShiftGlue kit (tools/build-shiftglue-kit.ps1) for
+# the pinned revision brings the generator and the runtime, so neither is
+# compiled here.
+$kitRoot = Get-PinyonShiftGlueKitRoot
 $sdkRoot = Resolve-PinyonRexGlueRoot
 $generatedRoot = Resolve-PinyonLocalPath -RelativePath '.local/generated'
-$rexglueExe = Join-Path $sdkRoot 'out/win-amd64/Release/rexglue.exe'
+$rexglueExe = if ($kitRoot) { Join-Path $kitRoot 'bin/rexglue.exe' } else { Join-Path $sdkRoot 'out/win-amd64/Release/rexglue.exe' }
 $manifest = Join-Path $root 'config/rexglue/pinyon_shift_manifest.toml'
 $logs = Resolve-PinyonLocalPath -RelativePath '.local/logs'
 [void](New-Item -ItemType Directory -Force -Path $logs)
@@ -53,16 +57,20 @@ if ($gameXexInfo.Length -ne [int64]$supportedXex.size_bytes -or
 $guestPatchPath = Join-Path $root 'config/rexglue/analysis/fh1-post-processing.toml'
 $guestPatchSetSha256 = (Get-FileHash -LiteralPath $guestPatchPath -Algorithm SHA256).Hash
 
-Write-PinyonEvent build 62 'Building the local code generator.' -JsonEvents:$JsonEvents
 $memoryBytes = Get-PinyonTotalMemoryBytes
 $memoryText = if ($memoryBytes -gt 0) { ", $([Math]::Round($memoryBytes / 1GB)) GB memory" } else { '' }
 Write-PinyonEvent build 62 "Compiling with $Parallel parallel jobs ($([Environment]::ProcessorCount) logical processors$memoryText)." -JsonEvents:$JsonEvents
 # A folder moved since the last build (a portable install) is configured afresh.
-foreach ($buildTree in @((Join-Path $sdkRoot 'out/build/win-amd64'), (Join-Path $root "out/build/$previewPreset"))) {
+foreach ($buildTree in @($(if (-not $kitRoot) { Join-Path $sdkRoot 'out/build/win-amd64' }), (Join-Path $root "out/build/$previewPreset"))) {
     if (Reset-PinyonRelocatedCMakeCache -BuildDirectory $buildTree) {
         Write-PinyonEvent build 62 "The build folder moved; configuring $buildTree again." -JsonEvents:$JsonEvents
     }
 }
+if ($kitRoot) {
+    Write-PinyonEvent build 62 'Using the prebuilt ShiftGlue kit.' -JsonEvents:$JsonEvents
+}
+else {
+Write-PinyonEvent build 62 'Building the local code generator.' -JsonEvents:$JsonEvents
 Push-Location $sdkRoot
 try {
     Invoke-PinyonBuildCommand $environment.CMake @('--preset', 'win-amd64',
@@ -79,6 +87,7 @@ Invoke-PinyonBuildCommand 'mt.exe' @('-nologo', "-inputresource:$rexglueExe;#1",
     '-manifest', (Join-Path $root 'config/rexglue/codegen-windows.manifest'),
     "-outputresource:$rexglueExe;#1") (Join-Path $logs 'rexglue-manifest.log') `
     'Could not enable Unicode paths for the code generator.' -Step 'Configure code generator Unicode paths'
+}
 if (-not (Test-Path -LiteralPath $rexglueExe -PathType Leaf)) {
     throw "The ReXGlue code generator was not produced: $rexglueExe"
 }
@@ -145,7 +154,11 @@ try {
     Write-PinyonEvent build 83 "CPU baseline: $cpuBaseline." -JsonEvents:$JsonEvents
     # The presets build the Vulkan backend, whose glslang reads its version
     # through Python: the pinned runtime, since a pyenv shim breaks that.
-    Invoke-PinyonBuildCommand $environment.CMake (@('--preset', $previewPreset, "-DREXSDK_DIR=$sdkRoot") +
+    # The kit or the source tree; a build folder switches between them on
+    # the next configure.
+    $sdkArguments = if ($kitRoot) { @('-DREXSDK_DIR=', "-DPINYON_SHIFT_SHIFTGLUE_KIT=$kitRoot") }
+        else { @("-DREXSDK_DIR=$sdkRoot", '-DPINYON_SHIFT_SHIFTGLUE_KIT=') }
+    Invoke-PinyonBuildCommand $environment.CMake (@('--preset', $previewPreset) + $sdkArguments +
         $cpu.CMakeArguments + @("-DPYTHON_EXECUTABLE=$(Get-PinyonPython)")) `
         (Join-Path $logs 'preview-configure.log') 'Preview configuration failed.' -Step 'Configure the game build'
     Invoke-PinyonBuildCommand $environment.CMake @('--build', '--preset', $previewPreset, '--parallel', "$Parallel") `
@@ -159,18 +172,27 @@ if (-not (Test-Path -LiteralPath $executable -PathType Leaf)) {
 }
 $manifestName = if ($Configuration -eq 'Release') { 'build.json' } else { 'build-profile.json' }
 $manifestPath = Resolve-PinyonLocalPath -RelativePath ".local/$manifestName"
-$git = Get-PinyonGit
-$sourceProvenance = Get-PinyonSourceProvenance -Root $root -Git $git
+if ($kitRoot) {
+    # Setup fetches no Git on this path: the payload records its commit, the
+    # kit its own. A developer checkout still reads its commit through Git.
+    $git = try { Get-PinyonGit } catch { '' }
+    $sourceProvenance = Get-PinyonSourceProvenance -Root $root -Git $git
+    $rexglueCommit = (Get-Content -LiteralPath (Join-Path $kitRoot 'kit.json') -Raw | ConvertFrom-Json).shiftglue_revision
+    $rexglueDirty = $false
+}
+else {
+    $git = Get-PinyonGit
+    $sourceProvenance = Get-PinyonSourceProvenance -Root $root -Git $git
+    $rexglueCommit = @(& $git -C $sdkRoot rev-parse HEAD 2>$null | Select-Object -First 1)
+    if ($rexglueCommit.Count -ne 1 -or
+        $rexglueCommit[0] -notmatch '^[0-9a-fA-F]{40}$') {
+        throw 'Build provenance requires an exact ShiftGlue commit.'
+    }
+    $rexglueCommit = $rexglueCommit[0].ToLowerInvariant()
+    $rexglueDirty = @(& $git -C $sdkRoot status --porcelain --ignore-submodules=dirty).Count -ne 0
+}
 $sourceCommit = $sourceProvenance.Commit
 $sourceDirty = $sourceProvenance.Dirty
-
-$rexglueCommit = @(& $git -C $sdkRoot rev-parse HEAD 2>$null | Select-Object -First 1)
-if ($rexglueCommit.Count -ne 1 -or
-    $rexglueCommit[0] -notmatch '^[0-9a-fA-F]{40}$') {
-    throw 'Build provenance requires an exact ShiftGlue commit.'
-}
-$rexglueCommit = $rexglueCommit[0].ToLowerInvariant()
-$rexglueDirty = @(& $git -C $sdkRoot status --porcelain --ignore-submodules=dirty).Count -ne 0
 $payloadMarkerPath = Join-Path $root '.pinyon-source-sha256'
 $payloadSha256 = if (Test-Path -LiteralPath $payloadMarkerPath -PathType Leaf) {
     (Get-Content -LiteralPath $payloadMarkerPath -Raw).Trim().ToUpperInvariant()
@@ -189,6 +211,7 @@ $result = [ordered]@{
     pinyon_shift_source_payload_sha256 = $payloadSha256
     rexglue_commit = $rexglueCommit
     rexglue_dirty = $rexglueDirty.ToString().ToLowerInvariant()
+    shiftglue_kit = [bool]$kitRoot
     guest_executable_sha256 = $gameXexSha256
     guest_codegen_patch_profile = 'fh1-retail-base-post-processing-v1'
     guest_codegen_patch_set_sha256 = $guestPatchSetSha256

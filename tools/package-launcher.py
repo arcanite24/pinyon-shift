@@ -17,6 +17,7 @@ the one in tools/package-launcher.ps1, so the releases cannot drift apart.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import shutil
 import subprocess
@@ -48,7 +49,19 @@ def git(*arguments: str) -> str:
                           text=True, check=True).stdout.strip()
 
 
-def build_payload(destination: Path) -> None:
+def pin_prebuilt(config: bytes, assets: Path, base_url: str) -> bytes:
+    """The toolchain config with the release's prebuilt assets pinned
+    (tools/apply-prebuilt-pins.py), as the Windows packager pins them."""
+    spec = importlib.util.spec_from_file_location("apply_prebuilt_pins",
+                                                  ROOT / "tools" / "apply-prebuilt-pins.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    data = json.loads(config)
+    print("\n".join(module.apply(data, assets, base_url)))
+    return (json.dumps(data, indent=2) + "\n").encode()
+
+
+def build_payload(destination: Path, assets: Path | None = None, base_url: str = "") -> None:
     """The source payload, as the Windows release builds it."""
     files: list[tuple[str, bytes]] = []
     for relative in payload_include():
@@ -61,7 +74,10 @@ def build_payload(destination: Path) -> None:
         for path in paths:
             if path.suffix.lower() in FORBIDDEN:
                 raise SystemExit(f"forbidden file entered the payload: {path}")
-            files.append((path.relative_to(ROOT).as_posix(), path.read_bytes()))
+            data = path.read_bytes()
+            if assets is not None and path.relative_to(ROOT).as_posix() == "config/release-toolchain.json":
+                data = pin_prebuilt(data, assets, base_url)
+            files.append((path.relative_to(ROOT).as_posix(), data))
     provenance = {"schema_version": 1, "repository": "https://github.com/arcanite24/pinyon-shift",
                   "commit": git("rev-parse", "HEAD"),
                   "dirty": bool(git("status", "--porcelain"))}
@@ -179,11 +195,17 @@ def main() -> int:
                              "another machine (.NET cross-publishes), instead of publishing here")
     parser.add_argument("--payload", type=Path,
                         help="a source payload built in a checkout, for packaging outside one")
+    parser.add_argument("--prebuilt-assets", type=Path,
+                        help="the release's prebuilt assets to pin in the payload (TP-1 to TP-3)")
+    parser.add_argument("--release-base-url", default="",
+                        help="the URL the prebuilt assets are attached at")
     args = parser.parse_args()
+    if args.prebuilt_assets and not args.release_base_url:
+        parser.error("--prebuilt-assets needs --release-base-url")
     version = json.loads((ROOT / "config" / "release.json").read_text(encoding="utf-8"))["version"]
     payload = args.payload or ARTIFACTS / "pinyon-shift-source.zip"
     if args.payload is None:
-        build_payload(payload)
+        build_payload(payload, args.prebuilt_assets, args.release_base_url)
     release = package_linux(version, payload, args.published) if args.platform == "linux-x64" \
         else package_mac(version, payload, args.published)
     print(release)
