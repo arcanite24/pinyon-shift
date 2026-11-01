@@ -302,6 +302,35 @@ Rejected in the same round (two interleaved runs each, see the site's
 thread priorities, and MoltenVK asynchronous submits, Metal heaps and
 always-on fast math.
 
+### First-time pipeline spikes, 2026-11-01
+
+Played free roam on the LG TV (1x, full screen, a copy of the
+`appdata-2026-09-27-macwarm` seed, whose stored list holds the 314
+pipelines of the benchmark route). In 100 s of driving, 10 frames took
+60-192 ms. In each one the recorder was busy, and the GPU thread waited on
+it, for the whole frame while draws, uploads and GPU time stayed normal;
+the runtime log showed new graphics pipelines being created on the worker
+threads at the same moments, about 57 of them. A cold Metal compile of one
+pipeline takes 100-190 ms on the M4 Pro, and the draw waits for it
+(`vulkan_async_pipeline_wait_ms`, 250 ms).
+
+The spikes come once per pipeline on a machine. The new pipelines are added
+to the stored list, and the next start created all 371 of them behind the
+title in 58 ms, because macOS's own Metal cache (shared by every app, in
+`$(getconf DARWIN_USER_CACHE_DIR)/com.apple.metal`) kept the compiled code.
+A new player still meets them on every road and effect seen for the first
+time.
+
+Rejected:
+
+- `MVK_CONFIG_SHOULD_MAXIMIZE_CONCURRENT_COMPILATION=1`: Metal reports a
+  `maximumConcurrentCompilationTaskCount` of 12 with it on and off, all
+  of the M4 Pro's cores, so compiles already run in parallel.
+- Not waiting (`vulkan_async_pipeline_wait_ms=0`,
+  `vulkan_async_skip_incomplete_frames=false`): in 250 s of driving new
+  roads, about 91 new pipelines and no spikes over 60 ms after loading, but
+  the player saw heavy graphical glitches from the skipped draws.
+
 ### Image and fullscreen gates
 
 All six cells reached free roam (mode 17). The parked and driving captures
