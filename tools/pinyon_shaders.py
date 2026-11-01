@@ -22,7 +22,10 @@ rebuilt from the player's own disc and DLC and written to
 rewritten when the catalog or the installed DLC change.
 
   pinyon.py prepare-shaders [--state-root DIR] [--game-root DIR]
-                            [--build-directory DIR] [--json]
+                            [--build-directory DIR] [--pipelines-only] [--json]
+
+--pipelines-only writes the ahead-of-time list and nothing else; Windows
+setup (tools/prepare-fh1-shaders.ps1) runs it before its own route.
 """
 
 from __future__ import annotations
@@ -238,8 +241,14 @@ def run(args: argparse.Namespace) -> dict:
     build = (args.build_directory or common.build_directory()).resolve()
     if not (build / common.EXECUTABLE).is_file():
         raise common.CommandError(f"the game is not built at {build}")
-    return prepare(common.state_root(args.state_root), common.game_root(args.game_root), build,
-                   args.json)
+    state, game = common.state_root(args.state_root), common.game_root(args.game_root)
+    if args.pipelines_only:
+        common.require_game_closed("preparing graphics")
+        with preparation_lock(state / "cache"):
+            pipelines = prepare_aot(state, game, build, args.json)
+        event(100, f"Ahead-of-time Vulkan pipelines: {pipelines}.", args.json)
+        return {"aot": pipelines}
+    return prepare(state, game, build, args.json)
 
 
 def add_parser(commands) -> None:
@@ -248,6 +257,8 @@ def add_parser(commands) -> None:
     parser.add_argument("--state-root", type=Path)
     parser.add_argument("--game-root", type=Path)
     parser.add_argument("--build-directory", type=Path)
+    parser.add_argument("--pipelines-only", action="store_true",
+                        help="only write the ahead-of-time pipeline list")
     parser.add_argument("--json", action="store_true")
 
 

@@ -49,6 +49,7 @@ WORK = ROOT / ".local" / "android"
 LOCAL_SDK = ROOT / CONFIG["bootstrap"]["android_sdk_path"]
 LOCAL_JDK = ROOT / CONFIG["bootstrap"]["jdk"]["install_path"]
 DEVICE_FILES = f"/sdcard/Android/data/{PACKAGE}/files"
+AOT_PIPELINES = "4D5309C9.fbo.aot.xpso"
 # The libraries the package carries besides the C++ runtime, in load order.
 NATIVE_LIBRARIES = (
     "librexruntime.so",
@@ -903,6 +904,13 @@ def push_data(args: argparse.Namespace) -> int:
         raise AndroidError(f"the extracted game is not at {game}")
     adb(tools, args, "shell", "mkdir", "-p", f"{DEVICE_FILES}/game/base", f"{DEVICE_FILES}/state")
     adb(tools, args, "push", "--sync", f"{game}{os.sep}.", f"{DEVICE_FILES}/game/base")
+    # Free roam's pipelines, rebuilt from this disc by the PC's setup (AOT-4).
+    pipelines = (args.state_root / "cache" / "shaders" / "shareable" / AOT_PIPELINES
+                 if args.state_root else None)
+    if pipelines and pipelines.is_file():
+        shareable = f"{DEVICE_FILES}/state/cache/shaders/shareable"
+        adb(tools, args, "shell", "mkdir", "-p", shareable)
+        adb(tools, args, "push", pipelines, f"{shareable}/{AOT_PIPELINES}", stdout=subprocess.DEVNULL)
     share_with_app(tools, args, f"{DEVICE_FILES}/game", f"{DEVICE_FILES}/state")
     return 0
 
@@ -1244,6 +1252,8 @@ def add_parser(commands) -> None:
     command("install", install, "install the APK on the device")
     parser = command("push-data", push_data, "copy the extracted game files to the device")
     parser.add_argument("--game-root", type=Path)
+    parser.add_argument("--state-root", type=Path,
+                        help="the PC state whose ahead-of-time pipeline list goes too")
     parser = command("push-driver", push_driver,
                      "copy a custom Vulkan driver package (Mesa Turnip) to the device")
     parser.add_argument("driver", type=Path, help="an adrenotools driver .zip or folder")
