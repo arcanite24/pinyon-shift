@@ -308,7 +308,9 @@ switch. The `auto` clock may drop on the lighter blocks, which would hide
 part of the saving, but that is how players run it.
 
 **2026-10-31, RS-0.3 on the Odin 2 Portal** (Adreno 740, APK 0.7.1 from
-dev `242f8250` with the probe, base game). Same route with 480-frame blocks,
+dev `242f8250` with the probe, base game; built while another session had
+uncommitted build-script and CMake packaging changes in the checkout, so
+its label says dirty; none touch the renderer). Same route with 480-frame blocks,
 pitches 16 and 32, Android defaults (untiled bands), 120 limit and vsync
 off, private state roots (the player's save was checked unchanged by md5
 before and after). The title waits about 9 ms a frame on GPU fences, so the
