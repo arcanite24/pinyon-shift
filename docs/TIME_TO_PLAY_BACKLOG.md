@@ -1,6 +1,9 @@
 # Time to play: prebuilt and bundled setup
 
-Status: review, 2026-10-31. Nothing here is implemented yet.
+Status: TP-1 to TP-7 worked through on 2026-10-31; see
+[Results](#results-2026-10-31). The prebuilt assets go live with the first
+tagged release after `dev` 787bc833. The Windows kit stays unpublished
+until the DLSS question under TP-3 is settled.
 
 Goal: the shortest time from downloading the launcher to playing, on
 every platform, while releases keep the line in [LEGAL.md](LEGAL.md): no
@@ -11,6 +14,117 @@ our own host code, the build tools) may ship prebuilt, under its licence.
 The player's machine keeps only the work that needs their disc: verify the
 image, translate the game code, compile that translation, link it, and
 prepare the driver's shaders.
+
+## Results (2026-10-31)
+
+Measured on Multivac unless noted. "Kept" items are on `dev`; the release
+workflow builds every prebuilt asset (`prebuilt-*` jobs, each allowed to
+fail without blocking the release) and pins them in the release payload
+only on a tag, so the checked-in config never points at an asset that
+doesn't exist yet.
+
+| Item | State | Result |
+| --- | --- | --- |
+| TP-1 trimmed LLVM and sysroot | kept | Windows LLVM 940 MB / 4.0 GB to 89 MB / 264 MB; Linux 2.0 GB / 11 GB to 109 MB / 682 MB; sniper sysroot 1.23 GB / 3.7 GB to 179 MB / 1.08 GB. A WSL Ubuntu setup from the trimmed toolchain and the Linux kit built and linked the game in 633 s (16 jobs, sharing the CPU with a Windows build), with 1.9 GB of toolchain on disk against about 15 GB. |
+| TP-2 prebuilt generator | kept | In the kit (`bin/rexglue`). Saves the generator's 2:52. |
+| TP-3 SDK kit | kept, Windows unpublished | Windows kit 23.7 MB (57 MB while it still carried the vendor DLLs), built in 252 s; the game configures in 3 s and builds from it; `fh1-free-roam` passes. Linux kit 12.7 MB in 246 s. Each kit records its clang, MSVC toolset and Windows SDK (or sysroot, NDK) in `kit.json`, and setup refuses a kit from another ShiftGlue revision. No vendor binary is in a kit: on Windows the game's configure fetches AMD's signed FidelityFX DLL and NVIDIA's DLSS runtime with the SDK's own pinned, hashed fetch modules, which the kit carries. The DLSS question: `rexruntime.dll` links NVIDIA's static NGX loader, so a published Windows kit is a binary release of the loader. NVIDIA's approval covers DLSS "with the Windows build"; whether it covers this is for the maintainer to confirm (`nvidia-rtx-license-questions@nvidia.com`). The workflow builds the Windows kit and attaches it only when the repository variable `PINYON_SHIFT_PUBLISH_WINDOWS_KIT` is `true`. CPU baseline, host split and v4: below. macOS kit: built only by the release workflow so far, not on the Mac mini. |
+| TP-4 Windows without Build Tools | built, opt-in, fetch untested | With a kit, the game build needs only the CRT, STL and Windows SDK headers and libraries: `clang` reads `INCLUDE`, `lld-link` reads `LIB`, `llvm-mt` merges manifests, and no `rc.exe` or `mt.exe` runs. A build with only those two variables set (pointing at the installed toolset, no `VsDevCmd`) compiled and linked the game (61.9 MB). Setup fetches them with `xwin` 0.10.0 (pinned, hashed) when `PINYON_SHIFT_MSVC_SYSROOT=1` or a fetched sysroot exists. The fetch itself is untested: it needs the player to accept Microsoft's licence, and nobody has accepted it on anyone's behalf. Needs the licence review this item asked for before it becomes a default. |
+| TP-5 Android shell and signer | kept | The shell (`android shell`): 44.7 MB, 362 MB unpacked, built in 201 s. Building the v4 APK from it needed only the NDK, CMake and Ninja: no JDK, no SDK manager, no runtime compile. `tools/apk_sign.py` aligns (16 KiB for `.so`) and signs (APK Signature Scheme v2) in Python, carrying over the key the old `keytool` made: `apksigner` and `zipalign -c -P 16` accept the result, and it installs over the earlier APK. RSA-3072 key generation 1.4 s, signing a 49 MB APK 0.22 s. The NDK r29 and platform-tools come straight from dl.google.com, pinned by SHA-256. On the Odin the shell APK loaded every library and created the Vulkan device; the title screen was not checked, because the device was locked. |
+| TP-6 compile less | partition size kept, others rejected | Below. |
+| TP-7 fewer steps | early downloads kept; others decided | Below. |
+
+### TP-3 measurements
+
+**CPU baseline: one SSE4.1 runtime per platform.** The same fma game
+code (Multivac's own baseline) linked against the SSE4.1 kit runtime and
+against an fma build of the same kit, `fh1-race-sync` from the
+`appdata-2026-09-27-winwarm` seed, three interleaved rounds each, means over
+the race (RTX 4080, Ryzen 7 5800X):
+
+| Runtime | Process CPU per frame | GPU decoder | Title thread |
+| --- | ---: | ---: | ---: |
+| SSE4.1 | 25.37 ms (25.06-25.75) | 6.41 ms | 3.19 ms |
+| fma | 25.75 ms (25.20-26.23) | 6.47 ms | 3.35 ms |
+
+The fma runtime is no faster. The runtime's hot paths (the PM4 decoder,
+texture and audio work) gain nothing from FMA. The kit stays SSE4.1, and
+the generated code keeps choosing its own baseline at setup.
+
+The host split and v4 as a run-time choice are not done. With the kit, our
+host code is 71 compile jobs and 18 % of the compile CPU left (502 of
+2,846 job-seconds in the INCLUDE/LIB-only build; the rest is the
+generated code and the two facades), and on 16 threads it overlaps the
+generated code. The split would save well under a minute there, and
+about 2 minutes on 4 cores, for two host libraries per platform (base and
+v4) until v4 becomes a run-time choice. Both stay on the list for after
+TP-4's licence review, which decides how the Windows host code could be
+prebuilt at all.
+
+### TP-6 measurements
+
+The generated code compiled from the kit, timed from Ninja's log (only the
+`pinyon_shift_recomp` objects, frozen codegen, base game):
+
+| Variant | Job-seconds | Wall, 16 jobs | Objects |
+| --- | ---: | ---: | ---: |
+| `-O3 -gline-tables-only` (default) | 1,214 | 79.5 s | 166 MB |
+| `-g0` | 1,140 (-6 %) | 75.1 s | 86 MB |
+| Every unit at `-O1` | 1,129 (-7 %) | 74.7 s | 169 MB |
+
+- **Cold code at `-O1`: rejected.** Even every unit at `-O1` saves only
+  7 %, and no unit is cold: of 76,494 functions the probe routes entered
+  38,770, spread over all 260 units (median 51 % of a unit's functions).
+  At this size the compile is mostly parsing and code generation, not
+  optimisation.
+- **`-g0`: rejected.** 6 % less compile and half the object size, but the
+  Windows crash reporter resolves generated frames to lines with
+  `SymGetLineFromAddr64`; names alone would remain. Not worth 4 s on
+  Multivac. POSIX reports use `dladdr` only, so nothing would change
+  there.
+- **Partition size: kept at 4 MiB.**
+
+  | `max_file_size_bytes` | Units | 4 jobs: wall / job-s | 16 jobs: wall / job-s | Largest unit's compile memory |
+  | --- | ---: | --- | --- | ---: |
+  | 512 KiB | 495 | 207 s / 817 | | |
+  | 1 MiB (old default) | 260 | 172 s / 678 | 80 s / 1,214 | 532 MB |
+  | 2 MiB | 124 | 155 s / 603 | 78 s / 1,104 | 532 MB |
+  | 4 MiB | 62 | 146 s / 568 | 74 s / 985 | 386 MB |
+
+  Each unit includes the same large header; fewer units parse it fewer
+  times. At 62 units, 16 threads still have work to the end. The largest
+  unit's compile needs well under 1 GB. (Four parallel jobs on Multivac
+  stand in for a 4-core PC.) Run time is unchanged: seven interleaved
+  `fh1-race-sync` rounds each (same kit and fma flags as the TP-3 A/B) gave
+  the title thread 3.30 ms a frame at 1 MiB and 3.31 ms at 4 MiB, and
+  process CPU 25.47 ms and 25.58 ms, inside the 1 MiB build's own spread
+  (25.00-25.95 ms). The first three rounds alone suggested 0.3 ms worse
+  for 4 MiB, which more rounds did not confirm. Changed in ShiftGlue
+  (`max_file_size_bytes`, 4 MiB); a changed budget repartitions from
+  scratch, and the module fingerprint includes it, so existing installs
+  translate once more.
+- **Translation is single-threaded:** 84-88 s of CPU in 84-88 s of wall at
+  every partition size, almost all of it analysis before any file is
+  written. Parallelising it is ShiftGlue work for later; it doesn't depend
+  on any of the above.
+
+### TP-7 decisions
+
+- **Early downloads: kept.** Windows setup starts `tools/prefetch-setup.ps1`
+  (the pinned tool archives and the kit) before verifying the disc, and
+  the POSIX setup starts the same downloads on a thread. Provisioning then
+  finds them in `.local/downloads`.
+- **Background shader preparation: rejected.** The renderer page already
+  measured what a player would see: with an empty driver cache,
+  preparation cut frame time over budget in the first race from 13.0 s to
+  5.7 s and the worst frame from 1.35 s to 0.53 s. Playing while it runs
+  would bring that stutter back to the first race, for 2 minutes saved.
+- **Reading the disc image in place: deferred.** ShiftGlue already has a
+  `DiscImageDevice`, but the game mounts through our `OverlayDevice`
+  (`src/mod/overlay_device.cpp`), which stacks `HostPathDevice`s for mods.
+  The host UI reads `media/ui` from the game folder, and about nine tools
+  read `.local/game/base` (verification, shader preparation, DLC and the
+  Android push). Each needs an image reader first. Saves about a minute
+  and 7 GB; worth its own change.
 
 ## Where the time goes today
 

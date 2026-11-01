@@ -18,8 +18,8 @@ This page is a summary. The [Internals](internals.md) pages go into detail on th
 Setup runs six reproducible stages:
 
 1. Verify the ISO's exact size and SHA-256 against `config/supported-dumps.json`.
-2. Install Visual Studio Build Tools if missing, and download pinned portable tools whose hashes are in `config/release-toolchain.json`.
-3. Fetch the pinned ShiftGlue revision.
+2. Install Visual Studio Build Tools if missing, and download pinned portable tools whose hashes are in `config/release-toolchain.json`. The downloads start while the disc is still being verified.
+3. Fetch the pinned ShiftGlue revision. When the release carries a prebuilt ShiftGlue kit for the platform (the code generator, runtime and renderer, nothing from the game), setup downloads that instead of cloning and compiling ShiftGlue.
 4. Extract the disc and generate the translated source under `.local/`.
 5. Compile `pinyon_shift.exe`.
 6. Prepare Vulkan shaders in a private startup run, so the first launch doesn't compile them.

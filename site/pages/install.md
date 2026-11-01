@@ -20,7 +20,7 @@ The launcher verifies your disc image, installs the build tools, builds the game
 
 ![The launcher, ready to play: Vulkan at 1x (1280 × 720), with Play and Settings buttons](img/launcher-ready.png)
 
-Your disc image and game files stay on your machine. The launcher downloads only build tools and the pinned ShiftGlue source.
+Your disc image and game files stay on your machine. The launcher downloads only build tools and the pinned ShiftGlue source, or ShiftGlue prebuilt when the release carries it.
 
 ## Verify the download
 

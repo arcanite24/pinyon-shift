@@ -12,7 +12,7 @@ A developer alpha. The Android build is the same recompiled game, cross-compiled
 ## Requirements
 
 - A Windows PC where the game is already built and plays.
-- About 15 GB free on the PC's install drive. The launcher downloads the pinned Android SDK, NDK and JDK 17 when the PC has none, after you accept the Android SDK license. With Android Studio's SDK already installed, it adds the missing packages to that SDK with its own pinned command-line tools.
+- About 15 GB free on the PC's install drive. The launcher downloads the pinned Android SDK, NDK and JDK 17 when the PC has none, after you accept the Android SDK license. With Android Studio's SDK already installed, it adds the missing packages to that SDK with its own pinned command-line tools. When the release carries a prebuilt app shell (the app, runtime and renderer, nothing from the game), the launcher downloads only the shell, the NDK and platform-tools: no JDK, no SDK manager, and the PC compiles only the game code. The launcher aligns and signs the APK itself, with the same key as before.
 - An arm64 device with an ARMv8.2 CPU (for example, Cortex-A55 or Cortex-A75), Android 13 or later and a Vulkan 1.3 driver, about 8 GB free, on the same network as the PC. A later phone release date alone does not establish the CPU's instruction support.
 - Tuned for Snapdragon 8 Gen 2 or newer (Adreno 740 and up).
 - **Mali, Tensor, Exynos and Dimensity GPUs** need an opt-in on the app's setup screen before the game starts: tick **Allow GPUs without vertex shader stores** (long-press the icon, **Get files from PC**, scroll to Experimental). The setup screen shows a hint when the device has no Qualcomm GPU driver. See [troubleshooting](#troubleshooting).

@@ -221,6 +221,35 @@ writers before treating a settings edit as a live control. Preserve the
 loaded baseline so resetting retains another mod's tuning. See
 [Collision and cameras](game-world.md#collision-and-cameras).
 
+## Prebuild everything that isn't the game
+
+Only the translation, its compile, the link and the driver's shaders need
+the player's disc. Everything else can ship built, and on a fresh install
+it was most of the time (TP-1 to TP-7 in
+[TIME_TO_PLAY_BACKLOG.md](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/TIME_TO_PLAY_BACKLOG.md)):
+
+- **Ship the SDK as an installed CMake package** (generator, runtime,
+  renderer, headers, `kit.json` naming its compiler and revision) and keep
+  the source tree as the developer path. Under a cross toolchain (a
+  sysroot, the NDK), find the package with `NO_CMAKE_FIND_ROOT_PATH` and
+  `CMAKE_FIND_ROOT_PATH_MODE_PACKAGE BOTH`, or CMake re-roots the search,
+  and the package's own dependencies, inside the sysroot.
+- **Trim the compiler.** The build called 13 of LLVM's tools; one clang
+  binary with its other names as links took Windows LLVM from 4.0 GB to
+  264 MB.
+- **Keep vendor binaries out of the package.** Fetch them at the game's
+  configure with the same pinned, hashed modules a source build runs. A
+  static vendor library linked into a prebuilt runtime is a binary release
+  of it, and needs its own licence check.
+- **Fewer, larger generated files compile faster.** Every unit includes
+  the same large header: 4 MiB units instead of 1 MiB cut the compile from
+  172 s to 146 s on 4 jobs and from 80 s to 74 s on 16, and the largest
+  unit still compiles in under 400 MB.
+- **APK signing needs no JDK.** Zip alignment and APK Signature Scheme v2
+  are a few hundred lines of Python (RSA PKCS#1 v1.5, SHA-256 chunk
+  digests); reading the old `keytool` keystore (PKCS#12, PBES2 with
+  AES-CBC) keeps the same key, so new builds install over old ones.
+
 ## What didn't pay off here
 
 Negative results, so they aren't retried without a new reason:
@@ -318,6 +347,10 @@ Negative results, so they aren't retried without a new reason:
 | Caching each object's reprojection slot by its previous and current matrices, so a repeated pair skips the 4 × 4 inverse (NA-0.7) | exact (0 mismatches against the inverse in a verify run) and 87 % of the about 2,150 object-motion draws a frame hit, but three in-run A/Bs in the v4 open world with DLSS at 2x moved GPU decoder CPU by -0.07 to +0.16 ms (95 % intervals ±0.3-0.8 ms) and frame time not at all: about 1,900 inverses a frame cost less than the run-to-run noise, and the hash and lookup cost about what they save |
 | Translating the base build's symbol ordering file to v4 addresses instead of profiling v4 (NA-0.4) | the v4 function map pairs 16,701 of the 38,770 functions the base race enters (about 95 % of the 5,000 most-called), and in the linked library those 16,701 sit on 14.5 MB of pages instead of 32.5 MB, but on the Odin (two runs each in the v4 open world) `libmain.so` PSS stayed 54.8-54.9 MB with and without it, with 46.6 of 47.4 MB of code resident. The order only saves memory when it covers every function the route enters: the 22,000 unpaired ones stay spread over the whole library, and with the kernel mapping code in 64 KiB neighbourhoods around each fault, a few thousand scattered functions keep nearly every page resident. v4's own probe counts (a v4 probe build on one open-world route) cut it to 34.3-36.2 MB |
 | A D3D-level renderer: taking the game at its Direct3D draw calls and display lists instead of decoding PM4 (DL-1 to DL-3) | built far enough to replace every display list and both draw calls, exact against PM4 and bit-identical on a paused frame, but process CPU moved -0.9 ms at best on the desktop and the Deck and not at all on the Odin, against a 3 ms bar. The ceiling with all PM4 work skipped was only about 3 ms net on the Odin; parsing is a fifth of the decoder's instructions and much less of its time, and the backend draw, register writes and texture binding remain. Only the shader cache paid alone (decoder -0.5 ms, at its gate); it is on by default |
+| An FMA build of the runtime and renderer to go with FMA game code (TP-3) | the same FMA game code against an SSE4.1 and an FMA runtime, `fh1-race-sync` three times each on a Ryzen 7 5800X: process CPU 25.37 against 25.75 ms a frame, GPU decoder 6.41 against 6.47 ms. The prebuilt runtime stays SSE4.1 on every x86-64 PC |
+| Compiling the generated code that never runs at `-O1` (TP-6) | no unit is cold: the probe routes entered 38,770 of 76,494 functions, spread over all 260 units (median 51 % of a unit's functions). Even every unit at `-O1` saved only 7 % of the compile (1,214 to 1,129 job-seconds on a Ryzen 7 5800X): at this size the compile is mostly parsing and code generation, not optimisation |
+| `-g0` instead of `-gline-tables-only` for players' generated code (TP-6) | 6 % less compile (1,140 job-seconds) and half the object size, but Windows crash reports would lose the line numbers of generated frames (the names stay). Not worth 4 s on 16 threads |
+| Preparing shaders in the background so Play is offered at once (TP-7) | the stutter it removes is already measured: with an empty driver cache, preparation cut frame time over budget in the first race from 13.0 s to 5.7 s and the worst frame from 1.35 to 0.53 s ([Renderer](renderer.md#shaders)). Two minutes saved is not worth that first race |
 
 Other recompilers' published optimizations, and which applied here, are surveyed in [RECOMP_OPTIMIZATION_SURVEY.md](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/RECOMP_OPTIMIZATION_SURVEY.md).
 
