@@ -58,6 +58,19 @@ try {
         $buildToolsMissing = [string]::IsNullOrWhiteSpace((Get-PinyonVisualStudioRoot -AllowMissing))
         Assert-PinyonFreeSpace -Root $root -FirstBuild:$firstBuild -BuildToolsMissing:$buildToolsMissing
     }
+    # TP-7: the tool and kit downloads need nothing from the game, so they
+    # run while it is checked; provisioning waits for them below.
+    $prefetch = $null
+    if (-not $VerifyOnly) {
+        try {
+            $prefetch = Start-Process -FilePath (Get-Process -Id $PID).Path -PassThru -WindowStyle Hidden `
+                -RedirectStandardOutput (Join-Path $logs 'prefetch.log') `
+                -RedirectStandardError (Join-Path $logs 'prefetch-error.log') `
+                -ArgumentList @('-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
+                    "`"$(Join-Path $PSScriptRoot 'prefetch-setup.ps1')`"")
+        }
+        catch { $prefetch = $null }
+    }
     Write-PinyonEvent verify 2 'Reading your game source. Nothing is uploaded.' -JsonEvents:$JsonEvents
     $verification = if ($folderInput) {
         & (Join-Path $PSScriptRoot 'verify-extracted-game.ps1') -ExtractedRoot $resolvedSource -Json | ConvertFrom-Json
@@ -86,6 +99,12 @@ try {
     }
     if ($VerifyOnly) { return }
 
+    if ($prefetch) {
+        if (-not $prefetch.HasExited) {
+            Write-PinyonEvent tools 17 'Finishing the tool downloads.' -JsonEvents:$JsonEvents
+        }
+        $prefetch.WaitForExit()
+    }
     & (Join-Path $PSScriptRoot 'provision-toolchain.ps1') -JsonEvents:$JsonEvents | Out-Host
     # TP-2/TP-3: a prebuilt ShiftGlue kit replaces the clone and the SDK build.
     Write-PinyonEvent tools 34 'Preparing the prebuilt ShiftGlue kit.' -JsonEvents:$JsonEvents

@@ -37,6 +37,7 @@ import struct
 import subprocess
 import sys
 import tarfile
+import threading
 import time
 import urllib.request
 import zipfile
@@ -308,6 +309,45 @@ def provision_python(progress: Progress, config: dict, name: str) -> Path:
         unpack(archive, ROOT / item["install_path"])
         archive.unlink()
     return executable
+
+
+class _Quiet(Progress):
+    """A Progress that prints nothing, for downloads in the background."""
+
+    def __init__(self) -> None:
+        super().__init__(False)
+
+    def __call__(self, stage: str, percent: float | None, message: str) -> None:
+        pass
+
+
+def prefetch(config: dict, name: str) -> threading.Thread:
+    """TP-7: the tool and kit downloads, while the game is checked and
+    extracted; provision() and install_kit() then find them in .local/downloads.
+    A failure is left to them to retry and report. Join the thread first:
+    both write the same files."""
+    tools = platform_tools(config, name)
+    items = []
+    for key in ("cmake", "ninja", "llvm", "sysroot"):
+        if key in tools:
+            stamp = ROOT / tools[key]["install_path"] / ".pinyon-sha256"
+            if not (stamp.is_file() and stamp.read_text(encoding="ascii").strip()
+                    == tools[key]["sha256"]):
+                items.append(tools[key])
+    entry = kit_entry(config, name)
+    if entry and not kit_ready(config, name):
+        items.append(entry)
+
+    def work() -> None:
+        for item in items:
+            try:
+                download(item, _Quiet(), "")
+            except (SetupError, OSError):
+                pass
+
+    thread = threading.Thread(target=work, name="prefetch", daemon=True)
+    thread.start()
+    return thread
 
 
 def provision(progress: Progress, config: dict, name: str) -> dict:
@@ -1294,6 +1334,10 @@ def run_setup(args: argparse.Namespace) -> int:
             return 0
         dump = None
         source_kind = None
+        # TP-7: the tool and kit downloads run while the game is checked and
+        # extracted.
+        fetching = (args.iso or args.extracted) and not args.verify_only
+        downloads = prefetch(config, name) if fetching else None
         if args.iso or args.extracted:
             progress("verify", 0, "Checking the game")
             if args.iso:
@@ -1318,6 +1362,8 @@ def run_setup(args: argparse.Namespace) -> int:
             progress("extract", 100, "Game files ready")
         elif not game_ready():
             raise SetupError("choose your disc image (--iso) first", "verify")
+        if downloads:
+            downloads.join()
         tools = provision(progress, config, name)
         # TP-2/TP-3: the release's prebuilt kit replaces the clone and the
         # SDK build; without one (or if it fails) ShiftGlue builds from source.
