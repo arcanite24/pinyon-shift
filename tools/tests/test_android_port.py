@@ -164,6 +164,29 @@ class AndroidPortTest(unittest.TestCase):
         push_data = source[source.index("def push_data"):source.index("def _pid")]
         self.assertIn("share_with_app(", push_data)
 
+    def test_push_data_copies_the_pcs_pipeline_list(self):
+        with tempfile.TemporaryDirectory() as temp:
+            game, state = Path(temp) / "game", Path(temp) / "state"
+            game.mkdir()
+            (game / "default.xex").write_bytes(b"xex")
+            shareable = state / "cache" / "shaders" / "shareable"
+            shareable.mkdir(parents=True)
+            (shareable / pinyon_android.AOT_PIPELINES).write_bytes(b"XEAO")
+            calls = []
+            args = mock.Mock(game_root=game, state_root=state, serial=None)
+            with mock.patch.object(pinyon_android, "Tools"),                     mock.patch.object(pinyon_android, "share_with_app"),                     mock.patch.object(pinyon_android, "adb",
+                                      side_effect=lambda tools, args, *command, **_: calls.append(command)):
+                pinyon_android.push_data(args)
+            remote = (f"{pinyon_android.DEVICE_FILES}/state/cache/shaders/shareable/"
+                      f"{pinyon_android.AOT_PIPELINES}")
+            self.assertIn(("push", shareable / pinyon_android.AOT_PIPELINES, remote), calls)
+            calls.clear()
+            args.state_root = None
+            with mock.patch.object(pinyon_android, "Tools"),                     mock.patch.object(pinyon_android, "share_with_app"),                     mock.patch.object(pinyon_android, "adb",
+                                      side_effect=lambda tools, args, *command, **_: calls.append(command)):
+                pinyon_android.push_data(args)
+            self.assertFalse(any(command[0] == "push" and remote in command for command in calls))
+
 
 class FakeProcess:
     def __init__(self, code, lines):
