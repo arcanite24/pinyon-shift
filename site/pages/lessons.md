@@ -249,6 +249,17 @@ it was most of the time (TP-1 to TP-7 in
   are a few hundred lines of Python (RSA PKCS#1 v1.5, SHA-256 chunk
   digests); reading the old `keytool` keystore (PKCS#12, PBES2 with
   AES-CBC) keeps the same key, so new builds install over old ones.
+- **A Windows build needs only Microsoft's libraries, not Visual Studio.**
+  With the SDK prebuilt, `xwin` fetched the CRT, STL and Windows SDK in
+  68 s (773 MB, after the player accepts Microsoft's licence), and clang
+  and `lld-link` built the game with nothing else from Visual Studio.
+  Three things broke on the way: keep `xwin`'s cache on the output's
+  drive (it renames files across), use `--use-winsysroot-style` (the
+  default layout needs a symlink Windows refuses without Developer Mode,
+  even with `--disable-symlinks`), and keep the debug CRT (CMake's
+  compiler check links Debug). `llvm-mt` silently ignores
+  `-inputresource`, so embed manifests at link time with
+  `/MANIFESTINPUT` instead.
 
 ## What didn't pay off here
 

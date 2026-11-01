@@ -13,6 +13,7 @@ The launcher runs these same scripts. Use a checkout when you're changing host o
 
 - Windows 10 or 11, x64, PowerShell 5.1 or newer.
 - Visual Studio 2022 C++ Build Tools 17.1 or newer. Setup installs them if missing.
+  Experimental, for builds from the prebuilt ShiftGlue kit: set `PINYON_SHIFT_MSVC_SYSROOT=1` and, if you accept [Microsoft's licence](https://go.microsoft.com/fwlink/?LinkId=2179911), `PINYON_SHIFT_ACCEPT_MICROSOFT_LICENSE=1`. Setup then fetches only the C++ libraries and the Windows SDK with `xwin` (about 770 MB, no administrator rights) instead of installing the Build Tools.
 - A GPU with Vulkan 1.3, an internet connection and about 30 GB free.
 
 Setup checks the C++ library and the Windows SDK before building, and stops with compiler diagnostics if they're too old.
