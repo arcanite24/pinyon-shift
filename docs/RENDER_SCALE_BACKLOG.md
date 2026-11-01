@@ -1,5 +1,7 @@
 # Render scale backlog: below 1x, fractional and dynamic
 
+**Shelved 2026-10-31** after RS-0: see RS-0.4 and the Progress section.
+
 Created 2026-10-31 at `dev` `7e07fe5d` (ShiftGlue `a069c91f`). Goal: let a
 weak GPU render the game below the console's 1280x720 (50 %, 67 %, 75 %),
 let a 1080p screen get 1.5x, and later let the renderer pick the scale each
@@ -141,7 +143,7 @@ retained traffic eats the prize.
 | RS-0.1 | **Guest-side spike**: start the title with `video_mode_width/_height` at 640x360 and at the SD 640x480 mode and see whether FH1 sizes its surfaces from the video mode; then look for where the main view's 1280x720 comes from (the Hor+ hook reads it at `sub_823E22C8`; the leftover split-screen code in `site/findings/systems.toml` suggests the engine can draw a scene into a smaller view). If the game can render natively small, there is no reconstruction at all and this backlog may shrink to a presenter change. Record the answer either way in `site/findings` | Rules out (or in) a near-free path | S (hours to 2 days) | **Video mode done, negative** (see Progress); the main-view and split-screen dig is open |
 | RS-0.2 | **Current-pin GPU profiles at 1x** with `fh1_native_gpu_profile` on Blindvac (UHD 620), the Deck, the Odin and the RTX 4080: race and free roam, the device's own preset, plus 2x where the device can run it. The 1x-to-2x growth bounds the area-proportional work from above (`T(2) - T(1) <= 3 x pixel work at 1x`, an overestimate because resolves also grow) | A per-device ceiling for the prize | S-M | Open; on Blindvac the RS-0.3 probe measured the slope directly, so only the phase breakdown is left there |
 | RS-0.3 | **Raster-only probe**: first, `fh1_coarse_shading=2x2` on the scene renderings where the device has the extension (no code; fragment work only). Then a debug cvar that multiplies `draw_coordinate_scale()` by `f` for scene-surface draws and nothing else. The image is wrong (a corner of the frame, stretched later), but the GPU does exactly the raster work the real path would. In-run A/B of `f = 1, 0.75, 0.5` on the same devices. This measures the prize directly, before the 3-4 weeks of real work | The gate number | S-M | **Probe built** (`fh1_debug_raster_percent`, `fh1_debug_raster_pitches`); **Done** on the UHD 620, Steam Deck, Odin and RTX 4080 (see Progress) |
-| RS-0.4 | **Decision**: keep going, cut to 50 % only, or record the rejection in `lessons.md` with the numbers | Go / no-go | S | **Gate failed** (one device of four passes); the maintainer decides between shelving and an integrated-GPU-only path |
+| RS-0.4 | **Decision**: keep going, cut to 50 % only, or record the rejection in `lessons.md` with the numbers | Go / no-go | S | **Shelved 2026-10-31** by the maintainer: the gate failed (one device of four passes); measure a low-end Android device before reconsidering |
 
 ### RS-1 Surface policy
 
@@ -331,7 +333,16 @@ Odin -8.5 %, RTX 4080 0 %. Only one device clears 25 %, and that is before
 the real path's resolve reconstruction. On every device but the oldest
 integrated GPU, the frame is dominated by work that does not scale with
 pixels (geometry, the recorder's draws, resolves, transfers, post passes at
-fixed sizes). Recommendation recorded for the maintainer: do not build the
-general sub-1x path now; keep the probe cvars so a later device or a
-changed renderer can be re-measured in minutes. 1.5x (a quality setting,
-not a speed one) would need the same machinery and is a separate decision.
+fixed sizes). **Decision (maintainer, 2026-10-31): shelved.** RS-1 onwards does not
+start. The probe cvars stay in ShiftGlue (and in the 0.7.1 APK), so a new
+device or a changed renderer can be re-measured in about ten minutes with
+the RS-0.3 route.
+
+**Reopen when** a device below the supported Android floor (an Adreno 6xx
+or a Mali GPU) or another integrated GPU is measured with the probe and
+saves at least 25 % of its GPU frame at 50 % while it is GPU-bound. Check
+the CPU side at the same time: resolution does not touch the decoder,
+recorder or simulation, and on the Odin the decoder alone takes about 8 ms
+a frame, so a low-end SoC may be CPU-bound before the GPU matters. 1.5x (a
+quality setting, not a speed one) needs the same machinery and is a
+separate decision.
