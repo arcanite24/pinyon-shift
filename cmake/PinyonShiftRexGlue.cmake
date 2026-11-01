@@ -403,6 +403,11 @@ elseif(REXGLUE_RECOMP_DEBUG_INFO STREQUAL "line-tables-only")
     list(APPEND REXGLUE_RECOMP_OPTIONS
         $<$<CXX_COMPILER_ID:Clang,AppleClang>:-gline-tables-only>)
 endif()
+# Extra flags for the generated units only, after the ones above so they win
+# (build-time experiments such as -O1; TIME_TO_PLAY_BACKLOG.md TP-6).
+set(PINYON_SHIFT_RECOMP_EXTRA_OPTIONS "" CACHE STRING
+    "Extra compile options for the generated units, appended last")
+list(APPEND REXGLUE_RECOMP_OPTIONS ${PINYON_SHIFT_RECOMP_EXTRA_OPTIONS})
 
 set(_all_generated_sources
     ${PINYON_SHIFT_GENERATED_SOURCES}
