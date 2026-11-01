@@ -25,8 +25,22 @@ Items are `AOT-*`. The Mac is the target (each cold Metal compile takes
   with a list from Mac play alone (764 pipelines). The background build
   took 30 s for 5,215 pipelines. Where the stored pipelines are built
   before the title (Windows, Linux, Android) the list is still built behind
-  it, on 2 threads on Android (`vulkan_aot_prewarm_threads`). Android is
-  not measured yet: no test device was free.
+  it, on 2 threads on Android (`vulkan_aot_prewarm_threads`).
+- **Android, Odin 2 Portal (Adreno 740).** v4 APK from `b3696c8c`, the
+  east probe on private states, without the list
+  (A) and with it (B, and B2 on a fresh state). The list held the pair of
+  301 of A's 320 first-needed pipelines (94 %). It built in 32.5-33 s on 2
+  threads each time (the driver cache is per state). Draws that waited:
+
+  | Run | List | First needed | Waited | Drew unspecialized | Waited after 40 s / 60 s / 90 s |
+  | --- | --- | ---: | ---: | ---: | --- |
+  | A | none | 320 | 320 | 0 | 12 / 6 / 6 |
+  | B | shipped | 330 | 166 | 164 | 0 / 0 / 0 |
+  | B2 | shipped, fresh state | 334 | 170 | 164 | 1 / 1 / 0 |
+
+  Almost every wait in B and B2 came in the opening, while the list was
+  still building; after it, waits fell 92-100 %. On a later start the
+  driver cache has the list, as on the desktop.
 - **First-time compiles are the free-roam spikes on the Mac.** Each new
   pipeline costs one 100-190 ms frame on an M4 Pro (docs/MACOS.md
   "First-time pipeline spikes"). Seen pipelines are stored
