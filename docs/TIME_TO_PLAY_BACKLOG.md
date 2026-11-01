@@ -27,9 +27,9 @@ doesn't exist yet.
 | --- | --- | --- |
 | TP-1 trimmed LLVM and sysroot | kept | Windows LLVM 940 MB / 4.0 GB to 89 MB / 264 MB; Linux 2.0 GB / 11 GB to 109 MB / 682 MB; sniper sysroot 1.23 GB / 3.7 GB to 179 MB / 1.08 GB. A WSL Ubuntu setup from the trimmed toolchain and the Linux kit built and linked the game in 633 s (16 jobs, sharing the CPU with a Windows build), with 1.9 GB of toolchain on disk against about 15 GB. |
 | TP-2 prebuilt generator | kept | In the kit (`bin/rexglue`). Saves the generator's 2:52. |
-| TP-3 SDK kit | kept, Windows unpublished | Windows kit 23.7 MB (57 MB while it still carried the vendor DLLs), built in 252 s; the game configures in 3 s and builds from it; `fh1-free-roam` passes. Linux kit 12.7 MB in 246 s. Each kit records its clang, MSVC toolset and Windows SDK (or sysroot, NDK) in `kit.json`, and setup refuses a kit from another ShiftGlue revision. No vendor binary is in a kit: on Windows the game's configure fetches AMD's signed FidelityFX DLL and NVIDIA's DLSS runtime with the SDK's own pinned, hashed fetch modules, which the kit carries. The DLSS question: `rexruntime.dll` links NVIDIA's static NGX loader, so a published Windows kit is a binary release of the loader. NVIDIA's approval covers DLSS "with the Windows build"; whether it covers this is for the maintainer to confirm (`nvidia-rtx-license-questions@nvidia.com`). The workflow builds the Windows kit and attaches it only when the repository variable `PINYON_SHIFT_PUBLISH_WINDOWS_KIT` is `true`. CPU baseline, host split and v4: below. macOS kit: built only by the release workflow so far, not on the Mac mini. |
+| TP-3 SDK kit | kept, Windows unpublished | Windows kit 23.7 MB (57 MB while it still carried the vendor DLLs), built in 252 s; the game configures in 3 s and builds from it; `fh1-free-roam` passes. Linux kit 12.7 MB in 246 s. Each kit records its clang, MSVC toolset and Windows SDK (or sysroot, NDK) in `kit.json`, and setup refuses a kit from another ShiftGlue revision. No vendor binary is in a kit: on Windows the game's configure fetches AMD's signed FidelityFX DLL and NVIDIA's DLSS runtime with the SDK's own pinned, hashed fetch modules, which the kit carries. The DLSS question: `rexruntime.dll` links NVIDIA's static NGX loader, so a published Windows kit is a binary release of the loader. NVIDIA's approval covers DLSS "with the Windows build"; whether it covers this is for the maintainer to confirm (`nvidia-rtx-license-questions@nvidia.com`). The workflow builds the Windows kit and attaches it only when the repository variable `PINYON_SHIFT_PUBLISH_WINDOWS_KIT` is `true`. CPU baseline, host split and v4: below. macOS kit (Mac mini M4 Pro, `tools/build-prebuilt.py`): 11.8 MB; the game configured from it and built in 142 s (8 jobs at low priority, frozen codegen from Multivac's translation), and the executable loads the kit's runtime and starts. Not played there: the Mac had no game files. |
 | TP-4 Windows without Build Tools | built, opt-in, fetch untested | With a kit, the game build needs only the CRT, STL and Windows SDK headers and libraries: `clang` reads `INCLUDE`, `lld-link` reads `LIB`, `llvm-mt` merges manifests, and no `rc.exe` or `mt.exe` runs. A build with only those two variables set (pointing at the installed toolset, no `VsDevCmd`) compiled and linked the game (61.9 MB). Setup fetches them with `xwin` 0.10.0 (pinned, hashed) when `PINYON_SHIFT_MSVC_SYSROOT=1` or a fetched sysroot exists. The fetch itself is untested: it needs the player to accept Microsoft's licence, and nobody has accepted it on anyone's behalf. Needs the licence review this item asked for before it becomes a default. |
-| TP-5 Android shell and signer | kept | The shell (`android shell`): 44.7 MB, 362 MB unpacked, built in 201 s. Building the v4 APK from it needed only the NDK, CMake and Ninja: no JDK, no SDK manager, no runtime compile. `tools/apk_sign.py` aligns (16 KiB for `.so`) and signs (APK Signature Scheme v2) in Python, carrying over the key the old `keytool` made: `apksigner` and `zipalign -c -P 16` accept the result, and it installs over the earlier APK. RSA-3072 key generation 1.4 s, signing a 49 MB APK 0.22 s. The NDK r29 and platform-tools come straight from dl.google.com, pinned by SHA-256. On the Odin the shell APK loaded every library and created the Vulkan device; the title screen was not checked, because the device was locked. |
+| TP-5 Android shell and signer | kept | The shell (`android shell`): 44.7 MB, 362 MB unpacked, built in 201 s. Building the v4 APK from it needed only the NDK, CMake and Ninja: no JDK, no SDK manager, no runtime compile. `tools/apk_sign.py` aligns (16 KiB for `.so`) and signs (APK Signature Scheme v2) in Python, carrying over the key the old `keytool` made: `apksigner` and `zipalign -c -P 16` accept the result, and it installs over the earlier APK. RSA-3072 key generation 1.4 s, signing a 49 MB APK 0.22 s. The NDK r29 and platform-tools come straight from dl.google.com, pinned by SHA-256. On the Odin 2 Portal the shell APK starts and reaches the title screen ("Press Start") with the v4 save. |
 | TP-6 compile less | partition size kept, others rejected | Below. |
 | TP-7 fewer steps | early downloads kept; others decided | Below. |
 
@@ -50,15 +50,31 @@ The fma runtime is no faster. The runtime's hot paths (the PM4 decoder,
 texture and audio work) gain nothing from FMA. The kit stays SSE4.1, and
 the generated code keeps choosing its own baseline at setup.
 
-The host split and v4 as a run-time choice are not done. With the kit, our
-host code is 71 compile jobs and 18 % of the compile CPU left (502 of
-2,846 job-seconds in the INCLUDE/LIB-only build; the rest is the
-generated code and the two facades), and on 16 threads it overlaps the
-generated code. The split would save well under a minute there, and
-about 2 minutes on 4 cores, for two host libraries per platform (base and
-v4) until v4 becomes a run-time choice. Both stay on the list for after
-TP-4's licence review, which decides how the Windows host code could be
-prebuilt at all.
+**Host split and v4 as a run-time choice: deferred, with reasons.**
+
+- The prize is small. With the kit, our host code is 71 compile jobs and
+  18 % of the compile CPU left (502 of 2,846 job-seconds in the
+  INCLUDE/LIB-only build; the rest is the generated code and the two
+  facades), and on 16 threads it overlaps the generated code: well under
+  a minute there, about 2 minutes on 4 cores.
+- The split itself is easy: only `main.cpp`, `pinyon_shift_app.cpp`,
+  `reference_verify.cpp` and `region_oracle.cpp` include generated
+  headers, and the host target doesn't use the generated precompiled
+  header.
+- Shipping it is not. Host objects are static code linked into the
+  player's executable, unlike the kit's DLLs. On Windows they would come
+  from CI's MSVC toolset and be linked by whatever older toolset the
+  player has, which Microsoft doesn't support. That needs TP-4's pinned
+  CRT and STL first, so it waits on that licence review. Linux, macOS and
+  Android toolchains are pinned already; doing them alone isn't worth
+  two code paths.
+- v4 as a run-time choice: about 220 compile-time uses across 20 files
+  (mostly `FH1_ADDR` and `kTitleUpdateV4`, plus base-only addresses and
+  `guest_native` symbol picks) would become run-time lookups, some in
+  hooks on the guest's hot paths, against the near-native goal. The
+  `guest_native` replacements are named after variant-specific generated
+  functions, so they stay per variant anyway. Two host libraries per
+  platform (base and v4) remain the plan if the split ships.
 
 ### TP-6 measurements
 
