@@ -260,6 +260,21 @@ it was most of the time (TP-1 to TP-7 in
   compiler check links Debug). `llvm-mt` silently ignores
   `-inputresource`, so embed manifests at link time with
   `/MANIFESTINPUT` instead.
+- **Ship prebuilt host code as objects, not a static library.** Our
+  `guest_native` code replaces weak generated functions with strong
+  ones. Objects in the link all take part, so the override holds; a
+  static archive member is pulled in only for undefined symbols and
+  would lose to the generated definitions already present. Of 69 host
+  files, 6 include generated headers or depend on the CPU baseline and
+  still compile on the player's machine. A fingerprint of the compiler,
+  C++ library version, kit, sources and flags gates the prebuilt
+  objects, so any difference falls back to compiling them.
+- **The translation needs only the executables.** Copying the three
+  `.xex` files off the disc (25 MB, under a second) lets the build start
+  while the rest of the disc extracts in the background. Swap the full
+  copy in only after it is checked, and treat a leftover staging folder
+  as an unfinished game, or a failed run leaves an executables-only
+  folder that passes an executables-only check.
 
 ## What didn't pay off here
 

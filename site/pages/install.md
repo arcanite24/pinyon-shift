@@ -20,7 +20,7 @@ The launcher verifies your disc image, installs the build tools, builds the game
 
 ![The launcher, ready to play: Vulkan at 1x (1280 × 720), with Play and Settings buttons](img/launcher-ready.png)
 
-Your disc image and game files stay on your machine. The launcher downloads only build tools and the pinned ShiftGlue source, or ShiftGlue prebuilt when the release carries it.
+Your disc image and game files stay on your machine. The launcher downloads only build tools and the pinned ShiftGlue source, or ShiftGlue and the host code that doesn't depend on your game prebuilt when the release carries them.
 
 ## Verify the download
 
@@ -32,7 +32,7 @@ Get-FileHash .\PinyonShift-Launcher.zip -Algorithm SHA256
 
 A matching hash identifies the official download. If Defender names a threat or quarantines a file, follow [the detection reporting steps](troubleshooting.md#defender-reports-a-trojan-or-quarantines-a-file) before running it.
 
-Administrator permission is requested only when Visual Studio 2022 C++ Build Tools (17.1 or newer) must be installed. VS 2019 alone isn't enough.
+The setup screen asks whether you accept [Microsoft's licence](https://go.microsoft.com/fwlink/?LinkId=2179911) for its C++ libraries and Windows SDK. Ticked, setup downloads just those (about 770 MB, no administrator prompt). Unticked, setup uses or installs Visual Studio 2022 C++ Build Tools (17.1 or newer; VS 2019 alone isn't enough), and administrator permission is requested only for that install.
 
 ## Updating
 
