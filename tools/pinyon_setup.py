@@ -1021,9 +1021,13 @@ KIT_FLAGS = {
     "linux-x86_64": "-msse4.1 -DREXGLUE_ENABLE_PERF_COUNTERS -DREX_PHYSICAL_HEAP_4K_PAGES=1",
     "macos-arm64": "-DREXGLUE_ENABLE_PERF_COUNTERS",
 }
+# Linker flags for the kit's shared libraries, through LDFLAGS: CMake adds
+# that to the toolchain file's own linker flags, where a
+# CMAKE_SHARED_LINKER_FLAGS cache entry replaced them (lld, the libgcc
+# overlay) and the link fell back to the build host's ld.
+KIT_LDFLAGS = {"linux-x86_64": "-Wl,-Bsymbolic-functions"}
 KIT_CACHE = {
-    "linux-x86_64": ["-DREXGLUE_X86_64_CODE_MODEL=small",
-                     "-DCMAKE_SHARED_LINKER_FLAGS=-Wl,-Bsymbolic-functions"],
+    "linux-x86_64": ["-DREXGLUE_X86_64_CODE_MODEL=small"],
     "macos-arm64": ["-DCMAKE_OSX_ARCHITECTURES=arm64", "-DCMAKE_OSX_DEPLOYMENT_TARGET=13.0"],
 }
 # SDK files the host compiles or includes itself, at their source-tree paths
@@ -1045,6 +1049,8 @@ def build_kit(progress: Progress, tools: dict, sdk: Path, python: Path, name: st
         raise SetupError(f"ShiftGlue is at {revision}, but the config pins "
                          f"{config['rexglue']['revision']}", "build")
     environment = build_environment(tools)
+    if name in KIT_LDFLAGS:
+        environment["LDFLAGS"] = KIT_LDFLAGS[name]
     cmake = str(tools["cmake"])
     work = LOCAL / "kit-build"
     tree, prefix = work / "build", work / "kit"

@@ -139,6 +139,21 @@ if ((Get-PinyonVisualStudioRoot) -ne 'compatible-vs2022') { throw 'Supported too
         self.assertIn("if ($release.channel -eq 'preview') { 'dev' } else { 'main' }", workflow)
         self.assertIn('--main-ref "refs/remotes/origin/$branch"', workflow)
 
+    def test_release_attaches_and_pins_prebuilt_assets(self):
+        # TP-1 to TP-3: every platform's prebuilt job may fail without
+        # blocking the release, every packager pins what was built (on tags
+        # only, where the release URL exists), and the sidecars stay out.
+        workflow = (ROOT / ".github/workflows/release.yml").read_text()
+        for platform in ("windows", "linux", "macos", "android"):
+            job = workflow.split(f"  prebuilt-{platform}:\n", 1)[1].split("\n\n", 1)[0]
+            self.assertIn("continue-on-error: true", job)
+            self.assertIn(f"name: prebuilt-{platform}", job)
+        self.assertEqual(workflow.count("needs: [prebuilt-windows, prebuilt-linux, prebuilt-macos, prebuilt-android]"), 3)
+        self.assertIn("-PrebuiltAssets .artifacts/prebuilt", workflow)
+        self.assertEqual(workflow.count("--prebuilt-assets .artifacts/prebuilt --release-base-url"), 2)
+        self.assertIn("releases/download/{1}', github.repository, github.ref_name)", workflow)
+        self.assertIn("*.json|'.artifacts/prebuilt/*') ;;", workflow)
+
 
     @unittest.skipUnless(shutil.which("powershell"), "Windows PowerShell is required")
     def test_build_command_keeps_stderr_and_exit_status(self):

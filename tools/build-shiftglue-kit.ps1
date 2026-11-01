@@ -79,27 +79,17 @@ foreach ($item in @(
     else { Copy-Item -Path (Join-Path $from $item.Filter) -Destination $to }
 }
 
-# The upscaler runtimes the SDK's configure fetched (AMD's signed FidelityFX
-# DLL, NVIDIA's DLSS runtime), with their licences, for the game to stage.
-$cache = Get-Content -LiteralPath (Join-Path $buildTree 'CMakeCache.txt')
-function Get-CacheValue([string]$Name) {
-    $line = $cache | Where-Object { $_ -like "${Name}:*" } | Select-Object -First 1
-    if ($line) { $line.Substring($line.IndexOf('=') + 1) } else { '' }
+# No vendor binary goes in the kit (docs/LEGAL.md): AMD's signed FidelityFX
+# DLL and NVIDIA's DLSS runtime are fetched at the game's configure, pinned
+# and hashed, by the same SDK modules a source build runs.
+$modules = Join-Path $prefix 'share/rexglue/cmake'
+[void](New-Item -ItemType Directory -Force -Path $modules)
+foreach ($module in @('rexglue_dlss.cmake', 'rexglue_ffx_api_headers.cmake')) {
+    Copy-Item -LiteralPath (Join-Path $sdkRoot "cmake/$module") -Destination $modules
 }
-$upscalers = Join-Path $prefix 'share/rexglue/upscalers'
-$ffx = Get-CacheValue 'REXGLUE_FFX_RUNTIME_DLL'
-if ($ffx) {
-    $target = Join-Path $upscalers 'fidelityfx'
-    [void](New-Item -ItemType Directory -Force -Path $target)
-    Copy-Item -LiteralPath $ffx -Destination $target
-    Copy-Item -LiteralPath (Join-Path $sdkRoot 'thirdparty/fidelityfx-vk/LICENSE.txt') -Destination $target
-}
-$dlss = Get-CacheValue 'REXGLUE_DLSS_RUNTIME_DIR'
-if ($dlss) {
-    $target = Join-Path $upscalers "dlss/$(Get-CacheValue 'REXGLUE_DLSS_VERSION')"
-    [void](New-Item -ItemType Directory -Force -Path $target)
-    Copy-Item -Path (Join-Path $dlss 'nvngx_dlss.dll'), (Join-Path $dlss 'LICENSE.txt') -Destination $target
-}
+$ffxNotice = Join-Path $prefix 'share/rexglue/upscalers/fidelityfx'
+[void](New-Item -ItemType Directory -Force -Path $ffxNotice)
+Copy-Item -LiteralPath (Join-Path $sdkRoot 'thirdparty/fidelityfx-vk/LICENSE.txt') -Destination $ffxNotice
 
 # The Microsoft C++ runtime the kit's DLLs were built against, staged beside
 # the game when it is newer than the one the player's tools provide.
