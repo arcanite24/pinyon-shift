@@ -9,6 +9,12 @@ Items are `AOT-*`. The Mac is the target (each cold Metal compile takes
 
 ## Where it stands
 
+- **Done 2026-11-01, gate met with the shipped list.** In two 100 s drives
+  to far roads on the M4 Pro (method below), the
+  draws that waited for a first-time compile fell from 51 to 0 and 3 (two
+  runs) and from 46 to 4: 91-100 % fewer, against the 80 % gate. The list
+  holds earlier Mac free roam too, so part of that is in-sample; a list from
+  the Windows reference save alone cut them to 16 and 21 (69 % and 54 %).
 - **First-time compiles are the free-roam spikes on the Mac.** Each new
   pipeline costs one 100-190 ms frame on an M4 Pro (docs/MACOS.md
   "First-time pipeline spikes"). Seen pipelines are stored
@@ -17,11 +23,25 @@ Items are `AOT-*`. The Mac is the target (each cold Metal compile takes
   instead glitches.
 - **The preparation run covers only the opening.** `pinyon.py launch` plays
   `fh1-shader-preparation.fh1test` once (DR-1.3, LX-3.3); it presses through
-  menus and never drives, so free roam starts cold.
-- **The disc already gives every shader program.**
-  `tools/extract-fh1-shader-corpus.py` finds 3,819 raw programs and 12,846
-  with the vertex variants it derives (`site/findings/files.toml`, shader
-  corpus).
+  menus and never drives, so free roam started cold.
+- **What ships.** `config/fh1-aot-pipelines.json`: 2,916 pipeline
+  descriptions from long play (the Windows reference save and the Mac play
+  copy) and, for their 1,159 shaders, the disc program each comes from (by
+  SHA-256) with the edits that make it the shader the title draws with. No
+  microcode. `pinyon.py prepare-shaders` extracts the player's disc and DLC
+  programs (8.5 s), applies the edits, pairs each shader pair with every
+  state seen with either of its shaders, and writes
+  `cache/shaders/shareable/4D5309C9.fbo.aot.xpso` (about 5,200 pipelines).
+  It is rewritten when the catalog or the installed DLC change. ShiftGlue
+  (`vulkan_aot_pipelines`) builds the list behind the title with the stored
+  pipelines; the preparation route builds it too, so the driver cache has
+  it before the first real start.
+- **Texture signs.** On the Mac and Android the pipelines a draw uses are
+  specialized for the signs of the bound textures, which a list made ahead
+  of play cannot know. ShiftGlue now draws with the unspecialized pipeline,
+  whose shaders read the same signs from the system constants, while the
+  variant builds (`vulkan_signs_generic_fallback`, on). So the list holds
+  unspecialized pipelines only.
 
 ## Measured structure (AOT-0)
 
@@ -34,10 +54,12 @@ Joined the stored pipelines to their microcode (`.xsh`) and the disc corpus
 | Mac play copy after 6 min of free roam (signs) | 462 | 329 shader+modification combos | 91 | 41 texture-sign vectors, 169 state+signs |
 
 - Pixel shaders are disc programs: 264 of the 266 the Mac drew.
-- 89 of the 224 vertex shaders are not on the disc as stored: each differs
-  from a disc program of the same size in 1-36 dwords, the vertex fetches
-  patched for a vertex layout that is not among the 34 the corpus reads
-  from shader files.
+- 89 of the 224 vertex shaders are not on the disc as stored. Most are a
+  same-size disc program with exports turned into no-ops or moved to
+  another output register, as a link step fitting a vertex shader's outputs
+  to its pixel shader's inputs would; some also have fetches reformatted
+  for a vertex layout the corpus does not read from shader files, a few
+  have inserted instructions (AOT-2).
 - Every pair whose two shaders are on the disc (138) comes from one source
   file (an `.fxobj` or `default.xex`).
 - Of the 148 pipelines first seen in free roam after the benchmark route,
@@ -60,12 +82,46 @@ Joined the stored pipelines to their microcode (`.xsh`) and the disc corpus
 
 | Item | What | Gate / measure | Status |
 | --- | --- | --- | --- |
-| AOT-0 | Structure census above; cold Metal throughput for a background build (pipelines a second on the M4 Pro) | decides whether over-generating is affordable | census done, throughput open |
-| AOT-1 | Read the `.fxobj` technique table: which vertex and pixel programs a technique pairs, and any render state it carries | pairs found for the 138 observed same-file pairs | open |
-| AOT-2 | Vertex layouts from model files, fed to the corpus's existing fetch patcher | reproduces the 89 runtime vertex shaders | open |
-| AOT-3 | State per pair: map techniques and engine passes to the observed state blocks and render pass keys; texture signs from material texture formats, or build AOT pipelines without sign specialization | predicts the 462 Mac pipelines' keys exactly | open |
-| AOT-4 | Generator at setup: writes a pipeline description list from the player's disc (nothing distributed, docs/LEGAL.md), built behind the title by the existing background prewarm | no change to frame time once built | open |
-| AOT-5 | Fresh free-roam drive on the Mac with the generated list | first-time compiles fall by at least 80 % against 57 in 100 s / 91 in 250 s today | open |
+| AOT-0 | Structure census above; cold Metal throughput for a background build | decides whether over-generating is affordable | done: 4,937 pipelines behind the title in 66 s on 9 threads with an empty Metal cache, 2.0-2.3 s for 5,393 once Metal has them |
+| AOT-1 | Read the `.fxobj` technique table: which vertex and pixel programs a technique pairs | pairs found for the 138 observed same-file pairs | dropped: pairs come from play instead (the catalog); the table is not needed for the gate |
+| AOT-2 | Where the runtime-only vertex shaders come from | reproduces them from the disc | done: of 1,594 stored shaders, 925 are disc programs and 636 edits of a same-size one (exports turned into no-ops or moved to another output register, fetches reformatted); 33 are neither and their pipelines are left out |
+| AOT-3 | State per pair | predicts the Mac pipelines' keys | done without prediction rules beyond play: states come from the catalog, each pair also gets the states of pairs sharing a shader (from the Windows save and the route alone, 115 of the 148 Mac free-roam pipelines instead of 95); texture signs replaced by the unspecialized fallback |
+| AOT-4 | Generator at setup, nothing distributed | no change to frame time once built | done: `tools/fh1_aot_pipelines.py`, `pinyon.py prepare-shaders` |
+| AOT-5 | Fresh free-roam drive on the Mac with the generated list | first-time compiles fall by at least 80 % | met: 91-100 % fewer blocking compiles (above) |
 
-The fallback, if AOT-1 to AOT-3 fail their gates: extend the preparation
-route with a free-roam drive.
+Method for AOT-5: the M4 Pro, hidden runs of
+`config/render-tests/fh1-aot-drive.fh1test`, which opens the map,
+fast-travels to a far road (`cheat_fast_travel_anywhere`) and drives 100 s
+with alternating steering (the west drive moves the map cursor the other
+way, `-16000 -12000`), on the `appdata-2026-09-27-macwarm` seed (the
+benchmark route's 314 pipelines stored), with and without the list in the
+seed's storage. ShiftGlue logs `First draw with pipeline` for each pipeline
+a draw needs that is not stored, and whether it drew with a built
+unspecialized pipeline meanwhile. Frame times cannot show the gain on this
+Mac: its Metal cache already held every pipeline from earlier play and runs, so no
+run had a frame over 50 ms; the count of draws that had to wait is the
+measure.
+
+| Run | Drive | List | First needed | Waited (nothing built) | Drew unspecialized |
+| --- | --- | --- | ---: | ---: | ---: |
+| aot-a1 | east | none | 51 | 51 | 0 |
+| aot-b1 | east | Windows only, Metal cache cold | 43 | 27 | 16 |
+| aot-b2 | east | Windows only | 46 | 16 | 30 |
+| aot-c1 | east | shipped | 48 | 0 | 48 |
+| aot-c2 | east | shipped | 53 | 3 | 50 |
+| aot-wa | west | none | 46 | 46 | 0 |
+| aot-wb | west | Windows only | 61 | 21 | 40 |
+| aot-wc | west | shipped | 55 | 4 | 51 |
+
+In aot-b1 every wait came before the 66 s background build had finished; 16
+of them were in the list. The preparation route now builds the list, so a
+new player's first start finds Metal's cache filled.
+
+To rebuild the catalog after more play (any platform's
+`cache/shaders/shareable`), extract a corpus with the DLC
+(`extract-fh1-shader-corpus.py --content-root` for each package) and run
+`tools/fh1_aot_pipelines.py catalog --corpus <corpus dir> --storage <dir>
+... --output config/fh1-aot-pipelines.json`.
+
+The fallback, if AOT-1 to AOT-3 failed their gates, was to extend the
+preparation route with a free-roam drive; not needed.

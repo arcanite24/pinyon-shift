@@ -321,6 +321,14 @@ title in 58 ms, because macOS's own Metal cache (shared by every app, in
 A new player still meets them on every road and effect seen for the first
 time.
 
+Since AOT-4 (docs/AOT_PIPELINE_BACKLOG.md) setup writes a list of about
+5,200 pipelines from earlier play, rebuilt from the player's disc, and the
+game builds them behind the title (66 s on 9 threads the first time, about
+2 s once Metal's cache holds them; the preparation route does that first
+build). A texture-sign variant not built yet draws with its unspecialized
+pipeline. In two far-road drives, draws that waited for a compile fell
+from 51 to 0-3 and from 46 to 4.
+
 Rejected:
 
 - `MVK_CONFIG_SHOULD_MAXIMIZE_CONCURRENT_COMPILATION=1`: Metal reports a

@@ -279,6 +279,18 @@ it was most of the time (TP-1 to TP-7 in
   copy in only after it is checked, and treat a leftover staging folder
   as an unfinished game, or a failed run leaves an executables-only
   folder that passes an executables-only check.
+- **Ship pipelines as hashes and recipes, not shaders.** The pipelines a
+  drive needs are known from earlier play, but their shaders are game
+  data. Most shaders a title draws with that are not on its disc are a
+  disc program of the same size with a few exports turned off or moved, as
+  linking a vertex shader to its pixel shader does. A catalog of pipeline
+  states by shader hash, with each shader's disc program (by SHA-256) and
+  those edits, rebuilt 98 % of 1,594 stored shaders from the player's disc
+  at setup. Where the renderer specializes pipelines for state a list cannot
+  know ahead (texture signs here), draw with the unspecialized pipeline
+  until the variant is built, so the list needs only that one (AOT-1 to
+  AOT-5 in
+  [AOT_PIPELINE_BACKLOG.md](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/AOT_PIPELINE_BACKLOG.md)).
 
 ## What didn't pay off here
 
@@ -292,7 +304,7 @@ Negative results, so they aren't retried without a new reason:
 | Asynchronous guest fence completion on the Mac (2026-11-01) | M4 Pro, 2x/2x MSAA full screen uncapped, two interleaved runs each: `gpu_async_fence_completion` 64.1/69.0 fps against 68.1/67.9. Asynchronous submission and presenting on the submission worker are already on. Within noise; default unchanged |
 | Less spinning to cut the Mac's 250 % CPU at 1x (2026-11-01) | M4 Pro full screen, two runs each: `wait_reg_mem_yield_us=0` halved CPU to 125 % but fell to 52 fps (the GPU thread's sleeps overshoot); `gpu_idle_spin_count=0` changed nothing (254/253 % against 261/246 %, 120 fps). The CPU is work, not spinning, and not the limit at 120 Hz |
 | MoltenVK switches on the M4 Pro (2026-11-01) | 2x, MSAA off, full screen, two runs each: asynchronous queue submits (`MVK_CONFIG_SYNCHRONOUS_QUEUE_SUBMITS=0`) 83.0/84.1 fps against 83.8/82.9; Metal heaps (`MVK_CONFIG_USE_MTLHEAP=1`) 82.0/82.4; fast math always on 78.8/83.0 against 81.6/82.3. Within noise; defaults unchanged |
-| Hiding first-time pipeline compiles on the Mac (2026-11-01) | free roam on the M4 Pro: each pipeline seen for the first time takes 100-190 ms to compile in Metal and the frame waits for it. Skipping the draw instead (`vulkan_async_pipeline_wait_ms=0`, frames still shown) removed the spikes and filled the screen with glitches; letting Metal compile more at once (`MVK_CONFIG_SHOULD_MAXIMIZE_CONCURRENT_COMPILATION`) changes nothing, as it already uses all 12 cores. Seen pipelines are stored, and Metal's own cache makes them cheap at the next start (371 in 58 ms). Defaults unchanged |
+| Hiding first-time pipeline compiles on the Mac (2026-11-01) | free roam on the M4 Pro: each pipeline seen for the first time takes 100-190 ms to compile in Metal and the frame waits for it. Skipping the draw instead (`vulkan_async_pipeline_wait_ms=0`, frames still shown) removed the spikes and filled the screen with glitches; letting Metal compile more at once (`MVK_CONFIG_SHOULD_MAXIMIZE_CONCURRENT_COMPILATION`) changes nothing, as it already uses all 12 cores. Seen pipelines are stored, and Metal's own cache makes them cheap at the next start (371 in 58 ms). Defaults unchanged; building the pipelines ahead of time from a catalog did it instead (Renderer, "Pipelines ahead of time") |
 | Unconditional sharing of the 1x/4x depth alias | RTX 4080, 1x/3x race and free-roam trials: a full-4x variant removed all five alias copies and gave off/on MAE 1.17–9.82, but its color draw reads interpolator 0; low final-image MAE did not establish equivalent shader inputs at a different pixel rate. Reduced host sample counts also collapse depth/stencil values during the existing copies. Keep the guarded full-sample helper path, which removes three copies and saves 1.092 ms at 3x over 12 in-run blocks. A broader path needs proof of interpolation and sample-collapse equivalence. [Evidence](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/DEPTH_ALIAS_RESEARCH.md) |
 | Render below 1x (R02 study, then the RS-0 probe, 2026-10-31) | A debug probe (`fh1_debug_raster_percent`) shrank only the viewport and scissor of draws into the 1280-wide surfaces, without the real path's resolve reconstruction; in-run A/B on `fh1-race-sync`. At 50 % the GPU frame fell 29.5 % on an Intel UHD 620 (Low-spec 60), 14.5 % on a Steam Deck LCD, 8.5 % on an Odin 2 Portal (GPU-bound) and 0 % on an RTX 4080; at 75 % 18, 10, 5 and 0 %. Shrinking the shadow maps saved nothing. Only one device cleared the 25 % gate, so the full path (3-4 weeks) is shelved; the game also ignores the reported video mode, so it cannot be told to render smaller. Reopen if a low-end Android or integrated GPU saves 25 % with the probe while GPU-bound. [Measurements and design](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/RENDER_SCALE_BACKLOG.md) |
 | Skip alpha-tested shadow casters (R03) | RTX 4080 at 3x, shadows on and MSAA off, pinned race and free-roam drive, both toggle orders and ten disjoint A/B comparisons per route: the effective-alpha filter saved median 0.12/0.08 ms GPU (ranges -0.20 to 0.31 / -0.32 to 0.37 ms), below the 0.5 ms gate. Raw alpha flags also removed the player car's self-shadowing. Odin was unreachable over ADB, so its gate remains unverified; no option is shipped. [Census and selector](game-rendering.md#alpha-tested-shadow-casters). |
