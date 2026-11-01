@@ -310,6 +310,27 @@ class CrashReportTests(unittest.TestCase):
         self.assertEqual((False, ""), pinyon_crash.disc_read_error([
             "[warning] [krnl] [NtCreateFile] FAILED: path='game:\\a.zip' -> 0xc000000f"]))
 
+    def test_a_close_that_finished_its_saves_is_recognized(self):
+        # #946: Windows ended the hung window after process.shutdown.
+        started = datetime(2026, 10, 30, 17, 58, 1, tzinfo=timezone.utc)
+
+        def events(*names):
+            return "".join(json.dumps({"utc": "2026-10-30T17:58:02Z", "session": "s",
+                                       "event": name, "pid": "33164"}) + "\n"
+                           for name in names)
+
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory)
+            (state / "logs").mkdir()
+            log = state / "logs" / "s.jsonl"
+            log.write_text(events("process.start", "logging.ready", "process.shutdown.stalled"),
+                           encoding="utf-8")
+            self.assertFalse(pinyon_crash.closed_cleanly(state, 33164, started))
+            log.write_text(events("process.start", "logging.ready", "process.shutdown"),
+                           encoding="utf-8")
+            self.assertTrue(pinyon_crash.closed_cleanly(state, 33164, started))
+            self.assertFalse(pinyon_crash.closed_cleanly(state, 4242, started))
+
     def test_no_pending_report(self):
         with tempfile.TemporaryDirectory() as directory:
             code, result = run_json(["crash-report", "pending", "--state-root", directory,

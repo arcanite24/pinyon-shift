@@ -9,6 +9,7 @@
 #include "guest_native/retire_code.h"
 #include "dlc/rally_pace_notes.h"
 
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
@@ -1648,5 +1649,31 @@ void PinyonShiftApp::QuitFromMenu() {
 void PinyonShiftApp::RecordShutdownOnce() {
   if (!shutdown_recorded_.exchange(true, std::memory_order_acq_rel)) {
     pinyon_shift::diagnostics::RecordEvent("process.shutdown");
+#if !defined(__ANDROID__)
+    // Players' data is safe from here. If the SDK's close then stalls (#946:
+    // some 0.7.1 closes never reached TerminateTitle), the window stops
+    // answering, Windows ends the process as hung (0xCFFFFFFF) and the
+    // launcher reports a crash. End it cleanly before Windows gives up on
+    // the window (5 s). TerminateProcess, not ExitProcess: DLL detach could
+    // block on whatever the stalled thread holds.
+    static constexpr auto exit_now = [] {
+#if REX_PLATFORM_WIN32
+      TerminateProcess(GetCurrentProcess(), 0);
+#endif
+      std::_Exit(0);
+    };
+    std::thread([] {
+      std::this_thread::sleep_for(std::chrono::seconds(4));
+      // The log may be what stalled; exit even if writing to it blocks.
+      std::thread([] {
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        exit_now();
+      }).detach();
+      pinyon_shift::diagnostics::RecordEvent("process.shutdown.stalled");
+      REXLOG_WARN("Shutdown stalled after the close; exiting.");
+      rex::FlushLogging();
+      exit_now();
+    }).detach();
+#endif
   }
 }

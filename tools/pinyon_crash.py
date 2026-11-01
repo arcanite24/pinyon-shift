@@ -308,7 +308,8 @@ def issue_detail_lines(details: dict, selected: dict | None, release: dict, sett
 
 def session_log(logs: Path, process_id: int, started: datetime) -> tuple[Path | None, list[dict]]:
     """The event log the crashed process wrote, not whichever was modified
-    last, and its logging.ready and graphics.device.selected events."""
+    last, and its logging.ready, graphics.device.selected and process.shutdown
+    events."""
     if not logs.is_dir():
         return None, []
     candidates = sorted((path for path in logs.glob("*.jsonl") if path.is_file()),
@@ -321,7 +322,8 @@ def session_log(logs: Path, process_id: int, started: datetime) -> tuple[Path | 
                     or parse_utc(str(first.get("utc"))) < started - timedelta(seconds=2)):
                 continue
             events = []
-            wanted = re.compile(r'"event"\s*:\s*"(?:logging.ready|graphics.device.selected)"')
+            wanted = re.compile(r'"event"\s*:\s*"(?:logging.ready|graphics.device.selected'
+                                r'|process.shutdown)"')
             for line in read_text(candidate).splitlines():
                 if not wanted.search(line):
                     continue
@@ -448,6 +450,13 @@ def system_facts() -> dict:
 
 
 # --- Bundle ------------------------------------------------------------------------
+
+def closed_cleanly(state: Path, process_id: int, started: datetime) -> bool:
+    """Whether the process recorded process.shutdown, which it does once the
+    player's close has finished its saves (#946)."""
+    _, events = session_log(state / "logs", process_id, started)
+    return any(event.get("event") == "process.shutdown" for event in events)
+
 
 def create(state: Path, executable: Path, started: datetime, process_id: int, exit_code: int,
            repository: str = common.REPOSITORY_URL) -> dict:
