@@ -140,7 +140,7 @@ retained traffic eats the prize.
 | --- | --- | --- | --- | --- |
 | RS-0.1 | **Guest-side spike**: start the title with `video_mode_width/_height` at 640x360 and at the SD 640x480 mode and see whether FH1 sizes its surfaces from the video mode; then look for where the main view's 1280x720 comes from (the Hor+ hook reads it at `sub_823E22C8`; the leftover split-screen code in `site/findings/systems.toml` suggests the engine can draw a scene into a smaller view). If the game can render natively small, there is no reconstruction at all and this backlog may shrink to a presenter change. Record the answer either way in `site/findings` | Rules out (or in) a near-free path | S (hours to 2 days) | **Video mode done, negative** (see Progress); the main-view and split-screen dig is open |
 | RS-0.2 | **Current-pin GPU profiles at 1x** with `fh1_native_gpu_profile` on Blindvac (UHD 620), the Deck, the Odin and the RTX 4080: race and free roam, the device's own preset, plus 2x where the device can run it. The 1x-to-2x growth bounds the area-proportional work from above (`T(2) - T(1) <= 3 x pixel work at 1x`, an overestimate because resolves also grow) | A per-device ceiling for the prize | S-M | Open; on Blindvac the RS-0.3 probe measured the slope directly, so only the phase breakdown is left there |
-| RS-0.3 | **Raster-only probe**: first, `fh1_coarse_shading=2x2` on the scene renderings where the device has the extension (no code; fragment work only). Then a debug cvar that multiplies `draw_coordinate_scale()` by `f` for scene-surface draws and nothing else. The image is wrong (a corner of the frame, stretched later), but the GPU does exactly the raster work the real path would. In-run A/B of `f = 1, 0.75, 0.5` on the same devices. This measures the prize directly, before the 3-4 weeks of real work | The gate number | S-M | **Probe built** (`fh1_debug_raster_percent`, `fh1_debug_raster_pitches`); **UHD 620 and RTX 4080 done** (see Progress); Deck and Odin open |
+| RS-0.3 | **Raster-only probe**: first, `fh1_coarse_shading=2x2` on the scene renderings where the device has the extension (no code; fragment work only). Then a debug cvar that multiplies `draw_coordinate_scale()` by `f` for scene-surface draws and nothing else. The image is wrong (a corner of the frame, stretched later), but the GPU does exactly the raster work the real path would. In-run A/B of `f = 1, 0.75, 0.5` on the same devices. This measures the prize directly, before the 3-4 weeks of real work | The gate number | S-M | **Probe built** (`fh1_debug_raster_percent`, `fh1_debug_raster_pitches`); **UHD 620, Steam Deck and RTX 4080 done** (see Progress); Odin open |
 | RS-0.4 | **Decision**: keep going, cut to 50 % only, or record the rejection in `lessons.md` with the numbers | Go / no-go | S | Open |
 
 ### RS-1 Surface policy
@@ -286,5 +286,28 @@ route wait timeout before the race, both before the probe was active). The
 probe also shrank the front buffer and HUD, which RS-3.2 keeps full size,
 and it has none of the real path's resolve reconstruction, so the real
 saving will be smaller; RS-0.2's phase breakdown should size the resolves.
-Next: the same probe on the Deck and the Odin (the gate needs two
-devices), then RS-0.4.
+
+**2026-10-31, RS-0.3 on the Steam Deck LCD** (dev `146e65bd`, ShiftGlue
+`9b8e8473`, Linux v3 build, now also the play build). Same route with
+480-frame blocks, pitches 16 and 32, started from a temporary Steam
+shortcut so the GPU ran at game clocks (sampled 995-1284 MHz, `auto`),
+120 limit and vsync off so the GPU never waits; two runs, eight pairs per
+fraction:
+
+| Run | 50 %: GPU ratio | 75 %: GPU ratio | 100 % GPU ms |
+| --- | --- | --- | --- |
+| a | 0.821-0.864 (median 0.854) | 0.872-0.995 (0.904) | 14.6-16.8 |
+| b | 0.828-0.865 (median 0.861) | 0.881-1.080 (0.904) | 14.6-17.5 |
+
+The Deck saves **14.5 %** at 50 % and 10 % at 75 %: about 20 % of its
+frame scales with the 1280-wide surfaces, half the UHD 620's share. It
+fails the 25 % gate. Its GPU is near its 1x frame budget already (about
+15 ms), so the saving moves it from about 65 to 77 fps of GPU headroom;
+the 75 % outliers are each run's first 75 % block, right after the first
+switch. The `auto` clock may drop on the lighter blocks, which would hide
+part of the saving, but that is how players run it.
+
+So far: UHD 620 passes (29.5 %), the Deck fails (14.5 %), the RTX 4080 has
+nothing to gain. The gate needs two devices; the Odin decides it (its
+Adreno bins the frame into tiles, so a smaller viewport may cut whole bin
+passes). Next: the probe on the Odin, then RS-0.4.
