@@ -273,7 +273,10 @@ large drawable's cost on the same GPU. The game's frame alternated between
 `window_max_pixel_density` (ShiftGlue `ff5965ab`) now defaults to an
 automatic cap of 3840x2160 drawable pixels on macOS; built-in MacBook panels
 stay below it. The `fh1-macos-fullscreen` route passed with it: 3840x2160
-full screen, 2560x1440 windowed.
+full screen, 2560x1440 windowed. With `present_capture_readable=true` the
+presented full-screen drawable (3840x2160) held the whole frame, pause menu
+and HUD; the OS-side scaling to the 6016x3384 backing still needs a look on
+the screen itself.
 
 At 2x the game is GPU-bound and the cap changes nothing: 2x/MSAA off 82–84
 fps (12.0 ms GPU), 2x/2x MSAA 66 fps (15.0 ms), 2x/4x MSAA 51 fps (19.5 ms)
