@@ -302,8 +302,8 @@ function Get-PinyonVisualStudioRoot {
 # STL) and the Windows SDK headers and import libraries, fetched by xwin from
 # Microsoft's own Visual Studio packages after the player accepts Microsoft's
 # license. A build from the prebuilt ShiftGlue kit needs nothing else from the
-# Build Tools: clang reads INCLUDE, lld-link reads LIB, and llvm-rc and llvm-mt
-# replace rc.exe and mt.exe. Opt-in (PINYON_SHIFT_MSVC_SYSROOT=1) until the
+# Build Tools: clang reads INCLUDE, lld-link reads LIB, llvm-rc replaces rc.exe
+# and the link step embeds manifests in place of mt.exe. Opt-in (PINYON_SHIFT_MSVC_SYSROOT=1) until the
 # license review is done; the Build Tools stay the default.
 function Get-PinyonMsvcSysroot {
     $config = Get-PinyonReleaseToolchain
@@ -317,6 +317,15 @@ function Get-PinyonMsvcSysroot {
         Include = @($data.include | ForEach-Object { [IO.Path]::Combine($root, $_) })
         Lib = @($data.lib | ForEach-Object { [IO.Path]::Combine($root, $_) })
     }
+}
+
+# The pinned CLI uses narrow argv and file APIs. A UTF-8 process code page
+# keeps Unicode installation paths intact on Windows 10 1903 and newer. The
+# manifest goes in at link time: mt.exe comes only with the Build Tools, and
+# llvm-mt ignores -inputresource and -outputresource.
+function Get-PinyonCodegenManifestLinkFlag {
+    $manifest = (Join-Path (Get-PinyonRepoRoot) 'config/rexglue/codegen-windows.manifest') -replace '\\', '/'
+    "-Xlinker `"/MANIFESTINPUT:$manifest`""
 }
 
 function Install-PinyonMsvcSysroot {
@@ -346,18 +355,31 @@ function Install-PinyonMsvcSysroot {
         Remove-PinyonTree -Path $staging
     }
     $root = Resolve-PinyonLocalPath -RelativePath $sysroot.install_path
-    $cache = Resolve-PinyonLocalPath -RelativePath '.local/downloads/xwin-cache'
+    # xwin renames unpacked files into the output, which fails across drives
+    # (os error 17), so the cache sits beside the sysroot, not in downloads.
+    $cache = "$root.xwin-cache"
     Remove-PinyonTree -Path $root
+    # xwin's default layout links `sdk/include/<version>` to `.` even with
+    # --disable-symlinks, and Windows refuses that without Developer Mode
+    # (os error 1314). The winsysroot layout has real version folders.
+    # CMake's compiler check links Debug (msvcrtd.lib) in every configure.
     & $xwin --accept-license --cache-dir $cache --http-retry 3 --arch x86_64 --variant desktop `
-        --sdk-version $sysroot.sdk_version splat --disable-symlinks --output $root
+        --sdk-version $sysroot.sdk_version splat --disable-symlinks --use-winsysroot-style --include-debug-libs `
+        --preserve-ms-arch-notation --output $root
     if ($LASTEXITCODE -ne 0) { throw "xwin could not fetch the Microsoft C++ libraries (exit $LASTEXITCODE)." }
     Remove-PinyonTree -Path $cache
+    $msvc = @(Get-ChildItem -LiteralPath (Join-Path $root 'VC/Tools/MSVC') -Directory)
+    $sdk = @(Get-ChildItem -LiteralPath (Join-Path $root 'Windows Kits/10/Include') -Directory)
+    if ($msvc.Count -ne 1 -or $sdk.Count -ne 1) { throw "xwin wrote an unexpected layout under $root." }
+    $crt = "VC/Tools/MSVC/$($msvc[0].Name)"
+    $kit = "Windows Kits/10"
+    $kitVersion = $sdk[0].Name
     $record = [ordered]@{
-        schema_version = 1
+        schema_version = 2
         xwin = $sysroot.xwin.version
         sdk_version = $sysroot.sdk_version
-        include = @('crt/include', 'sdk/include/ucrt', 'sdk/include/um', 'sdk/include/shared', 'sdk/include/winrt')
-        lib = @('crt/lib/x86_64', 'sdk/lib/ucrt/x86_64', 'sdk/lib/um/x86_64')
+        include = @("$crt/include") + @('ucrt', 'um', 'shared', 'winrt' | ForEach-Object { "$kit/Include/$kitVersion/$_" })
+        lib = @("$crt/lib/x64") + @('ucrt', 'um' | ForEach-Object { "$kit/Lib/$kitVersion/$_/x64" })
     }
     [IO.File]::WriteAllText((Join-Path $root 'pinyon-sysroot.json'),
         ($record | ConvertTo-Json) + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))

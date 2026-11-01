@@ -74,19 +74,14 @@ Write-PinyonEvent build 62 'Building the local code generator.' -JsonEvents:$Jso
 Push-Location $sdkRoot
 try {
     Invoke-PinyonBuildCommand $environment.CMake @('--preset', 'win-amd64',
-        '-DREXGLUE_ENABLE_TRACY=OFF', '-DSDL_HIDAPI_LIBUSB=OFF') `
+        '-DREXGLUE_ENABLE_TRACY=OFF', '-DSDL_HIDAPI_LIBUSB=OFF',
+        "-DCMAKE_EXE_LINKER_FLAGS=$(Get-PinyonCodegenManifestLinkFlag)") `
         (Join-Path $logs 'rexglue-configure.log') 'ReXGlue configuration failed.' -Step 'Configure the ReXGlue code generator'
     Invoke-PinyonBuildCommand $environment.CMake @('--build', '--preset', 'win-amd64-release',
         '--target', 'rexglue', '--parallel', "$Parallel") `
         (Join-Path $logs 'rexglue-build.log') 'ReXGlue code-generator build failed.' -Step 'Build the ReXGlue code generator'
 }
 finally { Pop-Location }
-# The pinned CLI uses narrow argv and file APIs. UTF-8 process code pages keep
-# Unicode installation paths intact on Windows 10 1903 and newer.
-Invoke-PinyonBuildCommand 'mt.exe' @('-nologo', "-inputresource:$rexglueExe;#1",
-    '-manifest', (Join-Path $root 'config/rexglue/codegen-windows.manifest'),
-    "-outputresource:$rexglueExe;#1") (Join-Path $logs 'rexglue-manifest.log') `
-    'Could not enable Unicode paths for the code generator.' -Step 'Configure code generator Unicode paths'
 }
 if (-not (Test-Path -LiteralPath $rexglueExe -PathType Leaf)) {
     throw "The ReXGlue code generator was not produced: $rexglueExe"

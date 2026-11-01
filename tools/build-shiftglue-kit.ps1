@@ -24,6 +24,11 @@ if (Test-Path variable:PSNativeCommandUseErrorActionPreference) {
 $root = Get-PinyonRepoRoot
 $config = Get-PinyonReleaseToolchain
 $environment = Enter-PinyonBuildEnvironment
+# The kit stages the Build Tools' redistributable C++ runtime; the TP-4
+# sysroot has headers and import libraries only.
+if (-not $environment.VisualStudioRoot) {
+    throw 'Building the ShiftGlue kit needs the Microsoft C++ Build Tools (for the redistributable runtime); move the MSVC sysroot aside first.'
+}
 $sdkRoot = Resolve-PinyonRexGlueRoot
 if ($Parallel -eq 0) { $Parallel = Get-PinyonBuildJobCount }
 $env:SOURCE_DATE_EPOCH = '1784764800'
@@ -50,17 +55,12 @@ Invoke-PinyonBuildCommand $environment.CMake @('-S', $sdkRoot, '-B', $buildTree,
     "-DCMAKE_C_FLAGS=$flags", "-DCMAKE_CXX_FLAGS=$flags",
     '-DREXGLUE_USE_VULKAN=ON', '-DREXGLUE_ENABLE_TRACY=OFF', '-DSDL_HIDAPI_LIBUSB=OFF',
     '-DREXGLUE_INSTALL_REGISTER_PACKAGE=OFF', "-DPYTHON_EXECUTABLE=$(Get-PinyonPython)",
-    "-DCMAKE_INSTALL_PREFIX=$prefix", '-DCMAKE_LINKER_TYPE=LLD', '-DCMAKE_EXE_LINKER_FLAGS=-Xlinker /Brepro',
+    "-DCMAKE_INSTALL_PREFIX=$prefix", '-DCMAKE_LINKER_TYPE=LLD',
+    "-DCMAKE_EXE_LINKER_FLAGS=-Xlinker /Brepro $(Get-PinyonCodegenManifestLinkFlag)",
     '-DCMAKE_SHARED_LINKER_FLAGS=-Xlinker /Brepro') `
     (Join-Path $logs 'configure.log') 'ShiftGlue kit configuration failed.' -Step 'Configure the ShiftGlue kit'
 Invoke-PinyonBuildCommand $environment.CMake @('--build', $buildTree, '--target', 'install',
     '--parallel', "$Parallel") (Join-Path $logs 'build.log') 'ShiftGlue kit build failed.' -Step 'Build the ShiftGlue kit'
-
-$rexglueExe = Join-Path $prefix 'bin/rexglue.exe'
-Invoke-PinyonBuildCommand 'mt.exe' @('-nologo', "-inputresource:$rexglueExe;#1",
-    '-manifest', (Join-Path $root 'config/rexglue/codegen-windows.manifest'),
-    "-outputresource:$rexglueExe;#1") (Join-Path $logs 'manifest.log') `
-    'Could not enable Unicode paths for the code generator.' -Step 'Configure code generator Unicode paths'
 
 # SDK files the host compiles or includes itself, at their source-tree paths
 # (PINYON_SHIFT_SDK_SOURCE_DIR in cmake/PinyonShiftRexGlue.cmake).

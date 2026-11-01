@@ -17,21 +17,14 @@ CLI = ROOT / 'thirdparty/shiftglue-sdk/out/win-amd64/Release/rexglue.exe'
                      'Windows and a locally built ReXGlue CLI required')
 class CodegenUnicodeTests(unittest.TestCase):
     def test_embedded_utf8_manifest_preserves_unicode_paths_and_diagnostics(self):
-        result = run_powershell("$taskEnv = Enter-PinyonBuildEnvironment\n[Console]::Out.Write((Get-Command mt.exe).Source)")
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        mt = result.stdout.strip()
+        # The link step embeds the manifest (Get-PinyonCodegenManifestLinkFlag).
+        self.assertIn(b'>UTF-8</activeCodePage>', CLI.read_bytes())
         with tempfile.TemporaryDirectory(prefix='pinyon-codegen-utf8-') as directory:
             root = pathlib.Path(directory)
             exe = root / 'rexglue.exe'
             shutil.copy2(CLI, exe)
             environment = os.environ.copy()
             environment['PATH'] = str(CLI.parent) + os.pathsep + environment['PATH']
-            # A no-op incremental rebuild embeds it again; merging must be repeatable.
-            for _ in range(2):
-                result = subprocess.run([mt, '-nologo', '-inputresource:' + str(exe) + ';#1',
-                    '-manifest', str(ROOT / 'config/rexglue/codegen-windows.manifest'),
-                    '-outputresource:' + str(exe) + ';#1'], capture_output=True, text=True)
-                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             for folder in ('ascii', '\u0418\u043b\u0430\u043d\u0430 \u6f22\u5b57 (space)'):
                 for valid in (False, True):
                     with self.subTest(folder=folder, valid=valid):
