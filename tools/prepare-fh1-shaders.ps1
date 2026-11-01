@@ -96,9 +96,10 @@ try {
         # route so its start builds them too. Rewritten only when the
         # catalog or the installed DLC change; a failure is only logged.
         try {
-            & (Get-PinyonPython) (Join-Path $PSScriptRoot 'pinyon.py') prepare-shaders --pipelines-only `
+            $output = & (Get-PinyonPython) (Join-Path $PSScriptRoot 'pinyon.py') prepare-shaders --pipelines-only `
                 --state-root $StateRoot --game-root $GameRoot --build-directory $BuildDirectory `
-                $(if ($JsonEvents) { '--json' }) | Out-Null
+                $(if ($JsonEvents) { '--json' })
+            if ($LASTEXITCODE -ne 0) { throw "pinyon.py prepare-shaders exited with $LASTEXITCODE ($output)" }
         } catch { Write-PinyonEvent shaders 0 "Ahead-of-time pipelines were skipped: $($_.Exception.Message)" -JsonEvents:$JsonEvents }
         $stored = @(Get-ChildItem -LiteralPath (Join-Path $cache 'shaders/shareable') -Filter '*.vk.xpso' -File -ErrorAction SilentlyContinue)
         # A preparation that failed, or was stopped, for this build is not retried

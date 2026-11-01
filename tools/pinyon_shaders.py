@@ -25,7 +25,8 @@ rewritten when the catalog or the installed DLC change.
                             [--build-directory DIR] [--pipelines-only] [--json]
 
 --pipelines-only writes the ahead-of-time list and nothing else; Windows
-setup (tools/prepare-fh1-shaders.ps1) runs it before its own route.
+setup (tools/prepare-fh1-shaders.ps1) runs it before its own route, holding
+the preparation lock itself.
 """
 
 from __future__ import annotations
@@ -243,9 +244,7 @@ def run(args: argparse.Namespace) -> dict:
         raise common.CommandError(f"the game is not built at {build}")
     state, game = common.state_root(args.state_root), common.game_root(args.game_root)
     if args.pipelines_only:
-        common.require_game_closed("preparing graphics")
-        with preparation_lock(state / "cache"):
-            pipelines = prepare_aot(state, game, build, args.json)
+        pipelines = prepare_aot(state, game, build, args.json)
         event(100, f"Ahead-of-time Vulkan pipelines: {pipelines}.", args.json)
         return {"aot": pipelines}
     return prepare(state, game, build, args.json)
