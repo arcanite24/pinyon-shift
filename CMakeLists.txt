@@ -93,22 +93,38 @@ set(PINYON_SHIFT_HOST_SOURCES
 if(NOT ANDROID)
     list(APPEND PINYON_SHIFT_HOST_SOURCES src/ui/frame_inspector.cpp)
 endif()
+if(WIN32)
+    list(APPEND PINYON_SHIFT_HOST_SOURCES src/crash_reporter_win.cpp src/hitch_sampler_win.cpp)
+else()
+    list(APPEND PINYON_SHIFT_HOST_SOURCES src/crash_reporter_posix.cpp)
+endif()
 
-if(PINYON_SHIFT_HOST_TESTS_ONLY)
+# TP-3 host split (docs/TIME_TO_PLAY_BACKLOG.md): the files that include
+# generated headers or depend on the CPU baseline compile with the game; the
+# rest are pinyon_shift_host, which a release ships prebuilt for each
+# platform and variant (pinyon_shift_add_host_objects).
+set(PINYON_SHIFT_HOST_LOCAL_SOURCES
+    src/main.cpp
+    src/pinyon_shift_app.cpp
+    src/cpu_baseline_guard.cpp
+    src/pinyon_shift_diagnostics.cpp
+    src/guest_native/reference_verify.cpp
+    src/guest_native/region_oracle.cpp
+)
+set(PINYON_SHIFT_HOST_SHARED_SOURCES ${PINYON_SHIFT_HOST_SOURCES})
+list(REMOVE_ITEM PINYON_SHIFT_HOST_SHARED_SOURCES ${PINYON_SHIFT_HOST_LOCAL_SOURCES})
+
+if(PINYON_SHIFT_HOST_OBJECTS_ONLY)
+    # The release's prebuilt host objects only: no game, no generated code.
+    pinyon_shift_add_host_objects("")
+elseif(PINYON_SHIFT_HOST_TESTS_ONLY)
     # No game target; the tests and tools below still build.
 elseif(WIN32)
-    add_executable(pinyon_shift WIN32
-        ${PINYON_SHIFT_HOST_SOURCES}
-        src/crash_reporter_win.cpp
-        src/hitch_sampler_win.cpp
-    )
+    add_executable(pinyon_shift WIN32 ${PINYON_SHIFT_HOST_LOCAL_SOURCES})
 elseif(ANDROID)
     # SDL's activity loads the game as libmain.so and calls its SDL_main; the
     # runtime, the GPU plugin and the facades are libraries beside it.
-    add_library(pinyon_shift SHARED
-        ${PINYON_SHIFT_HOST_SOURCES}
-        src/crash_reporter_posix.cpp
-    )
+    add_library(pinyon_shift SHARED ${PINYON_SHIFT_HOST_LOCAL_SOURCES})
     set_target_properties(pinyon_shift PROPERTIES OUTPUT_NAME main)
     # Every generated function is a default-visibility weak symbol, so in a
     # shared library each call between them went through the PLT (4-6 % of
@@ -154,10 +170,7 @@ elseif(ANDROID)
             "${PINYON_SHIFT_SYMBOL_ORDER_FILE}")
     endif()
 else()
-    add_executable(pinyon_shift
-        ${PINYON_SHIFT_HOST_SOURCES}
-        src/crash_reporter_posix.cpp
-    )
+    add_executable(pinyon_shift ${PINYON_SHIFT_HOST_LOCAL_SOURCES})
 endif()
 
 # The host tests and developer tools compile SDK sources and private headers,
@@ -363,6 +376,7 @@ endif()  # REXSDK_DIR
 
 if(NOT PINYON_SHIFT_HOST_TESTS_ONLY)
 pinyon_shift_attach_rexglue(pinyon_shift)
+pinyon_shift_add_host_objects(pinyon_shift)
 add_dependencies(pinyon_shift pinyon_shift_fh1_archive_extract)
 
 # ReXGlue's SDL backend loads project overrides from the executable directory.

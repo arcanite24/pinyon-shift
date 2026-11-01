@@ -1050,6 +1050,52 @@ function Install-PinyonShiftGlueKit {
     }
     Get-PinyonShiftGlueKitRoot
 }
+# TP-3 host split: the release's prebuilt host objects for a variant (base or
+# v4), pinned like the kit by tools/apply-prebuilt-pins.py.
+function Get-PinyonHostObjectsEntry {
+    param([Parameter(Mandatory)] [ValidateSet('base', 'v4')] [string]$Variant)
+    $config = Get-PinyonReleaseToolchain
+    $all = $config.PSObject.Properties['host_objects']
+    if ($null -eq $all) { return $null }
+    $platform = $all.Value.PSObject.Properties['windows-x64']
+    if ($null -eq $platform) { return $null }
+    $entry = $platform.Value.PSObject.Properties[$Variant]
+    if ($null -eq $entry -or $entry.Value.revision -ne $config.rexglue.revision) { return $null }
+    $entry.Value
+}
+# Downloads and unpacks them for a build from the kit. Returns the folder to
+# pass as PINYON_SHIFT_HOST_OBJECTS, or '' to compile the host code here: the
+# game build also checks their fingerprint and falls back on its own.
+function Install-PinyonHostObjects {
+    param([Parameter(Mandatory)] [ValidateSet('base', 'v4')] [string]$Variant)
+    $entry = Get-PinyonHostObjectsEntry -Variant $Variant
+    if ($null -eq $entry -or $null -eq (Get-PinyonShiftGlueKitRoot)) { return '' }
+    $target = Resolve-PinyonLocalPath -RelativePath ".local/host-objects/$Variant"
+    $stamp = Join-Path $target '.asset-sha256'
+    if ((Test-Path -LiteralPath $stamp -PathType Leaf) -and
+        (Get-Content -LiteralPath $stamp -Raw).Trim() -eq $entry.sha256) {
+        return $target
+    }
+    $staging = "$target-staging"
+    try {
+        $archive = Resolve-PinyonLocalPath -RelativePath ".local/downloads/$(Split-Path ([Uri]$entry.url).AbsolutePath -Leaf)"
+        Invoke-PinyonDownload -Uri $entry.url -Destination $archive -Sha256 $entry.sha256
+        Remove-PinyonTree -Path $staging
+        Expand-PinyonZip -Archive $archive -Destination $staging
+        $children = @(Get-ChildItem -LiteralPath $staging -Directory)
+        if ($children.Count -ne 1) { throw 'The host objects archive layout is not recognized.' }
+        Remove-PinyonTree -Path $target
+        Move-Item -LiteralPath $children[0].FullName -Destination $target
+        Remove-PinyonTree -Path $staging
+        Set-Content -LiteralPath $stamp -Value $entry.sha256 -Encoding ascii
+    }
+    catch {
+        Write-Warning "The prebuilt host objects could not be installed; compiling the host code instead. $($_.Exception.Message)"
+        return ''
+    }
+    $target
+}
+
 # A repacked tool archive (tools/repack-toolchain.py) holds each binary once and
 # lists its other names in pinyon-links.json; make those names hard links (no
 # extra disk), or copies where the volume has none.

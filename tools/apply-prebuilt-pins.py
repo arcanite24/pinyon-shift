@@ -8,8 +8,9 @@ keeps the upstream downloads and no kit, so a developer checkout builds
 from source.
 
 Each asset has the sidecar <asset>.json that tools/repack-toolchain.py
-writes beside it: {"kind": "llvm" | "sysroot" | "kit" | "apk-shell",
-"platform": ..., "version": ... (tools) or "revision": ... (kits)}.
+writes beside it: {"kind": "llvm" | "sysroot" | "kit" | "apk-shell" |
+"host-objects", "platform": ..., "version": ... (tools) or "revision": ...
+(kits; host objects also name their "variant", base or v4)}.
 
     python tools/apply-prebuilt-pins.py --config payload/config/release-toolchain.json \
         --assets .artifacts/prebuilt \
@@ -70,6 +71,15 @@ def apply(config: dict, assets: Path, base_url: str) -> list[str]:
             section = "shiftglue_kit" if kind == "kit" else "android_shell"
             config.setdefault(section, {})[platform] = {
                 "revision": revision, "url": url, "sha256": digest}
+        elif kind == "host-objects":
+            # TP-3 host split, one per platform and variant (tools/build-host-objects.py).
+            if meta.get("revision") != revision:
+                raise SystemExit(f"{asset.name} was built against ShiftGlue {meta.get('revision')}, "
+                                 f"but the config pins {revision}")
+            if meta.get("variant") not in ("base", "v4"):
+                raise SystemExit(f"{sidecar.name}: unknown variant {meta.get('variant')}")
+            config.setdefault("host_objects", {}).setdefault(platform, {})[meta["variant"]] = {
+                "revision": revision, "version": meta.get("version"), "url": url, "sha256": digest}
         else:
             raise SystemExit(f"{sidecar.name}: unknown kind {kind}")
         changes.append(f"{kind} {platform}: {asset.name} {digest}")

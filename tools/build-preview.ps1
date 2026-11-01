@@ -151,8 +151,10 @@ try {
     # through Python: the pinned runtime, since a pyenv shim breaks that.
     # The kit or the source tree; a build folder switches between them on
     # the next configure.
-    $sdkArguments = if ($kitRoot) { @('-DREXSDK_DIR=', "-DPINYON_SHIFT_SHIFTGLUE_KIT=$kitRoot") }
-        else { @("-DREXSDK_DIR=$sdkRoot", '-DPINYON_SHIFT_SHIFTGLUE_KIT=') }
+    # With the kit, the release's prebuilt host objects too (TP-3 host split).
+    $sdkArguments = if ($kitRoot) { @('-DREXSDK_DIR=', "-DPINYON_SHIFT_SHIFTGLUE_KIT=$kitRoot",
+            "-DPINYON_SHIFT_HOST_OBJECTS=$(Install-PinyonHostObjects -Variant base)") }
+        else { @("-DREXSDK_DIR=$sdkRoot", '-DPINYON_SHIFT_SHIFTGLUE_KIT=', '-DPINYON_SHIFT_HOST_OBJECTS=') }
     Invoke-PinyonBuildCommand $environment.CMake (@('--preset', $previewPreset) + $sdkArguments +
         $cpu.CMakeArguments + @("-DPYTHON_EXECUTABLE=$(Get-PinyonPython)")) `
         (Join-Path $logs 'preview-configure.log') 'Preview configuration failed.' -Step 'Configure the game build'

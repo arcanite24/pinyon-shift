@@ -740,12 +740,41 @@ def is_kit(sdk: Path) -> bool:
     return (sdk / "kit.json").is_file()
 
 
-def sdk_arguments(sdk: Path) -> list[str]:
-    """The game configure's SDK: the kit or the source tree. Both are always
-    passed, so a build folder switches cleanly between them."""
+HOST_OBJECTS = LOCAL / "host-objects"
+
+
+def install_host_objects(progress: Progress, name: str, variant: str) -> str:
+    """TP-3 host split: the release's prebuilt host objects for this platform
+    and variant (base or v4), unpacked for PINYON_SHIFT_HOST_OBJECTS, or "" to
+    compile the host code here. The game build also checks their fingerprint
+    and falls back on its own."""
+    config = toolchain_config()
+    entry = config.get("host_objects", {}).get(name, {}).get(variant)
+    if not entry or entry.get("revision") != config["rexglue"]["revision"]:
+        return ""
+    target = HOST_OBJECTS / variant
+    stamp = target / ".asset-sha256"
+    if stamp.is_file() and stamp.read_text(encoding="ascii").strip() == entry["sha256"].upper():
+        return str(target)
+    try:
+        archive = download(entry, progress, "the prebuilt host objects")
+        unpack(archive, target)
+        stamp.write_text(entry["sha256"].upper() + "\n", encoding="ascii")
+    except (SetupError, OSError, tarfile.TarError) as error:
+        progress("build", 28, f"The prebuilt host objects could not be installed ({error}); "
+                 "compiling the host code instead")
+        return ""
+    return str(target)
+
+
+def sdk_arguments(sdk: Path, host_objects: str = "") -> list[str]:
+    """The game configure's SDK: the kit (with the release's host objects) or
+    the source tree. Everything is always passed, so a build folder switches
+    cleanly between them."""
     if is_kit(sdk):
-        return ["-DREXSDK_DIR=", f"-DPINYON_SHIFT_SHIFTGLUE_KIT={sdk}"]
-    return [f"-DREXSDK_DIR={sdk}", "-DPINYON_SHIFT_SHIFTGLUE_KIT="]
+        return ["-DREXSDK_DIR=", f"-DPINYON_SHIFT_SHIFTGLUE_KIT={sdk}",
+                f"-DPINYON_SHIFT_HOST_OBJECTS={host_objects}"]
+    return [f"-DREXSDK_DIR={sdk}", "-DPINYON_SHIFT_SHIFTGLUE_KIT=", "-DPINYON_SHIFT_HOST_OBJECTS="]
 
 
 def generator_path(sdk: Path, presets: dict) -> Path:
@@ -972,7 +1001,8 @@ def build(progress: Progress, tools: dict, sdk: Path, python: Path, name: str,
                  f"-DCMAKE_C_FLAGS={CPU_BASELINE_FLAGS[baseline]}",
                  f"-DCMAKE_CXX_FLAGS={CPU_BASELINE_FLAGS[baseline]}"]
     discard_unfinished_configure(ROOT / "out" / "build" / preset)
-    run_logged([cmake, "--preset", preset, *sdk_arguments(sdk), f"-DPYTHON_EXECUTABLE={python}",
+    host_objects = install_host_objects(progress, name, "base") if is_kit(sdk) else ""
+    run_logged([cmake, "--preset", preset, *sdk_arguments(sdk, host_objects), f"-DPYTHON_EXECUTABLE={python}",
                 "-DREXGLUE_ENABLE_TRACY=OFF", "-DSDL_HIDAPI_LIBUSB=OFF"] + flags,
                LOGS / "preview-configure.log", progress, "build", 28, 30,
                "Configuring the game", environment)
@@ -1226,7 +1256,8 @@ def build_v4(progress: Progress, tools: dict, sdk: Path, python: Path, name: str
     discard_unfinished_configure(directory)
     # A release install keeps the SDK in .local/rexglue, not in the submodule
     # path the preset names (#459).
-    run_logged([cmake, "--preset", preset, *sdk_arguments(sdk), f"-DPYTHON_EXECUTABLE={python}",
+    host_objects = install_host_objects(progress, name, "v4") if is_kit(sdk) else ""
+    run_logged([cmake, "--preset", preset, *sdk_arguments(sdk, host_objects), f"-DPYTHON_EXECUTABLE={python}",
                 "-DREXGLUE_ENABLE_TRACY=OFF", "-DSDL_HIDAPI_LIBUSB=OFF"] + flags,
                LOGS / "v4-configure.log", progress, "build", 10, 12, "Configuring the v4 build",
                environment)

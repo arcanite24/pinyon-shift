@@ -49,6 +49,32 @@ jobs:
           $kit = Join-Path $output "shiftglue-kit-$revision-windows-x64.zip"
           ./tools/build-shiftglue-kit.ps1 -BuildRoot (Join-Path $env:RUNNER_TEMP 'kit') -Output $kit
           if ($env:PUBLISH_KIT -ne 'true') { Remove-Item -LiteralPath $kit, "$kit.json" }
+      # TP-3 host split: the host code built once, from the kit above, against
+      # the same pinned Microsoft libraries a player's setup fetches (TP-4),
+      # so the objects match the player's build.
+      - name: Build the prebuilt host objects
+        shell: powershell
+        env:
+          PINYON_SHIFT_MSVC_SYSROOT: '1'
+          # The maintainer accepts Microsoft's license for the release build,
+          # as a player does in the launcher.
+          PINYON_SHIFT_ACCEPT_MICROSOFT_LICENSE: '1'
+          PUBLISH_KIT: ${{ vars.PINYON_SHIFT_PUBLISH_WINDOWS_KIT }}
+        run: |
+          if ($env:PUBLISH_KIT -ne 'true') { return }
+          . ./tools/release-common.ps1
+          Install-PinyonMsvcSysroot -AcceptMicrosoftLicense
+          $environment = Enter-PinyonBuildEnvironment
+          $env:PATH = "$(Split-Path $environment.Ninja);$env:PATH"
+          $config = Get-PinyonReleaseToolchain
+          $python = Join-Path (Resolve-PinyonLocalPath -RelativePath $config.python.install_path) 'python.exe'
+          $output = Resolve-PinyonLocalPath -RelativePath '.artifacts/prebuilt'
+          foreach ($variant in @(@{ Name = 'base'; Preset = 'win-amd64-release' }, @{ Name = 'v4'; Preset = 'win-amd64-v4' })) {
+            & $python tools/build-host-objects.py --kit (Join-Path $env:RUNNER_TEMP 'kit/kit') `
+              --platform windows-x64 --preset $variant.Preset --variant $variant.Name `
+              --output $output --cmake $environment.CMake
+            if ($LASTEXITCODE -ne 0) { throw "Host objects ($($variant.Name)) failed" }
+          }
       - uses: actions/upload-artifact@v7
         with:
           name: prebuilt-windows
@@ -101,6 +127,8 @@ jobs:
           revision=$(python3 -c "import json; print(json.load(open('config/release-toolchain.json'))['rexglue']['revision'][:12])")
           python3 tools/pinyon.py android shell --jobs 4 \
             --output ".artifacts/prebuilt/android-shell-$revision-android-arm64.tar.xz"
+      - name: Build the prebuilt Android host objects
+        run: python3 tools/pinyon.py android host-objects --jobs 4 --output .artifacts/prebuilt
       - uses: actions/upload-artifact@v7
         with:
           name: prebuilt-android

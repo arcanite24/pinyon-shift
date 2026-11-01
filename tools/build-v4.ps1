@@ -45,6 +45,10 @@ foreach ($module in $modules) {
 }
 
 $environment = Enter-PinyonBuildEnvironment
+# As build-preview.ps1: the prebuilt ShiftGlue kit and host objects when the
+# release pins them (TP-3), else the source tree.
+$kitRoot = Get-PinyonShiftGlueKitRoot
+$sdkRoot = Resolve-PinyonRexGlueRoot
 $logs = Resolve-PinyonLocalPath -RelativePath '.local/logs'
 [void](New-Item -ItemType Directory -Force -Path $logs)
 if ($Parallel -eq 0) { $Parallel = Get-PinyonBuildJobCount }
@@ -62,7 +66,7 @@ foreach ($tree in $generatedTrees) {
     }
 }
 if ($requiresBootstrap) {
-    $rexglueExe = Join-Path (Resolve-PinyonRexGlueRoot) 'out/win-amd64/Release/rexglue.exe'
+    $rexglueExe = if ($kitRoot) { Join-Path $kitRoot 'bin/rexglue.exe' } else { Join-Path $sdkRoot 'out/win-amd64/Release/rexglue.exe' }
     if (-not (Test-Path -LiteralPath $rexglueExe -PathType Leaf)) {
         throw 'The ReXGlue generator is missing. Build the base game first (tools/build-preview.ps1).'
     }
@@ -89,17 +93,23 @@ if ($requiresBootstrap) {
 # path the preset names (#459).
 $cpu = Select-PinyonCpuBaseline -CpuBaseline $CpuBaseline
 Write-Host "CPU baseline: $($cpu.Baseline)."
-Invoke-PinyonBuildCommand $environment.CMake (@('--preset', 'win-amd64-v4',
-    "-DREXSDK_DIR=$(Resolve-PinyonRexGlueRoot)") + $cpu.CMakeArguments +
+$sdkArguments = if ($kitRoot) { @('-DREXSDK_DIR=', "-DPINYON_SHIFT_SHIFTGLUE_KIT=$kitRoot",
+        "-DPINYON_SHIFT_HOST_OBJECTS=$(Install-PinyonHostObjects -Variant v4)") }
+    else { @("-DREXSDK_DIR=$sdkRoot", '-DPINYON_SHIFT_SHIFTGLUE_KIT=', '-DPINYON_SHIFT_HOST_OBJECTS=') }
+Invoke-PinyonBuildCommand $environment.CMake (@('--preset', 'win-amd64-v4') + $sdkArguments + $cpu.CMakeArguments +
     @("-DPYTHON_EXECUTABLE=$(Get-PinyonPython)")) `
     (Join-Path $logs 'v4-configure.log') 'v4 configuration failed.' -Step 'Configure the v4 build'
 Invoke-PinyonBuildCommand $environment.CMake @('--build', 'out/build/win-amd64-v4', '--parallel', "$Parallel",
     '--target', 'pinyon_shift', 'pinyon_shift_fh1_archive_extract') `
     (Join-Path $logs 'v4-build.log') 'v4 build failed.' -Step 'Build the v4 executable'
 $built = Join-Path $root 'out/build/win-amd64-v4'
-foreach ($library in Get-ChildItem -LiteralPath (Join-Path $built 'rexglue-artifacts') -Filter '*.dll') {
-    # The executable loads its runtime from its own folder.
-    Copy-Item -LiteralPath $library.FullName -Destination $built -Force
+# The executable loads its runtime from its own folder; a kit build stages it
+# there itself.
+$artifacts = Join-Path $built 'rexglue-artifacts'
+if (Test-Path -LiteralPath $artifacts) {
+    foreach ($library in Get-ChildItem -LiteralPath $artifacts -Filter '*.dll') {
+        Copy-Item -LiteralPath $library.FullName -Destination $built -Force
+    }
 }
 & (Get-PinyonPython) (Join-Path $root 'tools/verify-codegen-log.py') (Join-Path $logs 'codegen-v4.log') `
     --allowlist (Join-Path $root 'config/rexglue/accepted-codegen-warnings-v4.json')

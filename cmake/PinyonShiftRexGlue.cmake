@@ -24,6 +24,15 @@ option(PINYON_SHIFT_FROZEN_CODEGEN
 # the host-side tests and tools, which need neither.
 option(PINYON_SHIFT_HOST_TESTS_ONLY
     "Configure only host-side tests and tools, without generated game code" OFF)
+# TP-3 host split: the release's prebuilt host objects are built the same way,
+# without the game (tools/build-host-objects.py).
+option(PINYON_SHIFT_HOST_OBJECTS_ONLY
+    "Configure only the prebuilt host objects, without generated game code" OFF)
+if(PINYON_SHIFT_HOST_OBJECTS_ONLY)
+    set(PINYON_SHIFT_HOST_TESTS_ONLY ON)
+endif()
+set(PINYON_SHIFT_HOST_OBJECTS "" CACHE PATH
+    "Unpacked prebuilt host objects from the release (TP-3); empty compiles them here")
 option(PINYON_SHIFT_RECOMP_IPO
     "Enable interprocedural optimization for generated game code and host" OFF)
 set(PINYON_SHIFT_RECOMP_PGO "OFF" CACHE STRING "Recomp PGO mode: OFF, GENERATE, USE")
@@ -552,6 +561,123 @@ function(pinyon_shift_attach_rexglue target_name)
         DEPENDS ${_pinyon_stage_depends}
         COMMENT "Staging the current ReXGlue runtime and graphics backend beside ${target_name}"
         VERBATIM)
+endfunction()
+
+# TP-3 host split (docs/TIME_TO_PLAY_BACKLOG.md). Everything that went into
+# the host's objects: the sources and every header they can include, the
+# build files, the compiler, the ShiftGlue revision and whether it is the kit,
+# the variant and other build options, and on Windows the C++ library
+# version. Prebuilt objects are used only when it matches exactly. The CPU
+# baseline is left out: the shared host code is SSE4.1 on every baseline
+# (the TP-3 measurements found no gain from fma there), and the two files
+# that depend on it compile locally.
+function(pinyon_shift_host_fingerprint out_var)
+    file(READ "${PROJECT_SOURCE_DIR}/config/release-toolchain.json" _toolchain)
+    string(JSON _revision GET "${_toolchain}" rexglue revision)
+    get_directory_property(_definitions DIRECTORY "${PROJECT_SOURCE_DIR}" COMPILE_DEFINITIONS)
+    list(FILTER _definitions EXCLUDE REGEX "^PINYON_SHIFT_CPU_BASELINE")
+    get_directory_property(_options DIRECTORY "${PROJECT_SOURCE_DIR}" COMPILE_OPTIONS)
+    set(_kit "source")
+    if(NOT REXSDK_DIR)
+        set(_kit "kit")
+    endif()
+    string(CONCAT _text
+        "system=${CMAKE_SYSTEM_NAME}/${CMAKE_SYSTEM_PROCESSOR}\n"
+        "compiler=${CMAKE_CXX_COMPILER_ID}/${CMAKE_CXX_COMPILER_VERSION}\n"
+        "msvc=$ENV{VCToolsVersion}\n"
+        "shiftglue=${_revision}/${_kit}\n"
+        "config=${CMAKE_BUILD_TYPE}\n"
+        "definitions=${_definitions}\n"
+        "options=${_options}\n"
+        "pgo=${PINYON_SHIFT_RECOMP_PGO}/ipo=${PINYON_SHIFT_RECOMP_IPO}\n")
+    file(GLOB_RECURSE _files LIST_DIRECTORIES false
+        "${PROJECT_SOURCE_DIR}/src/*" "${PROJECT_SOURCE_DIR}/include/*")
+    list(APPEND _files ${PINYON_SHIFT_HOST_SHARED_SOURCES}
+        "${PROJECT_SOURCE_DIR}/CMakeLists.txt"
+        "${PROJECT_SOURCE_DIR}/CMakePresets.json"
+        "${PROJECT_SOURCE_DIR}/cmake/PinyonShiftRexGlue.cmake"
+        "${PROJECT_SOURCE_DIR}/config/release.json")
+    set(_entries)
+    foreach(_file IN LISTS _files)
+        get_filename_component(_path "${_file}" ABSOLUTE BASE_DIR "${PROJECT_SOURCE_DIR}")
+        file(RELATIVE_PATH _name "${PROJECT_SOURCE_DIR}" "${_path}")
+        # The SDK files the host compiles sit in the kit or the source tree.
+        if(_name MATCHES "^\\.\\.")
+            file(RELATIVE_PATH _name "${PINYON_SHIFT_SDK_SOURCE_DIR}" "${_path}")
+            set(_name "sdk/${_name}")
+        endif()
+        file(SHA256 "${_path}" _hash)
+        list(APPEND _entries "${_name}=${_hash}")
+    endforeach()
+    list(REMOVE_DUPLICATES _entries)
+    list(SORT _entries)
+    list(JOIN _entries "\n" _listing)
+    string(SHA256 _fingerprint "${_text}${_listing}")
+    set(${out_var} "${_fingerprint}" PARENT_SCOPE)
+endfunction()
+
+# The shared host code: compiled here into pinyon_shift_host, or the release's
+# prebuilt objects (PINYON_SHIFT_HOST_OBJECTS, unpacked by setup) when their
+# fingerprint matches. They are linked as objects, not an archive: the native
+# replacements in guest_native must override the generated weak definitions,
+# and a linker takes an archive member only for an undefined symbol. With an
+# empty target_name, builds only the objects and their manifest for the
+# release (PINYON_SHIFT_HOST_OBJECTS_ONLY).
+function(pinyon_shift_add_host_objects target_name)
+    pinyon_shift_host_fingerprint(_fingerprint)
+    if(target_name AND PINYON_SHIFT_HOST_OBJECTS)
+        set(_manifest "${PINYON_SHIFT_HOST_OBJECTS}/host-objects.json")
+        set(_prebuilt "")
+        if(EXISTS "${_manifest}")
+            file(READ "${_manifest}" _host)
+            string(JSON _prebuilt GET "${_host}" fingerprint)
+        endif()
+        if(_prebuilt STREQUAL _fingerprint)
+            string(JSON _count LENGTH "${_host}" objects)
+            math(EXPR _last "${_count} - 1")
+            set(_objects)
+            foreach(_index RANGE ${_last})
+                string(JSON _object GET "${_host}" objects ${_index})
+                list(APPEND _objects "${PINYON_SHIFT_HOST_OBJECTS}/${_object}")
+            endforeach()
+            add_library(pinyon_shift_host OBJECT IMPORTED)
+            set_property(TARGET pinyon_shift_host PROPERTY IMPORTED_OBJECTS ${_objects})
+            target_link_libraries(${target_name} PRIVATE pinyon_shift_host)
+            set_property(DIRECTORY "${PROJECT_SOURCE_DIR}" APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_manifest}")
+            message(STATUS "Using ${_count} prebuilt host objects: ${PINYON_SHIFT_HOST_OBJECTS}")
+            return()
+        endif()
+        message(STATUS "The prebuilt host objects don't match this build "
+            "(${_prebuilt} != ${_fingerprint}); compiling the host code here.")
+    endif()
+    add_library(pinyon_shift_host OBJECT ${PINYON_SHIFT_HOST_SHARED_SOURCES})
+    pinyon_shift_apply_recomp_profile(pinyon_shift_host)
+    if(PINYON_SHIFT_RECOMP_IPO)
+        set_property(TARGET pinyon_shift_host PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
+    endif()
+    # What the game target gives these files (pinyon_shift_attach_rexglue,
+    # rexglue_configure_target and CMakeLists.txt), without the generated tree.
+    target_include_directories(pinyon_shift_host PRIVATE
+        "${PROJECT_SOURCE_DIR}"
+        "${PROJECT_SOURCE_DIR}/src"
+        "${PROJECT_SOURCE_DIR}/include"
+        "${PINYON_SHIFT_SDK_SOURCE_DIR}/thirdparty/imgui"
+        "${PINYON_SHIFT_SDK_SOURCE_DIR}/thirdparty/tomlplusplus/include"
+        "${PINYON_SHIFT_SDK_SOURCE_DIR}/thirdparty/renderdoc"
+        "${PINYON_SHIFT_SDK_SOURCE_DIR}")
+    target_link_libraries(pinyon_shift_host PRIVATE rex::runtime rex::gpu-fh1)
+    target_compile_definitions(pinyon_shift_host PRIVATE
+        PINYON_SHIFT_VERSION="${PINYON_SHIFT_VERSION}"
+        REXGLUE_BUILD_CONFIG="$<CONFIG>")
+    rexglue_apply_target_settings(pinyon_shift_host)
+    if(target_name)
+        target_link_libraries(${target_name} PRIVATE pinyon_shift_host)
+    else()
+        # Read by tools/build-host-objects.py after building pinyon_shift_host.
+        file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/host-objects/objects.txt"
+            CONTENT "$<JOIN:$<TARGET_OBJECTS:pinyon_shift_host>,\n>\n")
+        file(WRITE "${CMAKE_BINARY_DIR}/host-objects/fingerprint.txt" "${_fingerprint}\n")
+    endif()
 endfunction()
 
 # The manifest intentionally lives under config/rexglue while generated trees

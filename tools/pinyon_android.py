@@ -506,16 +506,27 @@ def build(args: argparse.Namespace) -> int:
                            "tools/build-v4.ps1)")
     directory = build_directory(args)
     environment = with_git(dict(os.environ, ANDROID_NDK_HOME=str(tools.ndk)))
+    host_objects = ""
     if shell:
-        sdk = ["-DREXSDK_DIR=", f"-DPINYON_SHIFT_SHIFTGLUE_KIT={shell.as_posix()}"]
+        # TP-3 host split: the release's prebuilt host objects for Android.
+        import pinyon_setup
+        host_objects = pinyon_setup.install_host_objects(
+            lambda _stage, _percent, message: print(message, flush=True), "android-arm64",
+            "v4" if args.title_update_v4 else "base")
+        sdk = ["-DREXSDK_DIR=", f"-DPINYON_SHIFT_SHIFTGLUE_KIT={shell.as_posix()}",
+               f"-DPINYON_SHIFT_HOST_OBJECTS={Path(host_objects).as_posix() if host_objects else ''}"]
         generator = host_generator()
         if generator:
             sdk.append(f"-DPINYON_SHIFT_REXGLUE_CODEGEN={generator.as_posix()}")
     else:
-        sdk = [f"-DREXSDK_DIR={rexsdk_dir().as_posix()}", "-DPINYON_SHIFT_SHIFTGLUE_KIT="]
-    # A folder configured against the other SDK is configured again.
+        sdk = [f"-DREXSDK_DIR={rexsdk_dir().as_posix()}", "-DPINYON_SHIFT_SHIFTGLUE_KIT=",
+               "-DPINYON_SHIFT_HOST_OBJECTS="]
+    # A folder configured against the other SDK or other host objects is
+    # configured again.
     if not configured(directory) or (_cached(directory, "PINYON_SHIFT_SHIFTGLUE_KIT") or "") \
-            != (shell.as_posix() if shell else ""):
+            != (shell.as_posix() if shell else "") or \
+            (_cached(directory, "PINYON_SHIFT_HOST_OBJECTS") or "") != \
+            (Path(host_objects).as_posix() if host_objects else ""):
         run([tools.cmake, "--preset", preset(args), *sdk,
              f"-DCMAKE_MAKE_PROGRAM={tools.ninja}", f"-DPYTHON_EXECUTABLE={sys.executable}",
              f"-DPython3_EXECUTABLE={sys.executable}"], cwd=ROOT, env=environment)
@@ -615,6 +626,26 @@ def build_shell(args: argparse.Namespace) -> int:
     (prefix / "kit.json").write_text(json.dumps(kit, indent=2) + "\n", encoding="utf-8")
     run([sys.executable, ROOT / "tools" / "repack-toolchain.py", "kit", "--kind", "apk-shell",
          "--source", prefix, "--output", args.output.resolve()], cwd=ROOT)
+    return 0
+
+
+def build_host_objects(args: argparse.Namespace) -> int:
+    """TP-3 host split for Android: the base and v4 host objects a release
+    attaches, compiled against the shell build_shell just installed, with
+    the presets the player's build uses."""
+    tools = Tools()
+    shell = WORK / "shell-build" / "shell"
+    if not (shell / "kit.json").is_file():
+        raise AndroidError(f"no shell in {shell} (pinyon.py android shell first)")
+    environment = with_git(dict(os.environ, ANDROID_NDK_HOME=str(tools.ndk)))
+    for variant, name in (("base", "android-arm64-release"), ("v4", "android-arm64-v4")):
+        command = [sys.executable, ROOT / "tools" / "build-host-objects.py", "--kit", shell,
+                   "--platform", "android-arm64", "--preset", name, "--variant", variant,
+                   "--output", args.output.resolve(), "--cmake", tools.cmake,
+                   f"--define=CMAKE_MAKE_PROGRAM={tools.ninja}"]
+        if args.jobs:
+            command += ["--jobs", str(args.jobs)]
+        run(command, cwd=ROOT, env=environment)
     return 0
 
 
@@ -1205,6 +1236,10 @@ def add_parser(commands) -> None:
     parser = command("shell", build_shell,
                      "build the prebuilt APK shell a release attaches (TP-5)")
     parser.add_argument("--output", type=Path, required=True, help="the shell archive to write")
+    parser.add_argument("--jobs", type=int)
+    parser = command("host-objects", build_host_objects,
+                     "build the prebuilt Android host objects a release attaches (TP-3)")
+    parser.add_argument("--output", type=Path, required=True, help="the folder to write them to")
     parser.add_argument("--jobs", type=int)
     command("install", install, "install the APK on the device")
     parser = command("push-data", push_data, "copy the extracted game files to the device")
