@@ -140,8 +140,8 @@ retained traffic eats the prize.
 | --- | --- | --- | --- | --- |
 | RS-0.1 | **Guest-side spike**: start the title with `video_mode_width/_height` at 640x360 and at the SD 640x480 mode and see whether FH1 sizes its surfaces from the video mode; then look for where the main view's 1280x720 comes from (the Hor+ hook reads it at `sub_823E22C8`; the leftover split-screen code in `site/findings/systems.toml` suggests the engine can draw a scene into a smaller view). If the game can render natively small, there is no reconstruction at all and this backlog may shrink to a presenter change. Record the answer either way in `site/findings` | Rules out (or in) a near-free path | S (hours to 2 days) | **Video mode done, negative** (see Progress); the main-view and split-screen dig is open |
 | RS-0.2 | **Current-pin GPU profiles at 1x** with `fh1_native_gpu_profile` on Blindvac (UHD 620), the Deck, the Odin and the RTX 4080: race and free roam, the device's own preset, plus 2x where the device can run it. The 1x-to-2x growth bounds the area-proportional work from above (`T(2) - T(1) <= 3 x pixel work at 1x`, an overestimate because resolves also grow) | A per-device ceiling for the prize | S-M | Open; on Blindvac the RS-0.3 probe measured the slope directly, so only the phase breakdown is left there |
-| RS-0.3 | **Raster-only probe**: first, `fh1_coarse_shading=2x2` on the scene renderings where the device has the extension (no code; fragment work only). Then a debug cvar that multiplies `draw_coordinate_scale()` by `f` for scene-surface draws and nothing else. The image is wrong (a corner of the frame, stretched later), but the GPU does exactly the raster work the real path would. In-run A/B of `f = 1, 0.75, 0.5` on the same devices. This measures the prize directly, before the 3-4 weeks of real work | The gate number | S-M | **Probe built** (`fh1_debug_raster_percent`, `fh1_debug_raster_pitches`); **UHD 620, Steam Deck and RTX 4080 done** (see Progress); Odin open |
-| RS-0.4 | **Decision**: keep going, cut to 50 % only, or record the rejection in `lessons.md` with the numbers | Go / no-go | S | Open |
+| RS-0.3 | **Raster-only probe**: first, `fh1_coarse_shading=2x2` on the scene renderings where the device has the extension (no code; fragment work only). Then a debug cvar that multiplies `draw_coordinate_scale()` by `f` for scene-surface draws and nothing else. The image is wrong (a corner of the frame, stretched later), but the GPU does exactly the raster work the real path would. In-run A/B of `f = 1, 0.75, 0.5` on the same devices. This measures the prize directly, before the 3-4 weeks of real work | The gate number | S-M | **Probe built** (`fh1_debug_raster_percent`, `fh1_debug_raster_pitches`); **Done** on the UHD 620, Steam Deck, Odin and RTX 4080 (see Progress) |
+| RS-0.4 | **Decision**: keep going, cut to 50 % only, or record the rejection in `lessons.md` with the numbers | Go / no-go | S | **Gate failed** (one device of four passes); the maintainer decides between shelving and an integrated-GPU-only path |
 
 ### RS-1 Surface policy
 
@@ -307,7 +307,29 @@ the 75 % outliers are each run's first 75 % block, right after the first
 switch. The `auto` clock may drop on the lighter blocks, which would hide
 part of the saving, but that is how players run it.
 
-So far: UHD 620 passes (29.5 %), the Deck fails (14.5 %), the RTX 4080 has
-nothing to gain. The gate needs two devices; the Odin decides it (its
-Adreno bins the frame into tiles, so a smaller viewport may cut whole bin
-passes). Next: the probe on the Odin, then RS-0.4.
+**2026-10-31, RS-0.3 on the Odin 2 Portal** (Adreno 740, APK 0.7.1 from
+dev `242f8250` with the probe, base game). Same route with 480-frame blocks,
+pitches 16 and 32, Android defaults (untiled bands), 120 limit and vsync
+off, private state roots (the player's save was checked unchanged by md5
+before and after). The title waits about 9 ms a frame on GPU fences, so the
+Odin is GPU-bound. Two runs, four pairs each:
+
+| Run | 50 %: GPU ratio | 75 %: GPU ratio | 100 % GPU ms |
+| --- | --- | --- | --- |
+| a | 0.747, then 0.909-0.919 (median 0.911) | 0.939-0.947 (0.943) | 14.6-18.0 |
+| b | 0.807, then 0.914-0.919 (median 0.916) | 0.944-0.976 (0.953) | 14.5-17.4 |
+
+Each run's first pair is inflated by a slow warm-up block; without it the
+Odin saves **8.5 %** at 50 % and 5 % at 75 %. Binning did not turn a smaller
+viewport into a large saving: only about 11 % of the Adreno's frame scales
+with the 1280-wide surfaces.
+
+**RS-0.4: the gate fails.** At 50 %: UHD 620 -29.5 %, Steam Deck -14.5 %,
+Odin -8.5 %, RTX 4080 0 %. Only one device clears 25 %, and that is before
+the real path's resolve reconstruction. On every device but the oldest
+integrated GPU, the frame is dominated by work that does not scale with
+pixels (geometry, the recorder's draws, resolves, transfers, post passes at
+fixed sizes). Recommendation recorded for the maintainer: do not build the
+general sub-1x path now; keep the probe cvars so a later device or a
+changed renderer can be re-measured in minutes. 1.5x (a quality setting,
+not a speed one) would need the same machinery and is a separate decision.
