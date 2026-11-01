@@ -288,6 +288,9 @@ Vulkan device memory from 4111 to 3865 MiB (1x/MSAA off: 99 and 988 MiB).
 Process CPU at 1x/120 fps is about 250 % of a core, spread over the guest and
 GPU threads: in a 10 s `ps -M` window the busiest thread used 49 % and the
 next four 35, 26, 26 and 19 %, so no thread limits the frame on this Mac.
+Load and store ops are not the 2x/4x cost either: with
+`fh1_debug_attachment_ops=7` (no attachment loads, MSAA or depth stores; a
+wrong image) GPU time went from 18.87 to 17.01 ms, loads alone 17.70 ms.
 The fragment shading rate extension that `fh1_coarse_shading` needs is not
 in MoltenVK 1.4.1, so coarse shading cannot cut the 2x shading cost here.
 
