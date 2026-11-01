@@ -298,6 +298,71 @@ function Get-PinyonVisualStudioRoot {
     $root
 }
 
+# TP-4 (docs/TIME_TO_PLAY_BACKLOG.md): the Microsoft C++ libraries (CRT and
+# STL) and the Windows SDK headers and import libraries, fetched by xwin from
+# Microsoft's own Visual Studio packages after the player accepts Microsoft's
+# license. A build from the prebuilt ShiftGlue kit needs nothing else from the
+# Build Tools: clang reads INCLUDE, lld-link reads LIB, and llvm-rc and llvm-mt
+# replace rc.exe and mt.exe. Opt-in (PINYON_SHIFT_MSVC_SYSROOT=1) until the
+# license review is done; the Build Tools stay the default.
+function Get-PinyonMsvcSysroot {
+    $config = Get-PinyonReleaseToolchain
+    if (-not ($config.PSObject.Properties.Name -contains 'msvc_sysroot')) { return $null }
+    $root = Resolve-PinyonLocalPath -RelativePath $config.msvc_sysroot.install_path
+    $record = Join-Path $root 'pinyon-sysroot.json'
+    if (-not (Test-Path -LiteralPath $record -PathType Leaf)) { return $null }
+    $data = Get-Content -LiteralPath $record -Raw | ConvertFrom-Json
+    [pscustomobject]@{
+        Root = $root
+        Include = @($data.include | ForEach-Object { [IO.Path]::Combine($root, $_) })
+        Lib = @($data.lib | ForEach-Object { [IO.Path]::Combine($root, $_) })
+    }
+}
+
+function Install-PinyonMsvcSysroot {
+    param([switch]$AcceptMicrosoftLicense)
+    if (Get-PinyonMsvcSysroot) { return }
+    $sysroot = (Get-PinyonReleaseToolchain).msvc_sysroot
+    if (-not $AcceptMicrosoftLicense) {
+        $failure = [Exception]::new("Fetching the Microsoft C++ libraries and the Windows SDK needs Microsoft's license to be accepted: $($sysroot.license_url)")
+        $failure.Data['step'] = 'Fetch the Microsoft C++ libraries'
+        $failure.Data['hint'] = 'Accept the license, or leave PINYON_SHIFT_MSVC_SYSROOT unset to install the Microsoft C++ Build Tools instead.'
+        throw $failure
+    }
+    $xwinRoot = Resolve-PinyonLocalPath -RelativePath $sysroot.xwin.install_path
+    $xwin = Join-Path $xwinRoot $sysroot.xwin.executable
+    if (-not (Test-Path -LiteralPath $xwin -PathType Leaf)) {
+        $archive = Resolve-PinyonLocalPath -RelativePath ".local/downloads/$(Split-Path $sysroot.xwin.url -Leaf)"
+        Invoke-PinyonDownload -Uri $sysroot.xwin.url -Destination $archive -Sha256 $sysroot.xwin.sha256
+        $staging = "$xwinRoot.staging"
+        Remove-PinyonTree -Path $staging
+        [void](New-Item -ItemType Directory -Force -Path $staging)
+        # Windows 10 1803 and newer ship bsdtar.
+        & (Join-Path ([Environment]::SystemDirectory) 'tar.exe') -xzf $archive -C $staging
+        if ($LASTEXITCODE -ne 0) { throw "Could not unpack $archive." }
+        Remove-PinyonTree -Path $xwinRoot
+        $inner = @(Get-ChildItem -LiteralPath $staging -Directory)
+        [IO.Directory]::Move($inner[0].FullName, $xwinRoot)
+        Remove-PinyonTree -Path $staging
+    }
+    $root = Resolve-PinyonLocalPath -RelativePath $sysroot.install_path
+    $cache = Resolve-PinyonLocalPath -RelativePath '.local/downloads/xwin-cache'
+    Remove-PinyonTree -Path $root
+    & $xwin --accept-license --cache-dir $cache --http-retry 3 --arch x86_64 --variant desktop `
+        --sdk-version $sysroot.sdk_version splat --disable-symlinks --output $root
+    if ($LASTEXITCODE -ne 0) { throw "xwin could not fetch the Microsoft C++ libraries (exit $LASTEXITCODE)." }
+    Remove-PinyonTree -Path $cache
+    $record = [ordered]@{
+        schema_version = 1
+        xwin = $sysroot.xwin.version
+        sdk_version = $sysroot.sdk_version
+        include = @('crt/include', 'sdk/include/ucrt', 'sdk/include/um', 'sdk/include/shared', 'sdk/include/winrt')
+        lib = @('crt/lib/x86_64', 'sdk/lib/ucrt/x86_64', 'sdk/lib/um/x86_64')
+    }
+    [IO.File]::WriteAllText((Join-Path $root 'pinyon-sysroot.json'),
+        ($record | ConvertTo-Json) + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
+}
+
 function ConvertTo-PinyonCommandPath {
     param([AllowEmptyString()] [string]$PathValue)
 
@@ -312,10 +377,10 @@ function ConvertTo-PinyonCommandPath {
 }
 
 function Get-PinyonCMake {
-    param([Parameter(Mandatory)] [string]$VisualStudioRoot)
+    param([AllowEmptyString()] [string]$VisualStudioRoot = '')
     $config = Get-PinyonReleaseToolchain
     $candidate = Join-Path (Resolve-PinyonLocalPath $config.cmake.install_path) $config.cmake.executable
-    if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) {
+    if (-not (Test-Path -LiteralPath $candidate -PathType Leaf) -and $VisualStudioRoot) {
         $candidate = Join-Path $VisualStudioRoot 'Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe'
     }
     if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) {
@@ -1007,58 +1072,67 @@ function Enter-PinyonBuildEnvironment {
     }
     $root = Get-PinyonRepoRoot
     $config = Get-PinyonReleaseToolchain
-    $vsRoot = Get-PinyonVisualStudioRoot
-    $devCmd = Join-Path $vsRoot 'Common7/Tools/VsDevCmd.bat'
-    $inheritedPath = $env:PATH
-    $inheritedTemp = $env:TEMP
-    $inheritedTmp = $env:TMP
-    try {
-        # Quoted PATH entries containing parentheses break VsDevCmd's batch parser.
-        $env:PATH = ConvertTo-PinyonCommandPath -PathValue $inheritedPath
-        # VsDevCmd expands TEMP unquoted inside a parenthesized block even
-        # when debug logging is disabled. Portable install paths can break it.
-        $buildTemp = Join-Path ([Environment]::GetFolderPath('CommonApplicationData')) 'PinyonShift\build-temp'
-        New-Item -ItemType Directory -Path $buildTemp -Force | Out-Null
-        $env:TEMP = $buildTemp
-        $env:TMP = $buildTemp
-        $marker = '::pinyon-environment::'
-        # Merged stderr arrives as ErrorRecords; under 'Stop' the first one
-        # would end the function before the exit code is known.
-        $previousPreference = $ErrorActionPreference
-        $ErrorActionPreference = 'Continue'
-        $output = @(& $env:ComSpec /d /s /c "`"$devCmd`" -arch=x64 -host_arch=x64 && echo $marker&& set" 2>&1 |
-            ForEach-Object { $_.ToString() })
-        $devCmdExit = $LASTEXITCODE
-        $ErrorActionPreference = $previousPreference
+    $sysroot = Get-PinyonMsvcSysroot
+    if ($sysroot) {
+        # TP-4: no Build Tools; the fetched CRT and Windows SDK instead.
+        $vsRoot = ''
+        $env:INCLUDE = $sysroot.Include -join ';'
+        $env:LIB = $sysroot.Lib -join ';'
     }
-    finally {
-        $env:PATH = $inheritedPath
-        $env:TEMP = $inheritedTemp
-        $env:TMP = $inheritedTmp
-    }
-    $markerIndex = -1
-    for ($i = 0; $i -lt $output.Count; $i++) {
-        if ($output[$i].Trim() -eq $marker) { $markerIndex = $i; break }
-    }
-    if ($devCmdExit -ne 0 -or $markerIndex -lt 0) {
-        # VsDevCmd prints its own [ERROR:...] lines; keep them in the report.
-        $devCmdOutput = @($output | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Last 20)
-        $failure = [Exception]::new('Unable to initialize the Microsoft x64 build environment. Restart Windows after installing the Microsoft C++ Build Tools, then run setup again. ' +
-            "VsDevCmd: $devCmd")
-        $failure.Data['step'] = 'Initialize the Microsoft x64 build environment'
-        $failure.Data['exit_code'] = $devCmdExit
-        $failure.Data['command'] = "`"$devCmd`" -arch=x64 -host_arch=x64"
-        $failure.Data['error_excerpt'] = [string[]]$devCmdOutput
-        throw $failure
-    }
-    $lines = if ($markerIndex + 1 -lt $output.Count) { $output[($markerIndex + 1)..($output.Count - 1)] } else { @() }
-    foreach ($line in $lines) {
-        $separator = $line.IndexOf('=')
-        if ($separator -gt 0) {
-            $name = $line.Substring(0, $separator)
-            if ($name -in @('TEMP', 'TMP')) { continue }
-            [Environment]::SetEnvironmentVariable($name,
-                $line.Substring($separator + 1), 'Process')
+    else {
+        $vsRoot = Get-PinyonVisualStudioRoot
+        $devCmd = Join-Path $vsRoot 'Common7/Tools/VsDevCmd.bat'
+        $inheritedPath = $env:PATH
+        $inheritedTemp = $env:TEMP
+        $inheritedTmp = $env:TMP
+        try {
+            # Quoted PATH entries containing parentheses break VsDevCmd's batch parser.
+            $env:PATH = ConvertTo-PinyonCommandPath -PathValue $inheritedPath
+            # VsDevCmd expands TEMP unquoted inside a parenthesized block even
+            # when debug logging is disabled. Portable install paths can break it.
+            $buildTemp = Join-Path ([Environment]::GetFolderPath('CommonApplicationData')) 'PinyonShift\build-temp'
+            New-Item -ItemType Directory -Path $buildTemp -Force | Out-Null
+            $env:TEMP = $buildTemp
+            $env:TMP = $buildTemp
+            $marker = '::pinyon-environment::'
+            # Merged stderr arrives as ErrorRecords; under 'Stop' the first one
+            # would end the function before the exit code is known.
+            $previousPreference = $ErrorActionPreference
+            $ErrorActionPreference = 'Continue'
+            $output = @(& $env:ComSpec /d /s /c "`"$devCmd`" -arch=x64 -host_arch=x64 && echo $marker&& set" 2>&1 |
+                ForEach-Object { $_.ToString() })
+            $devCmdExit = $LASTEXITCODE
+            $ErrorActionPreference = $previousPreference
+        }
+        finally {
+            $env:PATH = $inheritedPath
+            $env:TEMP = $inheritedTemp
+            $env:TMP = $inheritedTmp
+        }
+        $markerIndex = -1
+        for ($i = 0; $i -lt $output.Count; $i++) {
+            if ($output[$i].Trim() -eq $marker) { $markerIndex = $i; break }
+        }
+        if ($devCmdExit -ne 0 -or $markerIndex -lt 0) {
+            # VsDevCmd prints its own [ERROR:...] lines; keep them in the report.
+            $devCmdOutput = @($output | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Last 20)
+            $failure = [Exception]::new('Unable to initialize the Microsoft x64 build environment. Restart Windows after installing the Microsoft C++ Build Tools, then run setup again. ' +
+                "VsDevCmd: $devCmd")
+            $failure.Data['step'] = 'Initialize the Microsoft x64 build environment'
+            $failure.Data['exit_code'] = $devCmdExit
+            $failure.Data['command'] = "`"$devCmd`" -arch=x64 -host_arch=x64"
+            $failure.Data['error_excerpt'] = [string[]]$devCmdOutput
+            throw $failure
+        }
+        $lines = if ($markerIndex + 1 -lt $output.Count) { $output[($markerIndex + 1)..($output.Count - 1)] } else { @() }
+        foreach ($line in $lines) {
+            $separator = $line.IndexOf('=')
+            if ($separator -gt 0) {
+                $name = $line.Substring(0, $separator)
+                if ($name -in @('TEMP', 'TMP')) { continue }
+                [Environment]::SetEnvironmentVariable($name,
+                    $line.Substring($separator + 1), 'Process')
+            }
         }
     }
     $llvm = [IO.Path]::GetFullPath((Join-Path $root $config.llvm.install_path))
@@ -1069,7 +1143,7 @@ function Enter-PinyonBuildEnvironment {
     if (Test-Path -LiteralPath $ninja -PathType Leaf) {
         $env:PATH = "$(Split-Path $ninja -Parent);$env:PATH"
     }
-    else {
+    elseif ($vsRoot) {
         $ninja = Join-Path $vsRoot 'Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/ninja.exe'
     }
     Assert-PinyonBuildCapabilities -LlvmRoot $llvm

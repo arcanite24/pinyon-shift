@@ -26,7 +26,14 @@ $pending = @(foreach ($name in $names) {
         $tool.url
     }
 })
-if ([string]::IsNullOrWhiteSpace($vsRoot)) { $pending += $config.visual_studio.bootstrap_url }
+# TP-4: with a prebuilt kit, an opted-in PC fetches the Microsoft C++
+# libraries and the Windows SDK with xwin instead of the Build Tools.
+$useSysroot = $kitPinned -and [string]::IsNullOrWhiteSpace($vsRoot) -and
+    ($env:PINYON_SHIFT_MSVC_SYSROOT -eq '1' -or $null -ne (Get-PinyonMsvcSysroot))
+if ($useSysroot) {
+    if ($null -eq (Get-PinyonMsvcSysroot)) { $pending += @($config.msvc_sysroot.xwin.url, 'https://aka.ms/') }
+}
+elseif ([string]::IsNullOrWhiteSpace($vsRoot)) { $pending += $config.visual_studio.bootstrap_url }
 if (-not $kitPinned -and -not (Test-Path -LiteralPath (Join-Path (Resolve-PinyonRexGlueRoot) 'CMakeLists.txt') -PathType Leaf)) {
     $pending += $config.rexglue.repository
 }
@@ -111,7 +118,11 @@ function Invoke-BuildToolsInstaller {
 }
 
 $restartPending = $false
-if ([string]::IsNullOrWhiteSpace($vsRoot)) {
+if ($useSysroot) {
+    Write-PinyonEvent tools 20 'Fetching the Microsoft C++ libraries and the Windows SDK (about 300 MB, once).' -JsonEvents:$JsonEvents
+    Install-PinyonMsvcSysroot -AcceptMicrosoftLicense:($env:PINYON_SHIFT_ACCEPT_MICROSOFT_LICENSE -eq '1')
+}
+elseif ([string]::IsNullOrWhiteSpace($vsRoot)) {
     Write-PinyonEvent tools 20 'Microsoft C++ Build Tools are required. Windows may ask for administrator permission.' -JsonEvents:$JsonEvents
     $bootstrap = Get-BuildToolsBootstrapper
     $restartPending = Invoke-BuildToolsInstaller -Arguments "-Bootstrapper `"$bootstrap`"" `
@@ -220,7 +231,8 @@ try {
 catch {
     $kind = $_.Exception.Data['error_kind']
     if ($restartPending) { throw (New-RestartRequiredFailure) }
-    if ($kind -ne 'toolchain-capability') { throw }
+    # A fetched sysroot (TP-4) has no installer to repair it with.
+    if ($kind -ne 'toolchain-capability' -or $useSysroot) { throw }
     Write-PinyonEvent tools 21 'Updating Visual Studio and adding the Windows SDK the build needs. Windows may ask for administrator permission.' -JsonEvents:$JsonEvents
     # The Visual Studio Installer already on the PC can update any edition
     # (Community, Professional, Build Tools); the Build Tools bootstrapper is
