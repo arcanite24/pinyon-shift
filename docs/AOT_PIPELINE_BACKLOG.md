@@ -15,6 +15,18 @@ Items are `AOT-*`. The Mac is the target (each cold Metal compile takes
   runs) and from 46 to 4: 91-100 % fewer, against the 80 % gate. The list
   holds earlier Mac free roam too, so part of that is in-sample; a list from
   the Windows reference save alone cut them to 16 and 21 (69 % and 54 %).
+- **Windows Vulkan and Android.** `prepare-fh1-shaders.ps1` writes the
+  list before its preparation route (`pinyon.py prepare-shaders
+  --pipelines-only`), and the route builds it. Android gets the PC's list:
+  the launcher's Wi-Fi share offers it as the "free-roam pipelines" group
+  and `pinyon.py android push-data --state-root` copies it over USB. On the
+  RTX 4080 the east probe first needed 322 pipelines without a list
+  (`appdata-2026-09-27-winwarm` seed), 15 with the shipped list (in-sample: most of it is this PC's play) and 32
+  with a list from Mac play alone (764 pipelines). The background build
+  took 30 s for 5,215 pipelines. Where the stored pipelines are built
+  before the title (Windows, Linux, Android) the list is still built behind
+  it, on 2 threads on Android (`vulkan_aot_prewarm_threads`). Android is
+  not measured yet: no test device was free.
 - **First-time compiles are the free-roam spikes on the Mac.** Each new
   pipeline costs one 100-190 ms frame on an M4 Pro (docs/MACOS.md
   "First-time pipeline spikes"). Seen pipelines are stored
