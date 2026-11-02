@@ -139,6 +139,9 @@ bool Engaged() {
   return g_engaged.load(std::memory_order_relaxed);
 }
 
+// The step in progress is a pair's short step (PairStepImpl).
+std::atomic<bool> g_short_step{false};
+
 // The layers applied an eye in this frame (before its tick) or the last:
 // cockpit and hood cameras; other cameras' frames stay untagged.
 bool LayersCurrent(const Latched& l) {
@@ -284,6 +287,10 @@ bool InStereo() {
   return LayersCurrent(l);
 }
 
+bool InShortStep() {
+  return g_short_step.load(std::memory_order_relaxed);
+}
+
 double PairStep(double seconds) {
   if (!Engaged()) return seconds;
   const double in = seconds;
@@ -318,7 +325,10 @@ static double PairStepImpl(double seconds) {
   // frame say the opposite (6 cm within pairs, 40-67 cm between them); they
   // are a frame off from the images, as for the rotation (CameraOffset).
   const bool paired = REXCVAR_GET(xr_paired_steps) && LayersCurrent(l);
-  if (paired && l.applied_eye == rex::ui::vulkan::openxr::FirstEye() && seconds > kShortStep) {
+  const bool short_step =
+      paired && l.applied_eye == rex::ui::vulkan::openxr::FirstEye() && seconds > kShortStep;
+  g_short_step.store(short_step, std::memory_order_relaxed);
+  if (short_step) {
     l.banked = std::min(l.banked + seconds - kShortStep, kMaxBank);
     return kShortStep;
   }

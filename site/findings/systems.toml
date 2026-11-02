@@ -598,6 +598,26 @@ confidence = """probable"""
 note = """The function's purpose is not established."""
 source = """config/rexglue/analysis/main-xex.toml midasm_hook 0x82C6DFA8"""
 
+# ---------------------------------------------------------------- Traffic
+
+[[finding]]
+group = """Traffic"""
+base = """sub_82B5EEF8, sub_82B64C80, 0x83337B60"""
+name = """traffic driver update and controls"""
+what = """`sub_82B5EEF8` is a free-roam traffic car's update (r3 the driver, f1 the step): it runs the car's behaviours (driver `+24`, count `+32`), then the controls at driver `+1780` (`sub_82B64C80`) and the LOD choice at `+1856`. The controls set gas from `AI/Traffic/VehicleControls/AccelMaxInput` (0.2) or brake from `BrakeMaxInput` (0.2) at controls `+16`/`+20`, and steer at `+24` as `SteeringMultiplier` (2.5, value at `0x83337B60`) times the position solver's steering demand (solver `+340`), limited by the car and clamped to 0-1. Traffic does not run the racing AI's update `sub_82B97910`."""
+how = """Generated code; tunable-name xrefs (the names at `0x82133xxx`-`0x82135xxx`, their values at `0x83337xxx`); vtable `0x82133178`."""
+confidence = """probable"""
+source = """src/pinyon_shift_runtime_hooks.cpp PinyonShiftTrafficSkipShortStep"""
+
+[[finding]]
+group = """Traffic"""
+base = """sub_82B67C90, sub_82B68BA0, sub_82B65978"""
+name = """traffic position solver"""
+what = """`sub_82B67C90` (only caller `sub_82B68BA0`; r3 the vehicle position, f1 the step) filters a traffic car's position, lane offset and heading with `AI/Traffic/VehiclePosition/Interpolation/{Min,Max}` gains (PositionK 0.9, HeadingK 0.95, LaneOffsetK 0.9, LaneOffsetDecay 0.1; between Min and Max by vehicle length, 3-6 m, `sub_82B624C0`). It then divides the filtered change by the step: velocity at `+352`, steering demand at `+340`. High-LOD traffic (physics) is within `MaxHighLodDistance` 30 m, medium within `MaxMediumLodDistance` 90 m. On VR stereo's 0.1 ms paired step the divide turned position rounding into steering spikes every other step: traffic zig-zagged and did not face its direction of travel. The host returns at the solver's entry on that step (the car keeps the last velocity and demand)."""
+how = """Generated code; the divide by the step before the `+352` and `+340` stores; reported in the headset with `xr_paired_steps`, and gone with the skip (played in VR, 2026-11-01)."""
+confidence = """confirmed"""
+source = """src/pinyon_shift_runtime_hooks.cpp PinyonShiftTrafficSkipShortStep; src/vr/vr_camera.h InShortStep"""
+
 # ------------------------------------------------------ Wheel force feedback
 
 [[finding]]
