@@ -35,11 +35,9 @@ class Check {
         if (!value) throw new Exception(message);
     }
     // A CI runner's scanner can briefly hold a ZIP the check has just
-    // written ("being used by another process"); the launcher's own reads
-    // are closed by then.
-    // ZipFile.Open asks for exclusive access, which fails while a scanner on
-    // the CI runner reads the new ZIP; sharing it lets the scanner keep its
-    // handle. Retry for up to about a minute in case one still blocks writes.
+    // written ("being used by another process"). ZipFile.Open asks for
+    // exclusive access; sharing lets a scanner keep its handle, and retries
+    // cover one that briefly blocks writes.
     static ZipArchive OpenZipForUpdate(string path) {
         for (var attempt = 1; ; attempt++) {
             try {
@@ -82,6 +80,13 @@ class Check {
     [STAThread] static void Main(string[] args) {
         var app = new App();
         app.InitializeComponent();
+        // App.xaml's StartupUri opens a real launcher window the first time
+        // the dispatcher runs (the launch check below pumps it). Its Loaded
+        // handler then resolves and extracts this check's payload, and the
+        // extraction's last step waits on the dispatcher once the check
+        // stops pumping, holding pinyon-shift-source.zip open for good. The
+        // property refuses null, so its field is cleared.
+        typeof(Application).GetField("_startupUri", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(app, null);
         var window = new MainWindow(); // Never show: Loaded would start a real installation.
         SynchronizationContext.SetSynchronizationContext(null);
         var flags = BindingFlags.Instance | BindingFlags.NonPublic;
