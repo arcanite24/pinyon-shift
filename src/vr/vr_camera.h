@@ -68,6 +68,12 @@ double PairStep(double seconds);
 // Unchanged, without the lock, for players who never turn VR on.
 double PhysicsStep(uint32_t world, double seconds);
 
+// Whether the simulation step in progress is a pair's short step. The AI
+// drivers and traffic skip it: run over 0.1 ms every other step, the AI
+// oversteered, spun and hit each other and traffic zig-zagged (fine with
+// xr_paired_steps off).
+bool InShortStep();
+
 // Whether the HUD is hidden for the VR run (xr_hide_hud): drawn at the same
 // place for both eyes, it would float at the wrong depth in stereo. Not
 // while the headset shows it on a panel of its own (xr_hud_panel, which the

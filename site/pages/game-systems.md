@@ -67,6 +67,12 @@ Pinyon Shift's **AI OPPONENTS** setting ([Playing](playing.md#ai-opponents)) rew
 
 {{findings:systems/AI opponents}}
 
+## Traffic
+
+Free-roam traffic is not driven like the racing AI. A position solver follows the car's lane, smooths its position, lane offset and heading, and works out a velocity and a steering demand from how far those moved in the step; the traffic controls turn that demand into steering. Near cars (within 30 m) drive with it through physics, farther ones are placed by the solver. Because the solver divides by the step, it needs steps of a sensible length: VR stereo's 0.1 ms paired step made traffic zig-zag, so the solver skips that step.
+
+{{findings:systems/Traffic}}
+
 ## Wheel force feedback
 
 With a wheel that reports force feedback, the game does not rumble it through the controller call. It drives the wheel through the kernel's XInputdFF calls instead, as it drove the Microsoft Wireless Racing Wheel: it downloads five effects (inertia, friction, damper, a spring that stiffens with speed and a constant force), starts them, then updates the constant force every frame. The SDK answers those calls, and its raw wheel path (**F6 > CONTROLS > RACING WHEEL > SEPARATE DEVICES**, [Playing](playing.md#racing-wheels)) plays them on the wheel.
