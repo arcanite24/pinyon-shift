@@ -19,6 +19,8 @@
 #include <string>
 #include <system_error>
 #include <thread>
+#include <utility>
+#include <vector>
 #include <toml++/toml.hpp>
 
 #include <rex/cvar.h>
@@ -1484,10 +1486,23 @@ void PinyonShiftApp::ApplyFirstRunHardwareDefaults(const rex::ui::vulkan::Vulkan
   const double refresh = REXCVAR_GET(video_mode_refresh_rate);
   const bool capable = discrete && device_local >= (uint64_t(6) << 30) && cores >= 6 &&
                        refresh >= 119.0;
-  if (capable && host_config_ && host_config_->Load()) {
-    for (const auto& [name, literal] :
-         {std::pair{"present_effect", "\"fsr\""},
-          std::pair{"pinyon_shift_fh1_render_fps_limit", "120"}}) {
+  std::vector<std::pair<const char*, const char*>> settings;
+  if (capable) {
+    settings = {{"present_effect", "\"fsr\""}, {"pinyon_shift_fh1_render_fps_limit", "120"}};
+  }
+  // MALI_BACKLOG MT-1.6: an Arm Mali GPU starts at SCENE SHADING > COARSE.
+  // Its frame is decided by fragment work in the scene; coarse shading saved
+  // 2.0-2.5 ms of a 20-23 ms frame on a Mali-G720 (Galaxy Tab S10 Ultra).
+  const bool mali_coarse = REX_PLATFORM_ANDROID && properties.vendorID == 0x13B5 &&
+                           device.properties().pipelineFragmentShadingRate;
+  if (mali_coarse) {
+    settings.push_back(
+        {"fh1_coarse_shading",
+         "\"1024/32/4x/d1+0/32/4x/c3=2x2,0/16/1x/d1+720/16/1x/c0=2x2\""});
+    settings.push_back({"fh1_coarse_shading_alpha_test", "true"});
+  }
+  if (!settings.empty() && host_config_ && host_config_->Load()) {
+    for (const auto& [name, literal] : settings) {
       host_config_->Set(name, literal);
       std::string value = literal;
       std::erase(value, '"');
@@ -1503,7 +1518,8 @@ void PinyonShiftApp::ApplyFirstRunHardwareDefaults(const rex::ui::vulkan::Vulkan
        {"discrete", discrete ? "1" : "0"},
        {"device_local_mb", std::to_string(device_local >> 20)},
        {"logical_cores", std::to_string(cores)},
-       {"refresh_hz", fmt::format("{:.0f}", refresh)}});
+       {"refresh_hz", fmt::format("{:.0f}", refresh)},
+       {"coarse_shading", mali_coarse ? "1" : "0"}});
 }
 #endif
 
