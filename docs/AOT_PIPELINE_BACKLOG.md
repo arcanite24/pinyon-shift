@@ -41,6 +41,14 @@ Items are `AOT-*`. The Mac is the target (each cold Metal compile takes
   Almost every wait in B and B2 came in the opening, while the list was
   still building; after it, waits fell 92-100 %. On a later start the
   driver cache has the list, as on the desktop.
+- **Android, Galaxy Tab S10 Ultra (Mali-G720).** The tablet was set up
+  with `push-data` and no `--state-root`, so it never got the list, and
+  real play spiked on first-time compiles (MALI_BACKLOG.md MT-4.1). With a
+  list from the disc and all DLC (5,227 pipelines) the build took 62-63 s
+  on 2 threads; race draws that waited after it fell from 14-17 to 0. Four
+  threads saved 7 s but nearly doubled the frames over 33 ms during the
+  build. `push-data` now defaults to `.local/preview` and writes the list
+  there when it is missing.
 - **First-time compiles are the free-roam spikes on the Mac.** Each new
   pipeline costs one 100-190 ms frame on an M4 Pro (docs/MACOS.md
   "First-time pipeline spikes"). Seen pipelines are stored
