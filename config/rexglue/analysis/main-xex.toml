@@ -1567,6 +1567,23 @@ address = 0x8261C5A0
 name = "PinyonShiftAiSkillAdjustment"
 registers = ["f1"]
 
+# Entry of an AI driver's update (r3 the controller + 24): returns at once on
+# VR stereo's 0.1 ms paired step, which made the AI oversteer.
+[[midasm_hook]]
+address = 0x82B97910
+name = "PinyonShiftAiSkipShortStep"
+registers = ["r3"]
+return_on_true = true
+
+# Entry of a traffic car's position solver (r3 its vehicle position, f1 the
+# step): returns at once on VR stereo's 0.1 ms paired step, whose divide by
+# the step made traffic zig-zag and crab.
+[[midasm_hook]]
+address = 0x82B67C90
+name = "PinyonShiftTrafficSkipShortStep"
+registers = ["r3"]
+return_on_true = true
+
 # Its default-off trace (pinyon_shift_ai_trace): entry of the per-AI torque
 # application, r3 the AI controller, and the entries of the two AI skill
 # assignment paths and the post-race dynamic difficulty update. Read-only.

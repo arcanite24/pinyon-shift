@@ -105,6 +105,7 @@ int main() {
   Check(!vr::InStereo(), "flat: not in stereo");
   Check(vr::TagFieldOfView(1.2) == 1.2, "flat: field of view untouched");
   Check(vr::PairStep(0.016) == 0.016, "flat: step untouched");
+  Check(!vr::InShortStep(), "flat: no short step");
   Check(vr::AspectScale() == 0.0f, "flat: aspect untouched");
   Check(!vr::HidesHud(), "flat: HUD shown");
   Check(vr::CameraOffset() == head_tracking::Pose{}, "flat: no camera offset");
@@ -160,9 +161,11 @@ int main() {
     Check(CockpitFrame() == rex::ui::vulkan::openxr::FirstEye(), "pair starts with the first eye");
     const double shortened = vr::PairStep(first_step);
     Check(shortened == 0.0001, "the first eye's step is the shortest");
+    Check(vr::InShortStep(), "the short step is flagged for the AI and traffic");
     const double second_step = 0.009 + 0.0007 * (pair % 5);
     CockpitFrame();
     const double paired = vr::PairStep(second_step);
+    Check(!vr::InShortStep(), "the pair's step is not flagged");
     const double frames = paired / kPeriod;
     Check(std::abs(frames - std::round(frames)) < 1e-6 && frames >= 1.0,
           "the pair's step is whole headset frames");

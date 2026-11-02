@@ -7328,6 +7328,29 @@ void PinyonShiftAiSkillAdjustment(PPCRegister& f1) {
   if (AiOpponentsSetting() != AiOpponents::kStock) f1.f64 = 0.0;
 }
 
+// sub_82B97910 is an AI driver's update (r3 its controller + 24): it runs the
+// driver, catch-up and the per-AI torque (sub_82B81A30) and writes the car's
+// inputs. In VR stereo every second step is 0.1 ms (xr_paired_steps); with
+// the update running on it the AI oversteered, spun and hit each other. It
+// returns at once on that step and keeps the car's last inputs.
+bool PinyonShiftAiSkipShortStep(PPCRegister& r3) {
+  (void)r3;
+  return pinyon_shift::vr::InShortStep();
+}
+
+// sub_82B67C90 is a traffic car's position solver (r3 its vehicle position,
+// only caller sub_82B68BA0). It filters the car's lane offset and heading,
+// then divides their change by the step for the car's velocity (+352) and
+// the steering demand (+340) the traffic controls (sub_82B64C80) scale by
+// SteeringMultiplier. On VR stereo's 0.1 ms paired step that divide turned
+// position rounding into steering spikes every other step: traffic
+// zig-zagged and slid sideways. Traffic does not run sub_82B97910, so it
+// needs its own skip; the car keeps the last step's velocity and demand.
+bool PinyonShiftTrafficSkipShortStep(PPCRegister& r3) {
+  (void)r3;
+  return pinyon_shift::vr::InShortStep();
+}
+
 // AI racing trace for the fair AI option (#482; docs/REVERSE_ENGINEERING.md,
 // "AI rubber-banding"). sub_82B81A30 applies an AI controller's torque scale
 // once per drive update; at its entry r3 is the controller, whose fields the
