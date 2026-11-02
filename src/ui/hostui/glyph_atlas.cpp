@@ -37,8 +37,51 @@ std::u32string DecodeUtf8(std::string_view text) {
   return out;
 }
 
-GlyphAtlas::GlyphAtlas(const VectorFont& font, float pixels_per_em)
-    : font_(font), pixels_per_em_(pixels_per_em) {
+std::string EncodeUtf8(std::u32string_view text) {
+  std::string out;
+  out.reserve(text.size());
+  for (char32_t c : text) {
+    if (c < 0x80) {
+      out.push_back(char(c));
+    } else if (c < 0x800) {
+      out.push_back(char(0xC0 | (c >> 6)));
+      out.push_back(char(0x80 | (c & 0x3F)));
+    } else if (c < 0x10000) {
+      out.push_back(char(0xE0 | (c >> 12)));
+      out.push_back(char(0x80 | ((c >> 6) & 0x3F)));
+      out.push_back(char(0x80 | (c & 0x3F)));
+    } else {
+      out.push_back(char(0xF0 | (c >> 18)));
+      out.push_back(char(0x80 | ((c >> 12) & 0x3F)));
+      out.push_back(char(0x80 | ((c >> 6) & 0x3F)));
+      out.push_back(char(0x80 | (c & 0x3F)));
+    }
+  }
+  return out;
+}
+
+std::string UpperCase(std::string_view text) {
+  std::u32string decoded = DecodeUtf8(text);
+  for (char32_t& c : decoded) {
+    if ((c >= U'a' && c <= U'z') || (c >= 0xE0 && c <= 0xFE && c != 0xF7) ||
+        (c >= 0x430 && c <= 0x44F)) {
+      c -= 0x20;
+    } else if (c >= 0x450 && c <= 0x45F) {
+      c -= 0x50;
+    } else if (c == 0x131) {
+      c = U'I';
+    } else if (((c >= 0x100 && c <= 0x137) || (c >= 0x14A && c <= 0x177)) && (c & 1)) {
+      c -= 1;  // pairs with the capital first
+    } else if (((c >= 0x139 && c <= 0x148) || (c >= 0x179 && c <= 0x17E)) && !(c & 1)) {
+      c -= 1;  // pairs with the capital second
+    }
+  }
+  return EncodeUtf8(decoded);
+}
+
+GlyphAtlas::GlyphAtlas(const VectorFont& font, float pixels_per_em,
+                       std::vector<const BitmapFont*> fallbacks)
+    : font_(font), fallbacks_(std::move(fallbacks)), pixels_per_em_(pixels_per_em) {
   // Room for about eight glyphs per row.
   width_ = std::clamp<uint32_t>(std::bit_ceil(uint32_t(std::ceil(pixels_per_em * 8.0f))), 256,
                                 kMaximumSize);
@@ -79,15 +122,27 @@ bool GlyphAtlas::Prepare(std::u32string_view text) {
 bool GlyphAtlas::Add(char32_t code_point) {
   const VectorFont::Glyph* glyph = font_.Find(uint32_t(code_point));
   if (!glyph) {
-    // Spaces have no mesh in these fonts; anything else falls back to '?'.
+    // Spaces have no mesh in these fonts; East Asian text comes from the
+    // bitmap fonts; anything else falls back to '?'.
     if (code_point == U' ' || code_point == U' ') {
       entries_[code_point] = Entry{.advance = pixels_per_em_ * 0.25f};
+      return false;
+    }
+    for (const BitmapFont* fallback : fallbacks_) {
+      if (fallback->Has(code_point)) {
+        return Pack(code_point, fallback->Rasterize(code_point, pixels_per_em_),
+                    fallback->Advance(code_point, pixels_per_em_));
+      }
     }
     return false;
   }
-  const GlyphBitmap bitmap = font_.Rasterize(*glyph, pixels_per_em_);
+  return Pack(code_point, font_.Rasterize(*glyph, pixels_per_em_),
+              glyph->advance * pixels_per_em_);
+}
+
+bool GlyphAtlas::Pack(char32_t code_point, const GlyphBitmap& bitmap, float advance) {
   Entry entry;
-  entry.advance = glyph->advance * pixels_per_em_;
+  entry.advance = advance;
   entry.width = bitmap.width;
   entry.height = bitmap.height;
   entry.left = bitmap.left;

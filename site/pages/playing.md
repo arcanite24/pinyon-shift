@@ -15,7 +15,7 @@ Most settings live in the game, on <kbd>F6</kbd>, and apply at once. MSAA and th
 | --- | --- |
 | <kbd>F6</kbd> | Settings. Also **SETTINGS** in the pause menu |
 | <kbd>F3</kbd> | Performance panel, with the build line (version, commits, build time) to quote in a bug report |
-| <kbd>F7</kbd> | Achievements |
+| <kbd>F7</kbd> | [Achievements](#achievements) |
 | <kbd>F2</kbd> | Hide or show the HUD (minimap, speedometer, banners), for screenshots. Menus and photo mode still draw |
 | <kbd>F8</kbd> | Save the current frame as a PNG photo |
 | <kbd>F10</kbd> | [Trainer](#trainer): credits, game speed, time of day and day length, free camera, any car in any event. Needs cheats on |
@@ -48,6 +48,23 @@ On a controller, hold **Back + Start** together (View + Menu on a Steam Deck) to
 | <kbd>Shift</kbd>+arrows | D-pad. The radio changes station on the D-pad, so use these (the keys behind them are `keybind_dpad_*` and can be rebound) |
 
 Keys can be rebound in **F6 > CONTROLS**, and **RESET KEYS** returns to this layout. An install from before this layout keeps the keys it had until then.
+
+## Achievements
+
+<kbd>F7</kbd> (or **ACHIEVEMENTS** in <kbd>F6</kbd>) opens the achievements screen. The header shows your gamerscore and the festival wristband it has reached: the bands go from Yellow at 5 % of the gamerscore you can earn offline to Gold at 90 %. The first tab, **ALL**, shows everything; the others split the achievements into Career, Racing, Fame, Explore, Festival and Online, with Rally and 1000 Club when those packages are installed.
+
+Each tile shows the icon (grey while locked), the gamerscore and, where the save counts it, a progress bar: wristbands, discount signs and Festival Racers beaten. On **ALL**, the **ALMOST THERE** row lists the three locked ones nearest to unlocking. Online and Rivals achievements need Xbox Live, which is gone, so they are marked and left out of the tiers.
+
+| Pad | Keyboard | Action |
+| --- | --- | --- |
+| LB / RB | <kbd>Q</kbd> / <kbd>E</kbd>, <kbd>Tab</kbd> | Previous / next tab |
+| X | <kbd>R</kbd> | Change the sort: title order, nearest, locked first, recent, value |
+| Y | <kbd>T</kbd> | Track the focused achievement, or stop tracking it |
+| A / B | <kbd>Enter</kbd> / <kbd>Esc</kbd> | Details / back |
+
+The mouse wheel and a swipe scroll, and a click opens a tile. A tracked achievement shows its name and progress on the free-roam HUD until it unlocks; the choice is kept in `achievements/pinyon-shift-ui.toml` beside the unlock records.
+
+An unlock slides in with the icon, a count-up of the gamerscore and the game's own HUD reward sound (`pinyon_shift_achievement_sound`); 50 G achievements get a larger card, and finishing a category or reaching a new wristband adds a banner. `pinyon_shift_achievement_milestones` (off by default) also notifies at a quarter, half and three quarters of a counted achievement, at most once a minute; the tracked one always notifies.
 
 ## Graphics presets
 

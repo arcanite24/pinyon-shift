@@ -333,6 +333,17 @@ confidence = """confirmed"""
 note = """The vfont glyph encoding is probable."""
 source = """docs/UI_ASSETS.md; tools/inspect-fh1-ui.py parse_vfont, parse_fontmap"""
 
+[[finding]]
+group = """Strings and fonts"""
+base = """media/ui/fonts/JPB, KORB, CHTB (.abc, .sbm, _charlist.ini)"""
+v4 = """same"""
+name = """Japanese, Korean and Chinese bitmap fonts"""
+what = """The vector fonts cover Latin and Cyrillic only; Japanese, Korean and Traditional Chinese text comes from three bitmap fonts. `.abc` is a 5-byte header followed by one zlib stream of 65535 eight-byte records, one per BMP code point (record *i* is code point *i*+1): a big-endian offset into `.sbm` (0 = no glyph), a zero byte, then left bearing, ink width and right bearing in half pixels. `.sbm` is a run of zlib streams, one per glyph, each a 24×24 cell stored as two 8-bit layers side by side (48-byte rows); the left layer is the coverage, left-aligned with the baseline on row 19. Each font covers every CJK character in the title's achievement strings. The host UI uses them as the fallback for characters the vector fonts lack (AC-2.7, `src/ui/hostui/bitmap_font.cpp`), scaling one row to 1/20 em so the cap heights match."""
+how = """Decoding the files offline and drawing glyph sheets; coverage check against the XDBF strings; rendered in the achievements screen in Japanese and Korean."""
+confidence = """confirmed"""
+note = """What the right layer holds (an outline or shadow pass) is a guess; the host UI does not use it."""
+source = """docs/ACHIEVEMENTS_UI_BACKLOG.md AC-2.7; src/ui/hostui/bitmap_font.cpp"""
+
 # -------------------------------------------------- Movies and camera shots
 
 [[finding]]

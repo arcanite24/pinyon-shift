@@ -9,6 +9,7 @@
 #include "guest_native/retire_code.h"
 #include "dlc/rally_pace_notes.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
@@ -66,6 +67,9 @@
 #include "mod/overlay_device.h"
 #include "save/car_cards.h"
 #include "save_backups.h"
+#include "achievements/achievement_progress.h"
+#include "achievements/achievement_strings.h"
+#include "ui/achievement_icons.h"
 #include "ui/achievements_menu.h"
 #include "ui/photo_export.h"
 #if !defined(__ANDROID__)
@@ -126,6 +130,11 @@ REXCVAR_DEFINE_INT32(pinyon_shift_save_backup_slots, 10, "Pinyon Shift",
                      "Save backups to keep; older ones are deleted")
     .range(1, 100)
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+REXCVAR_DEFINE_BOOL(pinyon_shift_achievement_sound, true, "Pinyon Shift",
+                    "Play the game's own HUD reward sound when an achievement unlocks");
+REXCVAR_DEFINE_BOOL(pinyon_shift_achievement_milestones, false, "Pinyon Shift",
+                    "Notify at a quarter, half and three quarters of the way to an achievement "
+                    "that counts something (the tracked one always notifies)");
 REXCVAR_DEFINE_BOOL(pinyon_shift_host_xam_dialogs, true, "Pinyon Shift",
                     "Draw the title's message boxes and keyboard with the host UI (the game's "
                     "fonts, pad navigation) instead of the built-in ImGui dialogs")
@@ -137,6 +146,9 @@ REXCVAR_DEFINE_BOOL(pinyon_shift_prepare_all_scales, false, "Pinyon Shift",
 REXCVAR_DEFINE_BOOL(pinyon_shift_capture_performance, true, "Pinyon Shift",
                     "Capture lightweight per-frame performance counters to a session CSV");
 namespace {
+
+// The host UI draws names in the title's capitals.
+std::string UpperText(std::string_view text) { return pinyon_shift::hostui::UpperCase(text); }
 
 std::filesystem::path LongHostPath(std::filesystem::path path) {
 #if REX_PLATFORM_WIN32
@@ -1062,11 +1074,29 @@ bool PinyonShiftApp::EnsureHostUi() {
       return discs;
     });
   }
+  // The tracked achievement's chip (AC-4.4), in free roam only.
+  host_ui_->SetTrackSource([this] {
+    pinyon_shift::hostui::HostUi::TrackChip chip;
+    const auto tracked = achievement_ui_state_ ? achievement_ui_state_->tracked() : std::nullopt;
+    // Gameplay only: not over the pause map, menus or loading screens.
+    if (!tracked || map_view_open_ || !pinyon_shift::achievements::InFreeRoam() || !runtime() ||
+        !runtime()->kernel_state() || achievements().IsUnlocked(*tracked)) {
+      return chip;
+    }
+    const auto info = achievements().FindAchievement(*tracked);
+    if (!info) return chip;
+    chip.title = UpperText(info->label);
+    if (const auto progress = pinyon_shift::achievements::ProgressFor(*tracked)) {
+      chip.progress = std::to_string(progress->current) + " / " + std::to_string(progress->target);
+      chip.fraction = progress->fraction();
+    }
+    chip.icon = EnsureAchievementUi() ? achievement_icons_->Get(*info, false) : nullptr;
+    return chip;
+  });
   host_ui_->HudChanged();
   if (REXCVAR_GET(pinyon_shift_host_xam_dialogs)) {
-    xam_dialogs_ = pinyon_shift::ui::CreateXamDialogs(*host_ui_, [this] {
-      return pinyon_shift::ui::CreateAchievementsScreen(achievements());
-    });
+    xam_dialogs_ = pinyon_shift::ui::CreateXamDialogs(*host_ui_,
+                                                      [this] { return CreateAchievementsMenu(); });
     rex::kernel::xam::SetXamUiProvider(xam_dialogs_.get());
   }
   return true;
@@ -1084,9 +1114,7 @@ void PinyonShiftApp::OpenSettingsMenu() {
     return;
   }
   pinyon_shift::ui::SettingsServices services;
-  services.achievements = [this] {
-    return pinyon_shift::ui::CreateAchievementsScreen(achievements());
-  };
+  services.achievements = [this] { return CreateAchievementsMenu(); };
   services.save_backups = save_backups_.get();
 #if !defined(__ANDROID__)
   // Android leaves through the system's back and home gestures.
@@ -1146,6 +1174,7 @@ void PinyonShiftApp::UpdateHorPlus() {
 
 void PinyonShiftApp::ApplyMapView(bool open) {
   map_view_open_ = open;
+  if (host_ui_) host_ui_->HudChanged();  // the tracked achievement's chip
   // The HUD scale (#520) is for the gameplay HUD; the map's and the menus'
   // screens are drawn through the same HUD view and keep their size.
   rex::cvar::SetFlagByName("fh1_hud_scale_suspended", open ? "true" : "false");
@@ -1527,9 +1556,157 @@ std::unique_ptr<rex::ui::ImGuiDialog> PinyonShiftApp::CreateAchievementsOverlay(
   if (host_ui_ && host_ui_->is_open()) {
     host_ui_->Close();
   } else if (EnsureHostUi()) {
-    host_ui_->Open(pinyon_shift::ui::CreateAchievementsScreen(achievements()));
+    host_ui_->Open(CreateAchievementsMenu());
   }
   return nullptr;
+}
+
+bool PinyonShiftApp::EnsureAchievementUi() {
+  if (!achievement_ui_state_ || !runtime() || !runtime()->kernel_state()) {
+    return false;
+  }
+  if (!achievement_icons_) {
+    if (!immediate_drawer()) return false;
+    // Installed packages sit under the user tree by title (spa.bin there
+    // carries 1000 Club's icons).
+    char title[16]{};
+    std::snprintf(title, sizeof(title), "%08X", runtime()->kernel_state()->title_id());
+    achievement_icons_ = std::make_unique<pinyon_shift::ui::AchievementIcons>(
+        *immediate_drawer(),
+        runtime()->user_data_root() / "0000000000000000" / title / "00000002");
+  }
+  return true;
+}
+
+std::unique_ptr<pinyon_shift::hostui::MenuScreen> PinyonShiftApp::CreateAchievementsMenu() {
+  if (!EnsureAchievementUi()) {
+    return nullptr;
+  }
+  return pinyon_shift::ui::CreateAchievementsScreen(achievements(), achievement_icons_.get(),
+                                                    *achievement_ui_state_);
+}
+
+void PinyonShiftApp::ShowUnlock(const rex::system::AchievementInfo& achievement) {
+  namespace ach = pinyon_shift::achievements;
+  using Spec = pinyon_shift::hostui::HostUi::ToastSpec;
+  if (!EnsureHostUi() || !EnsureAchievementUi()) {
+    return;
+  }
+  const auto meta = ach::FindAchievementMeta(achievement.id);
+  uint32_t earned = 0, available = 0;
+  size_t category_count = 0, category_done = 0;
+  for (const auto& info : achievements().ListAchievements()) {
+    const bool unlocked = achievements().IsUnlocked(info.id);
+    const auto info_meta = ach::FindAchievementMeta(info.id);
+    const bool can_earn = unlocked || !info_meta ||
+                          info_meta->availability == ach::Availability::kAvailable;
+    if (can_earn) available += info.gamerscore;
+    if (unlocked) earned += info.gamerscore;
+    if (meta && info_meta && info_meta->category == meta->category && can_earn) {
+      ++category_count;
+      category_done += unlocked ? 1 : 0;
+    }
+  }
+  Spec spec;
+  const bool large = achievement.gamerscore >= 50;
+  spec.style = large ? Spec::Style::kLarge : Spec::Style::kAchievement;
+  spec.heading = ach::Tr(ach::Text::kToastUnlocked);
+  spec.title = UpperText(achievement.label);
+  spec.gamerscore = achievement.gamerscore;
+  spec.detail = ach::Format(ach::Text::kToastTotal, {std::to_string(earned)});
+  spec.icon = achievement_icons_->Get(achievement, false);
+  if (large) {
+    spec.badge = std::string(ach::StickerFor(achievement.gamerscore));
+  }
+  host_ui_->ShowToast(std::move(spec));
+  if (REXCVAR_GET(pinyon_shift_achievement_sound)) {
+    PinyonShiftPlayNotificationSound();
+  }
+  if (meta && category_count && category_done == category_count) {
+    Spec banner;
+    banner.style = Spec::Style::kBanner;
+    banner.heading = ach::Tr(ach::Text::kToastCategory);
+    banner.title = std::string(ach::CategoryName(meta->category));
+    banner.detail = ach::Format(ach::Text::kToastCategoryDetail,
+                                {std::to_string(category_done), std::to_string(category_count)});
+    banner.badge = "Wristbands/HeadlineEvent.xds";
+    host_ui_->ShowToast(std::move(banner));
+  }
+  const int before = ach::CompletionTier(earned - std::min(earned, achievement.gamerscore), available);
+  const int after = ach::CompletionTier(earned, available);
+  if (after > before && after >= 0) {
+    const auto bands = ach::Wristbands();
+    const auto& band = bands[size_t(std::min(after, int(bands.size()) - 1))];
+    Spec banner;
+    banner.style = Spec::Style::kBanner;
+    banner.heading = ach::Tr(after == 7 ? ach::Text::kToastEverything : ach::Text::kToastTier);
+    banner.title = after == 7 ? std::string(ach::Tr(ach::Text::kToastAllOffline))
+                              : ach::Format(ach::Text::kToastWristband,
+                                            {ach::BandName(std::min(after, 6))});
+    banner.detail =
+        ach::Format(ach::Text::kToastGOf, {std::to_string(earned), std::to_string(available)});
+    banner.badge = std::string(band.texture);
+    banner.badge_uv = ach::kWristbandUv;
+    banner.badge_aspect = ach::kWristbandAspect;
+    host_ui_->ShowToast(std::move(banner));
+  }
+  if (achievement_ui_state_->tracked() == achievement.id) {
+    achievement_ui_state_->SetTracked(std::nullopt);
+    host_ui_->HudChanged();
+  }
+}
+
+void PinyonShiftApp::ShowProgress(pinyon_shift::achievements::ProgressSource source,
+                                  uint32_t previous, uint32_t current) {
+  namespace ach = pinyon_shift::achievements;
+  using Spec = pinyon_shift::hostui::HostUi::ToastSpec;
+  if (!host_ui_ || !runtime() || !runtime()->kernel_state()) {
+    return;
+  }
+  host_ui_->HudChanged();
+  if (previous == 0 || current <= previous || !EnsureAchievementUi()) {
+    return;  // the first read of a value is not progress
+  }
+  // At most one milestone a minute, unless it is the tracked achievement's.
+  static std::chrono::steady_clock::time_point last_shown{};
+  const auto now = std::chrono::steady_clock::now();
+  const auto tracked = achievement_ui_state_->tracked();
+  for (const auto& meta : ach::AllAchievementMeta()) {
+    if (meta.progress != source || meta.target == 0 || current >= meta.target ||
+        achievements().IsUnlocked(meta.id)) {
+      continue;
+    }
+    const bool is_tracked = tracked == meta.id;
+    if (!is_tracked && (!REXCVAR_GET(pinyon_shift_achievement_milestones) ||
+                        now - last_shown < std::chrono::minutes(1))) {
+      continue;
+    }
+    // The highest quarter crossed by this change.
+    int crossed = 0;
+    for (int quarter = 1; quarter <= 3; ++quarter) {
+      const uint32_t mark = (meta.target * uint32_t(quarter) + 3) / 4;
+      if (previous < mark && current >= mark) crossed = quarter;
+    }
+    if (!crossed && !(is_tracked && meta.target <= 10)) {
+      continue;  // small targets notify every step when tracked
+    }
+    const auto info = achievements().FindAchievement(meta.id);
+    if (!info) continue;
+    Spec spec;
+    spec.style = Spec::Style::kMilestone;
+    spec.heading = ach::Tr(is_tracked ? ach::Text::kToastTracked : ach::Text::kToastProgress);
+    spec.title = UpperText(info->label);
+    spec.detail = std::to_string(current) + " / " + std::to_string(meta.target);
+    spec.progress = float(current) / float(meta.target);
+    spec.icon = achievement_icons_->Get(*info, true);
+    host_ui_->ShowToast(std::move(spec));
+    last_shown = now;
+    pinyon_shift::diagnostics::RecordEvent(
+        "achievements.milestone",
+        {{"id", std::to_string(meta.id)}, {"value", std::to_string(current)},
+         {"target", std::to_string(meta.target)}, {"tracked", is_tracked ? "1" : "0"}});
+    break;
+  }
 }
 
 void PinyonShiftApp::OnPreLaunchModule() {
@@ -1539,26 +1716,34 @@ void PinyonShiftApp::OnPreLaunchModule() {
   pinyon_shift::mod::NotifyModuleLaunched();
   PinyonShiftInstallRallySeriesLoader(runtime()->function_dispatcher());
   PinyonShiftInstallCarChallengeProbe(runtime()->function_dispatcher());
-  // Unlocks arrive on guest threads; the toast is drawn on the UI thread.
+  // The achievements screen's remembered state beside the unlock state, and
+  // the tracked achievement's count from the start.
+  achievement_ui_state_ = std::make_unique<pinyon_shift::ui::AchievementUiState>(
+      runtime()->user_data_root() / "achievements" / "pinyon-shift-ui.toml");
+  pinyon_shift::achievements::SetWanted(achievement_ui_state_->tracked().has_value());
+  // Unlocks and progress arrive on guest threads; notifications are drawn on
+  // the UI thread.
   achievement_listener_ = achievements().RegisterNotificationCallback(
       [this](const rex::system::AchievementEvent& event) {
         if (!window()) {
           return;
         }
-        window()->app_context().CallInUIThreadDeferred([this, achievement = event.achievement] {
-          if (!EnsureHostUi()) {
-            return;
-          }
-          if (!achievement_icons_ && immediate_drawer()) {
-            achievement_icons_ =
-                std::make_unique<rex::ui::AchievementIconCache>(immediate_drawer(), runtime());
-          }
-          host_ui_->ShowToast("ACHIEVEMENT UNLOCKED", achievement.label,
-                              std::to_string(achievement.gamerscore) + "G",
-                              achievement_icons_ ? achievement_icons_->GetIcon(achievement)
-                                                 : nullptr);
-        });
+        window()->app_context().CallInUIThreadDeferred(
+            [this, achievement = event.achievement] { ShowUnlock(achievement); });
       });
+  pinyon_shift::achievements::SetChangedCallback(
+      [this](pinyon_shift::achievements::ProgressSource source, uint32_t previous,
+             uint32_t current) {
+        if (!window()) return;
+        window()->app_context().CallInUIThreadDeferred(
+            [this, source, previous, current] { ShowProgress(source, previous, current); });
+      });
+  pinyon_shift::achievements::SetFreeRoamCallback([this](bool) {
+    if (!window()) return;
+    window()->app_context().CallInUIThreadDeferred([this] {
+      if (host_ui_) host_ui_->HudChanged();
+    });
+  });
 }
 
 void PinyonShiftApp::OnPostLaunchModule(rex::system::XThread* thread) {
@@ -1637,12 +1822,15 @@ void PinyonShiftApp::OnShutdown() {
     achievements().UnregisterCallback(achievement_listener_);
     achievement_listener_ = 0;
   }
+  pinyon_shift::achievements::SetChangedCallback(nullptr);
+  pinyon_shift::achievements::SetFreeRoamCallback(nullptr);
   rex::kernel::xam::SetXamUiProvider(nullptr);
   pinyon_shift::mod::SetHudChangedCallback(nullptr);
   pinyon_shift::rally::SetPaceHudChangedCallback(nullptr);
   xam_dialogs_.reset();
   host_ui_.reset();
   achievement_icons_.reset();
+  achievement_ui_state_.reset();
   save_backups_.reset();
   pinyon_shift::fh1_render_test::Stop();
   pinyon_shift::native_renderer::UninstallShaderCapture(
