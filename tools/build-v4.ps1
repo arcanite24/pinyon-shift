@@ -88,6 +88,17 @@ if ($requiresBootstrap) {
             -Step 'Translate the v4 game code' -LogPath $codegenConsoleLog -ExitCode $codegenExit `
             -CommandLine (Format-PinyonCommandLine -FilePath $rexglueExe -Arguments $codegenArguments))
     }
+    # Check the fresh translation only: incremental builds append to the same
+    # log, so a later check would read warnings of older translations.
+    & (Get-PinyonPython) (Join-Path $root 'tools/verify-codegen-log.py') $codegenLog `
+        --allowlist (Join-Path $root 'config/rexglue/accepted-codegen-warnings-v4.json')
+    if ($LASTEXITCODE -ne 0) {
+        foreach ($tree in $generatedTrees) {
+            $stamp = Join-Path $generatedRoot "$tree/codegen.build.stamp"
+            if (Test-Path -LiteralPath $stamp) { Remove-Item -LiteralPath $stamp -Force }
+        }
+        throw 'The v4 code generation log has unreviewed warnings.'
+    }
 }
 # A release install keeps the SDK in .local/rexglue, not in the submodule
 # path the preset names (#459).
@@ -111,9 +122,6 @@ if (Test-Path -LiteralPath $artifacts) {
         Copy-Item -LiteralPath $library.FullName -Destination $built -Force
     }
 }
-& (Get-PinyonPython) (Join-Path $root 'tools/verify-codegen-log.py') (Join-Path $logs 'codegen-v4.log') `
-    --allowlist (Join-Path $root 'config/rexglue/accepted-codegen-warnings-v4.json')
-if ($LASTEXITCODE -ne 0) { throw 'The v4 code generation log has unreviewed warnings.' }
 [void](Write-PinyonBuildInfo -BuildDirectory $built -Variant 'v4' -Cpu $cpu `
     -AnalysisDirectory (Join-Path $root 'config/rexglue/analysis-v4'))
 Write-Host "v4 build ready: $built\pinyon_shift.exe"
