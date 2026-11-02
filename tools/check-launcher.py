@@ -47,7 +47,13 @@ class Check {
                     FileShare.ReadWrite | FileShare.Delete);
                 return new ZipArchive(stream, ZipArchiveMode.Update);
             }
-            catch (IOException) when (attempt < 30) { System.Threading.Thread.Sleep(Math.Min(200 * attempt, 2000)); }
+            catch (IOException) when (attempt < 30) {
+                // CI reported this process itself as the holder for the whole
+                // minute: a stream nobody disposed, which only its finalizer closes.
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                System.Threading.Thread.Sleep(Math.Min(200 * attempt, 2000));
+            }
             catch (IOException error) {
                 throw new IOException($"{error.Message} Held by: {FileHolders(path)}", error);
             }
