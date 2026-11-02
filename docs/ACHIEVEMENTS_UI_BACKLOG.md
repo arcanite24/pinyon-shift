@@ -286,7 +286,7 @@ captures, so the screen was checked from desktop grabs and the
 | AC-2 | Done |
 | AC-2.7 | Done. The screen's and toasts' labels are in `src/achievements/achievement_strings.cpp` for the 14 languages that have achievement strings (EN, JA, DE, FR, ES, IT, KO, ZH-Hant, PT, PL, RU, SV, NB, NL), chosen by `user_language` like the XDBF names; Danish, Finnish, Czech and Hungarian run the title with language 1 and get English, as the title's own achievement names do. Characters the vector fonts lack come from the title's bitmap fonts (`hostui/bitmap_font.cpp`, format on the UI findings page), the order set by the language; long CJK words break between characters. Checked in Japanese, Korean and Russian (screen, chip, toasts); Chinese only by coverage check |
 | AC-3 | Done. Milestones are off by default (`pinyon_shift_achievement_milestones`); the tracked achievement always notifies |
-| AC-4 | Done. Progress refreshes at each profile load and save and every two seconds while the screen or a tracked achievement needs it; the chip hides on the pause map and other 16:9 screens |
+| AC-4 | Done. Progress refreshes at each profile load and save and every two seconds while the screen or a tracked achievement needs it; the chip hides on the pause map and other 16:9 screens. The count first cost 17-40 ms of the title thread every two seconds (one host page query per pointer, about 100 µs each); since 2026-11-02 a pass caches readable pages and the spike is gone (`src/cheats_map.cpp` PassPageCache) |
 
 Not yet checked: the v4 build (Rally and 1000 Club tabs and icons), the
 reference save, the sound by audio capture, controllers, the Deck,
