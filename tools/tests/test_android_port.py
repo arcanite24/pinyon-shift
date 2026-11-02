@@ -16,6 +16,8 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
 
 import pinyon_android  # noqa: E402
+import pinyon_common  # noqa: E402
+import pinyon_shaders  # noqa: E402
 
 
 class AndroidPortTest(unittest.TestCase):
@@ -179,12 +181,20 @@ class AndroidPortTest(unittest.TestCase):
                 pinyon_android.push_data(args)
             remote = (f"{pinyon_android.DEVICE_FILES}/state/cache/shaders/shareable/"
                       f"{pinyon_android.AOT_PIPELINES}")
-            self.assertIn(("push", shareable / pinyon_android.AOT_PIPELINES, remote), calls)
+            self.assertIn(("push", (shareable / pinyon_android.AOT_PIPELINES).resolve(), remote),
+                          calls)
+            # Without --state-root the checkout's state is used, and a list
+            # missing there is written first when the extractor is built.
             calls.clear()
             args.state_root = None
-            with mock.patch.object(pinyon_android, "Tools"),                     mock.patch.object(pinyon_android, "share_with_app"),                     mock.patch.object(pinyon_android, "adb",
+            empty = Path(temp) / "empty"
+            written = []
+            with mock.patch.object(pinyon_android, "Tools"),                     mock.patch.object(pinyon_android, "share_with_app"),                     mock.patch.object(pinyon_common, "default_state_root", return_value=empty),                     mock.patch.object(pinyon_common, "find_extractor",
+                                      return_value=Path(temp) / "build" / "extract"),                     mock.patch.object(pinyon_shaders, "prepare_aot",
+                                      side_effect=lambda *a: written.append(a) or "ready"),                     mock.patch.object(pinyon_android, "adb",
                                       side_effect=lambda tools, args, *command, **_: calls.append(command)):
                 pinyon_android.push_data(args)
+            self.assertEqual(written[0][0], empty.resolve())
             self.assertFalse(any(command[0] == "push" and remote in command for command in calls))
 
 
