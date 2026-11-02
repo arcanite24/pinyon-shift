@@ -43,7 +43,7 @@ python tools/pinyon.py android install
 python tools/pinyon.py android push-data
 ```
 
-`push-data` copies the extracted game into `Android/data/studio.deimos.pinyonshift/files/game/base` and resumes if interrupted. Saves, settings, logs and mods live beside it in `files/state`, laid out as on the PC.
+`push-data` copies the extracted game into `Android/data/studio.deimos.pinyonshift/files/game/base` and resumes if interrupted. It also sends the list of free-roam pipelines the game builds behind the title (written from your disc and DLC on the first push), so new scenery doesn't stop a frame to compile; pass `--state-root` to take it from another PC state. Saves, settings, logs and mods live beside it in `files/state`, laid out as on the PC.
 
 After the game has run once on a device, `python tools/pinyon.py android shader-pack` makes a shader pack for it: it starts the game to the title screen over adb, collects the SPIR-V of every shader the device's pipeline storage names, builds a pack and puts it in the state's shader cache. Later starts load the pack instead of translating those shaders: on the Odin 2 (Adreno 740), 711 shaders, shader translation at start 0.52 to 0.07 s and start to title 2.99 to 2.66 s. The pack belongs to the device and build it was made on; run the command again after updating. Stop the game first; the command refuses while it runs.
 

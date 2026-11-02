@@ -905,9 +905,17 @@ def push_data(args: argparse.Namespace) -> int:
     adb(tools, args, "shell", "mkdir", "-p", f"{DEVICE_FILES}/game/base", f"{DEVICE_FILES}/state")
     adb(tools, args, "push", "--sync", f"{game}{os.sep}.", f"{DEVICE_FILES}/game/base")
     # Free roam's pipelines, rebuilt from this disc by the PC's setup (AOT-4).
-    pipelines = (args.state_root / "cache" / "shaders" / "shareable" / AOT_PIPELINES
-                 if args.state_root else None)
-    if pipelines and pipelines.is_file():
+    # Without them every pipeline the device has not drawn before compiles
+    # mid-frame, so a state that has no list yet gets one written here.
+    import pinyon_common as common
+    import pinyon_shaders
+    state = common.state_root(args.state_root)
+    pipelines = state / "cache" / "shaders" / "shareable" / AOT_PIPELINES
+    extractor = common.find_extractor()
+    if not pipelines.is_file() and extractor:
+        print(f"Ahead-of-time pipelines: "
+              f"{pinyon_shaders.prepare_aot(state, game, extractor.parent, False)}")
+    if pipelines.is_file():
         shareable = f"{DEVICE_FILES}/state/cache/shaders/shareable"
         adb(tools, args, "shell", "mkdir", "-p", shareable)
         adb(tools, args, "push", pipelines, f"{shareable}/{AOT_PIPELINES}", stdout=subprocess.DEVNULL)
@@ -1253,7 +1261,8 @@ def add_parser(commands) -> None:
     parser = command("push-data", push_data, "copy the extracted game files to the device")
     parser.add_argument("--game-root", type=Path)
     parser.add_argument("--state-root", type=Path,
-                        help="the PC state whose ahead-of-time pipeline list goes too")
+                        help="the PC state whose ahead-of-time pipeline list goes too "
+                             "(default: .local/preview; the list is written there if missing)")
     parser = command("push-driver", push_driver,
                      "copy a custom Vulkan driver package (Mesa Turnip) to the device")
     parser.add_argument("driver", type=Path, help="an adrenotools driver .zip or folder")
