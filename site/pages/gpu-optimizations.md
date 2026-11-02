@@ -18,12 +18,33 @@ Single runs mislead. The same build drifts about 4 % between batches on the desk
 | Interleaved A/B | last 600 frames of the scripted race, hidden window, pinned save, three interleaved pairs; median and p95 |
 | ns per draw | recorder changes, judged on heavy frames only |
 | In-run A/B | live settings flipped every 180-300 frames inside one run, for devices that heat up; the error bar comes from disjoint A B A blocks of windows |
-| Frame replay | one dumped frame replayed 1,210 times; the median repeats within 0.02 ms, on any device |
+| Frame replay | fixed command input; require byte-identical controls, valid GPU samples and no pacing floor |
 | Knock-out | skip one phase, accept a wrong image, time the frame |
 | Per-frame CSV | GPU time, draws, waits and per-thread CPU for every frame |
 | Nsight GPU Trace, driver IR dumps, pipeline statistics | finding what the GPU is bound by |
 
-GPU timestamps around each phase cost 2–5 ms a frame and overstate the phases several times, because each one waits for the queued draws. Knock-outs gave the true costs.
+GPU timestamps around each phase cost 2–5 ms a frame and overstate the phases several times, because each one waits for the queued draws. Knock-outs measure the marginal frame cost, including changes to dependent work; a CPU or display limit can hide GPU work they remove.
+
+### Measuring modern replacements
+
+The default-off `fh1_debug_skip_renderings` selector and hot
+`fh1_debug_skip_rendering_draws` toggle suppress draw commands for exact
+attachment labels while retaining state setup, clears, resolves and fences.
+Memory-export draws and draws inside guest occlusion queries remain. The
+image is deliberately wrong: this measures a candidate's scope before a
+replacement is designed. Render-target reuse still needs shader and resolve
+traces to separate semantic passes.
+
+Offline benchmarks retain byte-identical control images and reject missing
+GPU samples. `fh1_frame_replay_present=false` removes host presentation from
+offline replays so swapchain acquisition cannot impose a display-rate floor;
+normal gameplay and the inspector keep presenting. The main-scene group
+saved 8.19 ± 0.12 ms on the M4 Pro at 2x/4x in three replay blocks, and
+28.06 ± 0.16 ms on a UHD 620 at 1x/MSAA off. These are marginal GPU frame
+spans, not promised replacement savings. The Deck and desktop need live
+controls because replay also serializes decoding and recording. No modern
+replacement is enabled by these probes. See the
+[method, device settings and open candidates](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/MODERN_RENDERING_RESEARCH.md).
 
 ## The recorder thread
 
