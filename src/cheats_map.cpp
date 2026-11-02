@@ -596,6 +596,29 @@ bool UseMapRoadFallback(uint32_t map, bool admitted) {
 
 bool ShowCollectibles() { return Enabled() && REXCVAR_GET(cheat_show_collectibles); }
 
+std::optional<CollectibleCount> CountCollectibles() {
+  const uint32_t manager = ActivityManager();
+  if (manager == 0) return std::nullopt;
+  const uint32_t begin = Load32(manager + kManagerBegin);
+  const uint32_t end = Load32(manager + kManagerEnd);
+  if (end < begin || (end - begin) % 4 != 0 || end - begin > 4 * 4096 ||
+      !Readable(begin, end - begin)) {
+    return std::nullopt;
+  }
+  CollectibleCount count;
+  for (uint32_t slot = begin; slot < end; slot += 4) {
+    const uint32_t activity = LoadPointer(slot, kBarnFindCollected + 1);
+    if (activity == 0) continue;
+    const auto item = Inspect(activity);
+    if (!item) continue;
+    (item->flyer ? count.discount_signs : count.barn_finds) += 1;
+    (item->flyer ? count.discount_signs_found : count.barn_finds_found) += item->found ? 1 : 0;
+  }
+  if (count.discount_signs + count.barn_finds == 0) return std::nullopt;
+  count.free_roam = FreeRoam();
+  return count;
+}
+
 void UpdateCollectibleMarkers() {
   // Activities come and go with free roam (loads, events), so while the cheat
   // is on a pass runs twice a second; the markers it adds stay until a pass

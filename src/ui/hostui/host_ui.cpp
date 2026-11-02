@@ -10,6 +10,7 @@
 #include <rex/kernel/xam/module.h>
 #include <rex/logging.h>
 #include <rex/filesystem.h>
+#include <rex/cvar.h>
 #include <rex/rex_app.h>
 #include <rex/ui/presenter.h>
 #include <rex/ui/ui_event.h>
@@ -56,9 +57,6 @@ constexpr size_t kVisibleRows = 8;
 // ragged border.
 constexpr UvRect kSelectionMaskPanel = {0.21f, 0.12f, 0.79f, 0.87f};
 
-constexpr uint32_t Rgba(uint32_t r, uint32_t g, uint32_t b, uint32_t a = 255) {
-  return r | g << 8 | b << 16 | a << 24;
-}
 constexpr uint32_t kWhite = Rgba(255, 255, 255);
 constexpr uint32_t kDimWhite = Rgba(255, 255, 255, 215);
 constexpr uint32_t kDisabled = Rgba(255, 255, 255, 90);
@@ -76,18 +74,24 @@ constexpr const char* kFontMembers[][2] = {
 };
 
 std::unique_ptr<ImmediateTexture> LoadTexture(rex::ui::ImmediateDrawer& drawer,
-                                              const Fh1Archive& archive, const char* name,
-                                              bool white) {
+                                              const Fh1Archive& archive, std::string_view name,
+                                              TextureMode mode) {
   auto data = archive.Read(name);
   auto image = data ? DecodeXds(*data) : std::nullopt;
   if (!image) {
     REXLOG_WARN("Host UI: could not load texture {}", name);
     return nullptr;
   }
-  if (white) {
-    // Masks carry their shape in alpha; the vertex colour tints them.
+  if (mode != TextureMode::kColor) {
+    // Masks carry their shape in alpha, glow art on black in its
+    // brightness; the vertex colour tints them.
     for (size_t i = 0; i < image->rgba.size(); i += 4) {
-      image->rgba[i] = image->rgba[i + 1] = image->rgba[i + 2] = 255;
+      uint8_t* texel = &image->rgba[i];
+      if (mode == TextureMode::kLuminance) {
+        texel[3] = uint8_t((uint32_t(texel[0]) * 54 + uint32_t(texel[1]) * 183 +
+                            uint32_t(texel[2]) * 19) >> 8);
+      }
+      texel[0] = texel[1] = texel[2] = 255;
     }
   }
   return drawer.CreateTexture(image->width, image->height, ImmediateTextureFilter::kLinear, false,
@@ -143,7 +147,19 @@ void HostUi::ShowToast(std::string heading, std::string title, std::string detai
   if (!LoadAssets()) {
     return;
   }
-  toasts_.push_back(Toast{std::move(heading), std::move(title), std::move(detail), icon});
+  ToastSpec spec;
+  spec.heading = std::move(heading);
+  spec.title = std::move(title);
+  spec.detail = std::move(detail);
+  spec.icon = icon;
+  ShowToast(std::move(spec));
+}
+
+void HostUi::ShowToast(ToastSpec spec) {
+  if (!LoadAssets()) {
+    return;
+  }
+  toasts_.push_back(Toast{std::move(spec)});
   EnsureDrawer();
   RequestPaint();
 }
@@ -175,12 +191,26 @@ bool HostUi::LoadAssets() {
       return false;
     }
   }
+  {
+    // XDBF and string-table languages 2 (Japanese), 7 (Korean) and 8
+    // (Traditional Chinese) put their own font first; kanji are in two.
+    const std::string language = rex::cvar::GetFlagByName("user_language");
+    std::vector<std::string_view> names = {"JPB", "KORB", "CHTB"};
+    if (language == "7") names = {"KORB", "JPB", "CHTB"};
+    if (language == "8") names = {"CHTB", "JPB", "KORB"};
+    for (const auto name : names) {
+      if (auto font = BitmapFont::Load(ui_root / "fonts", name)) {
+        fallback_fonts_.push_back(std::move(font));
+      }
+    }
+  }
   const uint8_t white[4] = {255, 255, 255, 255};
   white_ = drawer_.CreateTexture(1, 1, ImmediateTextureFilter::kNearest, false, white);
   if (auto textures = Fh1Archive::Open(ui_root / "textures" / "Horizon.zip")) {
-    selection_mask_ = LoadTexture(drawer_, *textures, "DirtMasks/SelectionContainer.xds", true);
-    button_a_ = LoadTexture(drawer_, *textures, "Controller/A_Button.xds", false);
-    button_b_ = LoadTexture(drawer_, *textures, "Controller/B_Button.xds", false);
+    selection_mask_ =
+        LoadTexture(drawer_, *textures, "DirtMasks/SelectionContainer.xds", TextureMode::kMask);
+    button_a_ = LoadTexture(drawer_, *textures, "Controller/A_Button.xds", TextureMode::kColor);
+    button_b_ = LoadTexture(drawer_, *textures, "Controller/B_Button.xds", TextureMode::kColor);
   } else {
     REXLOG_WARN("Host UI: cannot open Horizon.zip; drawing without textures");
   }
@@ -277,6 +307,10 @@ void HostUi::Close() {
     screen->NotifyBack();
   }
   row_rects_.clear();
+  hit_rects_.clear();
+  hovered_target_ = -1;
+  pointer_down_ = false;
+  painted_screen_ = nullptr;
   if (!registered_) {
     return;
   }
@@ -297,7 +331,7 @@ void HostUi::FinishClose() {
   registered_ = false;
   window_.RemoveInputListener(this);
   SetGuestUiActive(false);
-  if (toasts_.empty()) {
+  if (toasts_.empty() && !HasHud()) {
     ReleaseDrawer();
   }
   // Unregistered: the drawer, the input listener and the guest input
@@ -478,7 +512,10 @@ HostUi::Text& HostUi::TextFor(Face face, float title_pixels) {
       return text;
     }
   }
-  atlases_.push_back(std::make_unique<GlyphAtlas>(*fonts_[size_t(face)], float(pixels)));
+  std::vector<const BitmapFont*> fallbacks;
+  for (const auto& font : fallback_fonts_) fallbacks.push_back(font.get());
+  atlases_.push_back(
+      std::make_unique<GlyphAtlas>(*fonts_[size_t(face)], float(pixels), std::move(fallbacks)));
   Text text;
   text.atlas = atlases_.back().get();
   texts_.emplace_back(key, std::move(text));
@@ -525,11 +562,7 @@ float HostUi::DrawText(Face face, float title_pixels, std::string_view string, f
     if (entry->width && entry->height) {
       const float x0 = std::round(pen_x) + float(entry->left);
       const float y0 = pen_y + float(entry->top);
-      if (batches_.empty() || batches_.back().texture != text.texture.get() ||
-          batches_.back().vertices.size() > 60000) {
-        batches_.push_back(Batch{.texture = text.texture.get()});
-      }
-      Batch& batch = batches_.back();
+      Batch& batch = BatchFor(text.texture.get());
       const auto base = uint16_t(batch.vertices.size());
       const float u0 = float(entry->x) * inverse_width;
       const float v0 = float(entry->y) * inverse_height;
@@ -551,11 +584,12 @@ float HostUi::DrawText(Face face, float title_pixels, std::string_view string, f
 }
 
 float HostUi::DrawWrapped(Face face, float title_pixels, std::string_view text, float x,
-                          float top, float width, uint32_t color) {
+                          float top, float width, uint32_t color, int max_lines) {
   Text& measure = TextFor(face, title_pixels);
   const float line_height = title_pixels * 1.25f;
   float y = top;
   size_t start = 0;
+  int lines = 0;
   while (start < text.size()) {
     // The longest run of whole words that fits; a hard break ends a line.
     size_t end = start, fitted = start;
@@ -566,7 +600,21 @@ float HostUi::DrawWrapped(Face face, float title_pixels, std::string_view text, 
       }
       const std::u32string candidate = DecodeUtf8(text.substr(start, next - start));
       PrepareText(measure, candidate);
-      if (fitted != start && measure.atlas->Measure(candidate) / canvas_.scale > width) {
+      if (measure.atlas->Measure(candidate) / canvas_.scale > width) {
+        if (fitted == start) {
+          // One word wider than the line, as Japanese, Korean and Chinese
+          // text without spaces is: break between characters.
+          size_t at = start;
+          while (at < next) {
+            size_t step = at + 1;
+            while (step < next && (uint8_t(text[step]) & 0xC0) == 0x80) ++step;
+            const std::u32string prefix = DecodeUtf8(text.substr(start, step - start));
+            PrepareText(measure, prefix);
+            if (at != start && measure.atlas->Measure(prefix) / canvas_.scale > width) break;
+            at = step;
+          }
+          fitted = end = at;
+        }
         break;
       }
       fitted = next;
@@ -580,6 +628,28 @@ float HostUi::DrawWrapped(Face face, float title_pixels, std::string_view text, 
       fitted = std::min(text.size(), start + 1);
     }
     y += line_height;
+    if (max_lines > 0 && ++lines == max_lines && fitted < text.size()) {
+      // The last line allowed: end it in an ellipsis that still fits.
+      std::string line(text.substr(start, fitted - start));
+      const auto fits = [&](const std::string& candidate) {
+        const std::u32string decoded = DecodeUtf8(candidate + "...");
+        PrepareText(measure, decoded);
+        return measure.atlas->Measure(decoded) / canvas_.scale <= width;
+      };
+      while (!line.empty() && !fits(line)) {
+        const size_t space = line.find_last_of(' ');
+        if (space != std::string::npos) {
+          line.resize(space);
+        } else {
+          // Text without spaces: drop one whole character.
+          size_t cut = line.size() - 1;
+          while (cut > 0 && (uint8_t(line[cut]) & 0xC0) == 0x80) --cut;
+          line.resize(cut);
+        }
+      }
+      DrawText(face, title_pixels, line + "...", x, y, color);
+      break;
+    }
     DrawText(face, title_pixels, text.substr(start, fitted - start), x, y, color);
     start = fitted;
     while (start < text.size() && (text[start] == ' ' || text[start] == '\n')) {
@@ -601,29 +671,46 @@ void HostUi::DrawRect(float x, float y, float width, float height, uint32_t colo
 void HostUi::DrawGradient(float x, float y, float width, float height, uint32_t left_color,
                           uint32_t right_color, ImmediateTexture* texture, float skew,
                           UvRect uv) {
+  DrawQuad(x, y, width, height, {left_color, right_color, right_color, left_color}, texture,
+           skew, uv);
+}
+
+void HostUi::DrawQuad(float x, float y, float width, float height,
+                      const uint32_t (&colors)[4], ImmediateTexture* texture, float skew,
+                      UvRect uv) {
   // Solid fills sample a white texel: the drawer's untextured path draws
   // nothing here.
   if (!texture) {
     texture = white_.get();
   }
-  if (batches_.empty() || batches_.back().texture != texture ||
-      batches_.back().vertices.size() > 60000) {
-    batches_.push_back(Batch{.texture = texture});
-  }
-  Batch& batch = batches_.back();
+  Batch& batch = BatchFor(texture);
   const float x0 = canvas_.x + x * canvas_.scale;
   const float y0 = canvas_.y + y * canvas_.scale;
   const float x1 = x0 + width * canvas_.scale;
   const float y1 = y0 + height * canvas_.scale;
   const float shift = skew * canvas_.scale;
   const auto base = uint16_t(batch.vertices.size());
-  batch.vertices.push_back({x0 + shift, y0, uv.u0, uv.v0, left_color});
-  batch.vertices.push_back({x1 + shift, y0, uv.u1, uv.v0, right_color});
-  batch.vertices.push_back({x1, y1, uv.u1, uv.v1, right_color});
-  batch.vertices.push_back({x0, y1, uv.u0, uv.v1, left_color});
+  batch.vertices.push_back({x0 + shift, y0, uv.u0, uv.v0, colors[0]});
+  batch.vertices.push_back({x1 + shift, y0, uv.u1, uv.v0, colors[1]});
+  batch.vertices.push_back({x1, y1, uv.u1, uv.v1, colors[2]});
+  batch.vertices.push_back({x0, y1, uv.u0, uv.v1, colors[3]});
   for (uint16_t index : {0, 1, 2, 0, 2, 3}) {
     batch.indices.push_back(uint16_t(base + index));
   }
+}
+
+HostUi::Batch& HostUi::BatchFor(ImmediateTexture* texture) {
+  const auto same_clip = [this](const Batch& batch) {
+    return batch.clipped == clipping_ &&
+           (!clipping_ || std::equal(std::begin(clip_), std::end(clip_), batch.clip));
+  };
+  if (batches_.empty() || batches_.back().texture != texture || !same_clip(batches_.back()) ||
+      batches_.back().vertices.size() > 60000) {
+    Batch batch{.texture = texture, .clipped = clipping_};
+    std::copy(std::begin(clip_), std::end(clip_), batch.clip);
+    batches_.push_back(std::move(batch));
+  }
+  return batches_.back();
 }
 
 void HostUi::RecordLayout(const std::string& title, size_t first_batch, size_t first_vertex) {
@@ -674,6 +761,13 @@ void HostUi::Flush() {
     rex::ui::ImmediateDraw draw;
     draw.count = int(batch.indices.size());
     draw.texture = batch.texture;
+    if (batch.clipped) {
+      draw.scissor = true;
+      draw.scissor_left = batch.clip[0];
+      draw.scissor_top = batch.clip[1];
+      draw.scissor_right = batch.clip[2];
+      draw.scissor_bottom = batch.clip[3];
+    }
     drawer_.Draw(draw);
     drawer_.EndDrawBatch();
   }
@@ -699,15 +793,23 @@ void HostUi::Draw(rex::ui::UIDrawContext& context) {
     DrawHud(context);
     DrawRallyPace(context);
     DrawOverlay(context);
+    DrawTrackChip(context);
   }
   DrawToasts(context);
-  if (!registered_ && toasts_.empty() && !HasHud()) {
-    ReleaseDrawer();
+  if (!registered_ && toasts_.empty()) {
+    // Disc textures stay only while a menu or a notification uses them.
+    horizon_textures_.clear();
+    horizon_archive_.reset();
+    horizon_archive_failed_ = false;
+    if (!HasHud()) {
+      ReleaseDrawer();
+    }
   }
 }
 
 bool HostUi::HasHud() const {
   return (hud_source_ && !hud_source_().empty()) ||
+         (track_source_ && !track_source_().title.empty()) ||
          (rally_pace_source_ && !rally_pace_source_().icons.empty()) ||
          (overlay_source_ && !overlay_source_().empty());
 }
@@ -797,12 +899,7 @@ void HostUi::DrawOverlay(rex::ui::UIDrawContext& context) {
 }
 
 void HostUi::DrawDisc(float x, float y, float radius, uint32_t color) {
-  ImmediateTexture* texture = white_.get();
-  if (batches_.empty() || batches_.back().texture != texture ||
-      batches_.back().vertices.size() > 60000) {
-    batches_.push_back(Batch{.texture = texture});
-  }
-  Batch& batch = batches_.back();
+  Batch& batch = BatchFor(white_.get());
   constexpr int kSegments = 32;
   const auto centre = uint16_t(batch.vertices.size());
   batch.vertices.push_back({x, y, 0.5f, 0.5f, color});
@@ -856,49 +953,403 @@ bool HostUi::PrepareCanvas(rex::ui::UIDrawContext& context) {
   return true;
 }
 
+namespace {
+
+float EaseOut(float t) {
+  t = std::clamp(t, 0.0f, 1.0f);
+  return 1.0f - (1.0f - t) * (1.0f - t) * (1.0f - t);
+}
+
+// Overshoots a little before settling at 1 (a pop).
+float EaseBack(float t) {
+  t = std::clamp(t, 0.0f, 1.0f);
+  constexpr float kOvershoot = 1.9f;
+  const float u = t - 1.0f;
+  return 1.0f + u * u * ((kOvershoot + 1.0f) * u + kOvershoot);
+}
+
+}  // namespace
+
 void HostUi::DrawToasts(rex::ui::UIDrawContext& context) {
   if (toasts_.empty() || !PrepareCanvas(context)) {
     return;
   }
-  // One at a time, 5 s each with a quarter-second fade at both ends, in the
-  // top of the safe area where the title's own notifications do not sit.
-  constexpr float kShowSeconds = 5.0f;
-  constexpr float kFadeSeconds = 0.25f;
+  // One at a time in the top of the safe area, where the title's own
+  // notifications do not sit: plain ones 5 s with a quarter-second fade,
+  // achievement ones a little longer for their entrance.
   const auto now = std::chrono::steady_clock::now();
   Toast& toast = toasts_.front();
   if (toast.shown == std::chrono::steady_clock::time_point{}) {
     toast.shown = now;
   }
+  using Style = ToastSpec::Style;
+  const Style style = toast.spec.style;
+  const float show_seconds = style == Style::kPlain       ? 5.0f
+                             : style == Style::kMilestone ? 4.0f
+                             : style == Style::kLarge     ? 7.0f
+                                                          : 6.0f;
   const float age = std::chrono::duration<float>(now - toast.shown).count();
-  if (age >= kShowSeconds) {
+  if (age >= show_seconds) {
     toasts_.erase(toasts_.begin());
     RequestPaint();
     return;
   }
-  const float alpha = std::clamp(std::min(age, kShowSeconds - age) / kFadeSeconds, 0.0f, 1.0f);
-  const auto fade = [alpha](uint32_t color) {
-    return (color & 0x00FFFFFFu) | (uint32_t(float(color >> 24) * alpha) << 24);
-  };
-  constexpr float kWidth = 520.0f, kHeight = 96.0f;
-  const float left = (kTitleWidth - kWidth) * 0.5f;
-  const float top = kSafeTop + 8.0f;
   drawer_.Begin(context, float(context.render_target_width()),
                 float(context.render_target_height()));
-  DrawGradient(left, top, kWidth, kHeight, fade(kBackdropLeft), fade(kBackdropRight));
-  DrawRect(left, top, 8.0f, kHeight, fade(kMagenta));
-  float text_left = left + 28.0f;
-  if (toast.icon) {
-    DrawRect(left + 24.0f, top + 16.0f, 64.0f, 64.0f, fade(kWhite), toast.icon);
-    text_left = left + 104.0f;
-  }
-  DrawText(Face::kLabel, kBadgeSize, toast.heading, text_left, top + 28.0f, fade(kMagenta));
-  DrawText(Face::kDisplay, 30.0f, toast.title, text_left, top + 60.0f, fade(kWhite));
-  if (!toast.detail.empty()) {
-    DrawText(Face::kLabel, kBadgeSize, toast.detail, text_left, top + 84.0f, fade(kDimWhite));
+  if (style == Style::kPlain) {
+    constexpr float kFadeSeconds = 0.25f;
+    DrawPlainToast(toast,
+                   std::clamp(std::min(age, show_seconds - age) / kFadeSeconds, 0.0f, 1.0f));
+  } else {
+    DrawAchievementToast(toast, age, show_seconds);
   }
   Flush();
   drawer_.End();
   RequestPaint();
+}
+
+void HostUi::DrawPlainToast(const Toast& toast, float alpha) {
+  const auto fade = [alpha](uint32_t color) { return Fade(color, alpha); };
+  const ToastSpec& spec = toast.spec;
+  constexpr float kWidth = 520.0f, kHeight = 96.0f;
+  const float left = (kTitleWidth - kWidth) * 0.5f;
+  const float top = kSafeTop + 8.0f;
+  DrawGradient(left, top, kWidth, kHeight, fade(kBackdropLeft), fade(kBackdropRight));
+  DrawRect(left, top, 8.0f, kHeight, fade(kMagenta));
+  float text_left = left + 28.0f;
+  if (spec.icon) {
+    DrawRect(left + 24.0f, top + 16.0f, 64.0f, 64.0f, fade(kWhite), spec.icon);
+    text_left = left + 104.0f;
+  }
+  DrawText(Face::kLabel, kBadgeSize, spec.heading, text_left, top + 28.0f, fade(kMagenta));
+  DrawText(Face::kDisplay, 30.0f, spec.title, text_left, top + 60.0f, fade(kWhite));
+  if (!spec.detail.empty()) {
+    DrawText(Face::kLabel, kBadgeSize, spec.detail, text_left, top + 84.0f, fade(kDimWhite));
+  }
+}
+
+void HostUi::DrawAchievementToast(const Toast& toast, float age, float show_seconds) {
+  using Style = ToastSpec::Style;
+  const ToastSpec& spec = toast.spec;
+  const bool large = spec.style == Style::kLarge;
+  const bool milestone = spec.style == Style::kMilestone;
+  const bool banner = spec.style == Style::kBanner;
+  const float width = large || banner ? 640.0f : 560.0f;
+  const float height = large || banner ? 124.0f : milestone ? 92.0f : 104.0f;
+  // In: a 0.3 s slide down from above the screen; out: the reverse.
+  const float in = EaseOut(age / 0.3f);
+  const float out = EaseOut((show_seconds - age) / 0.35f);
+  const float shown = std::min(in, out);
+  const float alpha = std::clamp(shown * 1.4f, 0.0f, 1.0f);
+  const auto fade = [alpha](uint32_t color) { return Fade(color, alpha); };
+  const float left = (kTitleWidth - width) * 0.5f;
+  const float rest = kSafeTop + 8.0f;
+  const float top = rest - (1.0f - shown) * (height + rest);
+
+  // A soft shadow, the panel, a grain of the title's dirt texture over it and
+  // the magenta edge of the pause menu.
+  if (ImmediateTexture* shadow = HorizonTexture("menu_shadow.xds", TextureMode::kColor)) {
+    DrawRect(left - 24.0f, top - 12.0f, width + 48.0f, height + 40.0f,
+             fade(Rgba(0, 0, 0, 170)), shadow);
+  }
+  DrawGradient(left, top, width, height, fade(Rgba(14, 10, 20, 245)),
+               fade(Rgba(30, 14, 34, 225)));
+  if (ImmediateTexture* grain = HorizonTexture("DirtMasks/Panel01.xds", TextureMode::kMask)) {
+    DrawRect(left, top, width, height, fade(Rgba(255, 255, 255, 14)), grain);
+  }
+  DrawRect(left, top, 8.0f, height, fade(kMagenta));
+  DrawRect(left + 8.0f, top + height - 3.0f, width - 8.0f, 3.0f, fade(Rgba(230, 0, 126, 120)));
+
+  float text_left = left + 30.0f;
+  const float icon_size = large || banner ? 88.0f : 72.0f;
+  const float icon_x = left + 26.0f, icon_y = top + (height - icon_size) * 0.5f;
+  if (large) {
+    // A warm glow blooms behind the icon of the bigger unlocks.
+    if (ImmediateTexture* glow = HorizonTexture("light_leak.xds", TextureMode::kLuminance)) {
+      const float bloom = EaseOut((age - 0.2f) / 0.6f);
+      DrawRect(icon_x - 40.0f, icon_y - 40.0f, icon_size + 80.0f, icon_size + 80.0f,
+               fade(Fade(Rgba(255, 180, 60), 0.75f * bloom)), glow);
+    }
+  }
+  if (banner && !spec.badge.empty()) {
+    // The banner's badge (a wristband) slides in from the left.
+    if (ImmediateTexture* badge = HorizonTexture(spec.badge, TextureMode::kColor)) {
+      const float badge_height = icon_size * 0.9f;
+      const float badge_width = badge_height * spec.badge_aspect;
+      const float slide = (1.0f - EaseBack((age - 0.15f) / 0.5f)) * 40.0f;
+      DrawRect(icon_x - slide, top + (height - badge_height) * 0.5f, badge_width, badge_height,
+               fade(kWhite), badge, 0.0f, spec.badge_uv);
+      text_left = icon_x + badge_width + 22.0f;
+    }
+  } else if (spec.icon) {
+    // The icon pops in after the panel arrives.
+    const float pop = EaseBack((age - 0.18f) / 0.42f);
+    const float size = icon_size * std::max(pop, 0.0f);
+    const float cx = icon_x + icon_size * 0.5f, cy = icon_y + icon_size * 0.5f;
+    DrawRect(cx - size * 0.5f - 3.0f, cy - size * 0.5f - 3.0f, size + 6.0f, size + 6.0f,
+             fade(Rgba(255, 255, 255, 60)));
+    DrawRect(cx - size * 0.5f, cy - size * 0.5f, size, size, fade(kWhite), spec.icon);
+    text_left = icon_x + icon_size + 22.0f;
+  }
+
+  const float title_size = large || banner ? 34.0f : 30.0f;
+  const float heading_y = top + (milestone ? 26.0f : large || banner ? 34.0f : 30.0f);
+  DrawText(Face::kLabel, kBadgeSize, spec.heading, text_left, heading_y,
+           fade(large ? Rgba(255, 190, 70) : kMagenta));
+  const float title_y = heading_y + title_size + 2.0f;
+  DrawText(Face::kDisplay, title_size, spec.title, text_left, title_y, fade(kWhite));
+
+  const float detail_y = title_y + 26.0f;
+  if (milestone && spec.progress >= 0.0f) {
+    // The milestone's bar fills to its new value.
+    const float bar_width = left + width - 32.0f - text_left;
+    const float fill = std::clamp(spec.progress, 0.0f, 1.0f) * EaseOut((age - 0.25f) / 0.8f);
+    ImmediateTexture* empty = HorizonTexture("DirtTextures/StatBarEmpty.xds", TextureMode::kMask);
+    ImmediateTexture* full = HorizonTexture("DirtTextures/StatBarFill.xds", TextureMode::kMask);
+    constexpr UvRect kBar = {0.0f, 0.28f, 1.0f, 0.69f};
+    DrawRect(text_left, detail_y - 14.0f, bar_width, 12.0f, fade(Rgba(255, 255, 255, 50)), empty,
+             0.0f, kBar);
+    DrawRect(text_left, detail_y - 14.0f, bar_width * fill, 12.0f, fade(kMagenta), full, 0.0f,
+             {0.0f, kBar.v0, fill, kBar.v1});
+    DrawText(Face::kLabel, kBadgeSize, spec.detail, left + width - 32.0f, heading_y,
+             fade(kWhite), 1.0f);
+  } else {
+    float detail_x = text_left;
+    if (spec.gamerscore) {
+      // The gamerscore counts up, then the rest of the line follows.
+      const float count = EaseOut((age - 0.4f) / 0.8f);
+      const auto shown_score = uint32_t(std::lround(float(spec.gamerscore) * count));
+      detail_x += DrawText(Face::kLabel, kValueSize - 4.0f, "+" + std::to_string(shown_score) + "G",
+                           detail_x, detail_y, fade(Rgba(255, 190, 70))) +
+                  14.0f;
+    }
+    if (!spec.detail.empty()) {
+      DrawText(Face::kLabel, kBadgeSize, spec.detail, detail_x, detail_y - 2.0f,
+               fade(kDimWhite));
+    }
+  }
+
+  if (large && !spec.badge.empty()) {
+    // The trophy sticker lands on the right.
+    if (ImmediateTexture* sticker = HorizonTexture(spec.badge, TextureMode::kColor)) {
+      const float land = EaseBack((age - 0.55f) / 0.45f);
+      const float size = 84.0f * std::max(land, 0.0f);
+      const float cx = left + width - 60.0f, cy = top + height * 0.5f;
+      DrawRect(cx - size * 0.5f, cy - size * 0.5f, size, size, fade(kWhite), sticker, 0.0f,
+               spec.badge_uv);
+    }
+  }
+
+  // One sheen pass across the panel once it has landed.
+  if (ImmediateTexture* sheen = HorizonTexture("Specular/SPEC_sheen.xds", TextureMode::kLuminance)) {
+    const float pass = (age - 0.55f) / 0.7f;
+    if (pass > 0.0f && pass < 1.0f) {
+      const float sheen_width = 120.0f;
+      const float x = left - sheen_width + (width + sheen_width) * pass;
+      const float clip_left = std::max(x, left), clip_right = std::min(x + sheen_width, left + width);
+      if (clip_right > clip_left) {
+        const float u0 = (clip_left - x) / sheen_width, u1 = (clip_right - x) / sheen_width;
+        DrawRect(clip_left, top, clip_right - clip_left, height,
+                 fade(Rgba(255, 255, 255, 70)), sheen, 0.0f, {u0, 0.0f, u1, 1.0f});
+      }
+    }
+  }
+}
+
+void HostUi::DrawTrackChip(rex::ui::UIDrawContext& context) {
+  if (!track_source_) return;
+  const TrackChip chip = track_source_();
+  if (chip.title.empty() || !PrepareCanvas(context)) return;
+  // Under the top-left corner of the safe area: small, out of the way of the
+  // title's free-roam HUD and of the notifications at the top centre.
+  constexpr float kWidth = 300.0f, kHeight = 58.0f;
+  const float left = kSafeLeft, top = kSafeTop + 92.0f;
+  drawer_.Begin(context, float(context.render_target_width()),
+                float(context.render_target_height()));
+  DrawGradient(left, top, kWidth, kHeight, Rgba(10, 8, 16, 200), Rgba(10, 8, 16, 90));
+  DrawRect(left, top, 4.0f, kHeight, kMagenta);
+  float text_left = left + 14.0f;
+  if (chip.icon) {
+    DrawRect(left + 12.0f, top + 9.0f, 40.0f, 40.0f, kWhite, chip.icon);
+    text_left = left + 62.0f;
+  }
+  const float bar_width = left + kWidth - 12.0f - text_left;
+  const float counter =
+      chip.progress.empty()
+          ? 0.0f
+          : DrawText(Face::kLabel, kBadgeSize - 2.0f, chip.progress, left + kWidth - 12.0f,
+                     top + 22.0f, Rgba(255, 190, 70), 1.0f) + 10.0f;
+  // The title gets what the counter leaves, ending in an ellipsis if longer
+  // (one line; DrawWrapped puts the baseline a line below its top).
+  DrawWrapped(Face::kLabel, kBadgeSize, chip.title, text_left,
+              top + 22.0f - kBadgeSize * 1.25f, bar_width - counter, kWhite, 1);
+  DrawRect(text_left, top + 34.0f, bar_width, 6.0f, Rgba(255, 255, 255, 50));
+  DrawRect(text_left, top + 34.0f, bar_width * std::clamp(chip.fraction, 0.0f, 1.0f), 6.0f,
+           kMagenta);
+  Flush();
+  drawer_.End();
+}
+
+// Painter for a painted screen: forwards to the host UI's drawing in title
+// pixels.
+class ScreenPainter final : public Painter {
+ public:
+  explicit ScreenPainter(HostUi& host, float seconds) : host_(host), seconds_(seconds) {}
+
+  void Rect(float x, float y, float width, float height, uint32_t color,
+            ImmediateTexture* texture, float skew, UvRect uv) override {
+    host_.DrawRect(x, y, width, height, color, texture, skew, uv);
+  }
+  void Gradient(float x, float y, float width, float height, uint32_t left, uint32_t right,
+                ImmediateTexture* texture, float skew, UvRect uv) override {
+    host_.DrawGradient(x, y, width, height, left, right, texture, skew, uv);
+  }
+  void VerticalGradient(float x, float y, float width, float height, uint32_t top,
+                        uint32_t bottom) override {
+    host_.DrawQuad(x, y, width, height, {top, top, bottom, bottom}, nullptr, 0.0f, {});
+  }
+  void Disc(float x, float y, float radius, uint32_t color) override {
+    const auto& canvas = host_.canvas_;
+    host_.DrawDisc(canvas.x + x * canvas.scale, canvas.y + y * canvas.scale,
+                   radius * canvas.scale, color);
+  }
+  float Text(Font font, float size, std::string_view text, float x, float baseline,
+             uint32_t color, float align) override {
+    return host_.DrawText(FaceOf(font), size, text, x, baseline, color, align);
+  }
+  float Measure(Font font, float size, std::string_view text) override {
+    HostUi::Text& measure = host_.TextFor(FaceOf(font), size);
+    const std::u32string decoded = DecodeUtf8(text);
+    host_.PrepareText(measure, decoded);
+    return measure.atlas->Measure(decoded) / host_.canvas_.scale;
+  }
+  float Wrapped(Font font, float size, std::string_view text, float x, float top, float width,
+                uint32_t color, int max_lines) override {
+    return host_.DrawWrapped(FaceOf(font), size, text, x, top, width, color, max_lines);
+  }
+  ImmediateTexture* Texture(std::string_view member, TextureMode mode) override {
+    return host_.HorizonTexture(member, mode);
+  }
+  void Clip(float x, float y, float width, float height) override {
+    const auto& canvas = host_.canvas_;
+    host_.clipping_ = true;
+    host_.clip_[0] = std::floor(canvas.x + x * canvas.scale);
+    host_.clip_[1] = std::floor(canvas.y + y * canvas.scale);
+    host_.clip_[2] = std::ceil(canvas.x + (x + width) * canvas.scale);
+    host_.clip_[3] = std::ceil(canvas.y + (y + height) * canvas.scale);
+  }
+  void Unclip() override { host_.clipping_ = false; }
+  void Hit(int target, float x, float y, float width, float height) override {
+    const auto& canvas = host_.canvas_;
+    float x0 = canvas.x + x * canvas.scale, y0 = canvas.y + y * canvas.scale;
+    float x1 = x0 + width * canvas.scale, y1 = y0 + height * canvas.scale;
+    if (host_.clipping_) {
+      x0 = std::max(x0, host_.clip_[0]);
+      y0 = std::max(y0, host_.clip_[1]);
+      x1 = std::min(x1, host_.clip_[2]);
+      y1 = std::min(y1, host_.clip_[3]);
+    }
+    if (x1 > x0 && y1 > y0) {
+      host_.hit_rects_.push_back({target, x0, y0, x1, y1});
+    }
+  }
+  float seconds() const override { return seconds_; }
+
+ private:
+  static HostUi::Face FaceOf(Font font) {
+    return font == Font::kDisplay ? HostUi::Face::kDisplay : HostUi::Face::kLabel;
+  }
+
+  HostUi& host_;
+  float seconds_;
+};
+
+ImmediateTexture* HostUi::HorizonTexture(std::string_view member, TextureMode mode) {
+  std::string key(member);
+  key += char('0' + int(mode));
+  for (const auto& [name, texture] : horizon_textures_) {
+    if (name == key) {
+      return texture.get();
+    }
+  }
+  if (!horizon_archive_ && !horizon_archive_failed_) {
+    auto archive = Fh1Archive::Open(game_data_root_ / "media" / "ui" / "textures" / "Horizon.zip");
+    if (archive) {
+      horizon_archive_ = std::make_unique<Fh1Archive>(std::move(*archive));
+    } else {
+      horizon_archive_failed_ = true;
+    }
+  }
+  auto texture =
+      horizon_archive_ ? LoadTexture(drawer_, *horizon_archive_, member, mode) : nullptr;
+  // A missing member is remembered too, so it is not read again every frame.
+  horizon_textures_.emplace_back(std::move(key), std::move(texture));
+  return horizon_textures_.back().second.get();
+}
+
+void HostUi::DrawPainted(MenuScreen& screen) {
+  const auto now = std::chrono::steady_clock::now();
+  if (painted_screen_ != &screen) {
+    painted_screen_ = &screen;
+    painted_since_ = now;
+    hovered_target_ = -1;
+  }
+  hit_rects_.clear();
+  ScreenPainter painter(*this, std::chrono::duration<float>(now - painted_since_).count());
+  screen.Paint(painter);
+  clipping_ = false;
+}
+
+void HostUi::DrawHelp(const std::vector<HelpEntry>& entries) {
+  bool playstation = false;
+  if (input_system_) {
+    if (const auto device = input_system_->ActiveDevice(0)) {
+      playstation = device->family == rex::input::PadFamily::kPlayStation;
+    }
+  }
+  if (playstation && !button_square_) {
+    constexpr int kGlyphSize = 64;
+    const auto square = RasterizePadGlyph(PadGlyph::kSquare, kGlyphSize);
+    const auto triangle = RasterizePadGlyph(PadGlyph::kTriangle, kGlyphSize);
+    button_square_ = drawer_.CreateTexture(kGlyphSize, kGlyphSize,
+                                           ImmediateTextureFilter::kLinear, false, square.data());
+    button_triangle_ = drawer_.CreateTexture(
+        kGlyphSize, kGlyphSize, ImmediateTextureFilter::kLinear, false, triangle.data());
+  }
+  float help_x = kRowsLeft - 16.0f;
+  for (const HelpEntry& entry : entries) {
+    ImmediateTexture* icon = nullptr;
+    switch (entry.button) {
+      case HelpButton::kA:
+        icon = playstation ? button_cross_.get() : button_a_.get();
+        break;
+      case HelpButton::kB:
+        icon = playstation ? button_circle_.get() : button_b_.get();
+        break;
+      case HelpButton::kX:
+        icon = playstation ? button_square_.get()
+                           : HorizonTexture("Controller/X_Button.xds", TextureMode::kColor);
+        break;
+      case HelpButton::kY:
+        icon = playstation ? button_triangle_.get()
+                           : HorizonTexture("Controller/Y_Button.xds", TextureMode::kColor);
+        break;
+      case HelpButton::kLB:
+        icon = HorizonTexture("Controller/LBumper.xds", TextureMode::kColor);
+        break;
+      case HelpButton::kRB:
+        icon = HorizonTexture("Controller/RBumper.xds", TextureMode::kColor);
+        break;
+    }
+    if (icon) {
+      DrawRect(help_x, kHelpBaseline - 24.0f, 30.0f, 30.0f, kWhite, icon);
+      help_x += 36.0f;
+    }
+    if (entry.label.empty()) {
+      continue;  // a button that shares the next entry's label
+    }
+    help_x += DrawText(Face::kLabel, kHelpSize, entry.label, help_x, kHelpBaseline, kWhite) + 32.0f;
+  }
 }
 
 void HostUi::DrawMenu(rex::ui::UIDrawContext& context) {
@@ -939,6 +1390,18 @@ void HostUi::DrawMenu(rex::ui::UIDrawContext& context) {
   const size_t content_batch = batches_.size() - 1;
   const size_t content_vertex = batches_.back().vertices.size();
 
+  if (screen.painted()) {
+    // The screen lays out its own title and content.
+    DrawPainted(*screens_.back());
+    DrawHelp(screen.help());
+    RecordLayout(screen.title(), content_batch, content_vertex);
+    Flush();
+    drawer_.End();
+    RequestPaint();
+    return;
+  }
+  painted_screen_ = nullptr;
+  hit_rects_.clear();
   DrawText(Face::kDisplay, kTitleSize, screen.title(), kRowsLeft - 16.0f, kTitleBaseline, kWhite);
   // A dialog's text sits between the title and its rows.
   float rows_top = kRowsTop;
@@ -1004,25 +1467,9 @@ void HostUi::DrawMenu(rex::ui::UIDrawContext& context) {
     DrawText(Face::kLabel, kValueSize, note, kRowsLeft, note_top + 44.0f, kOrange);
   }
 
-  // Button help bar.
-  float help_x = kRowsLeft - 16.0f;
-  const auto help = [&](ImmediateTexture* icon, const char* label) {
-    if (icon) {
-      DrawRect(help_x, kHelpBaseline - 24.0f, 30.0f, 30.0f, kWhite, icon);
-      help_x += 36.0f;
-    }
-    help_x += DrawText(Face::kLabel, kHelpSize, label, help_x, kHelpBaseline, kWhite) + 32.0f;
-  };
-  // Marks of the pad in hand: PlayStation pads get cross and circle.
-  bool playstation = false;
-  if (input_system_) {
-    if (const auto device = input_system_->ActiveDevice(0)) {
-      playstation = device->family == rex::input::PadFamily::kPlayStation;
-    }
-  }
-  help(playstation ? button_cross_.get() : button_a_.get(), "SELECT");
-  help(playstation ? button_circle_.get() : button_b_.get(),
-       screens_.size() > 1 ? "BACK" : "RESUME");
+  // Button help bar, with the marks of the pad in hand.
+  DrawHelp({{HelpButton::kA, "SELECT"},
+            {HelpButton::kB, screens_.size() > 1 ? "BACK" : "RESUME"}});
 
   RecordLayout(screen.title(), content_batch, content_vertex);
   Flush();
@@ -1092,8 +1539,40 @@ void HostUi::OnKeyDown(rex::ui::KeyEvent& e) {
       }
       break;
     default:
+      // A painted screen's tabs and actions (LB/RB, X and Y on a pad).
+      if (!e.prev_state() && screens_.back()->painted() && !screens_.back()->accepts_text()) {
+        switch (key) {
+          case VirtualKey::kQ:
+          case VirtualKey::kPrior:
+            Apply(NavCommand::kPrevTab);
+            break;
+          case VirtualKey::kE:
+          case VirtualKey::kNext:
+          case VirtualKey::kTab:
+            Apply(NavCommand::kNextTab);
+            break;
+          case VirtualKey::kR:
+            Apply(NavCommand::kAuxX);
+            break;
+          case VirtualKey::kT:
+            Apply(NavCommand::kAuxY);
+            break;
+          default:
+            break;
+        }
+      }
       break;
   }
+}
+
+int HostUi::HitTarget(float x, float y) const {
+  // The last registered target on top wins.
+  for (auto it = hit_rects_.rbegin(); it != hit_rects_.rend(); ++it) {
+    if (x >= it->x0 && x < it->x1 && y >= it->y0 && y < it->y1) {
+      return it->target;
+    }
+  }
+  return -1;
 }
 
 void HostUi::OnKeyUp(rex::ui::KeyEvent& e) {
@@ -1122,6 +1601,16 @@ void HostUi::OnMouseMove(rex::ui::MouseEvent& e) {
     return;
   }
   e.set_handled(true);
+  if (screens_.back()->painted()) {
+    const int target = HitTarget(float(e.x()), float(e.y()));
+    if (target != hovered_target_ && !pointer_down_) {
+      hovered_target_ = target;
+      if (target >= 0 && screens_.back()->PointerAt(target, MenuScreen::Pointer::kHover)) {
+        RequestPaint();
+      }
+    }
+    return;
+  }
   for (size_t i = 0; i < row_rects_.size(); ++i) {
     const RowRect& rect = row_rects_[i];
     if (float(e.x()) >= rect.x0 && float(e.x()) < rect.x1 && float(e.y()) >= rect.y0 &&
@@ -1163,6 +1652,14 @@ void HostUi::OnMouseDown(rex::ui::MouseEvent& e) {
   if (e.button() != rex::ui::MouseEvent::Button::kLeft) {
     return;
   }
+  if (screens_.back()->painted()) {
+    // Acted on at release: a short press is a click on the target under it,
+    // a long horizontal drag (a swipe on a touch screen) switches tabs.
+    pointer_down_ = true;
+    pointer_down_x_ = float(e.x());
+    pointer_down_y_ = float(e.y());
+    return;
+  }
   // The row under the pointer, focused first: a mouse has hovered it
   // already, but a tap on a touch screen arrives with no hover (AP-4.3).
   size_t focus = row_rects_.size();
@@ -1192,8 +1689,44 @@ void HostUi::OnMouseDown(rex::ui::MouseEvent& e) {
 }
 
 void HostUi::OnMouseUp(rex::ui::MouseEvent& e) {
-  if (is_open()) {
-    e.set_handled(true);
+  if (!is_open()) {
+    return;
+  }
+  e.set_handled(true);
+  if (!pointer_down_ || e.button() != rex::ui::MouseEvent::Button::kLeft) {
+    return;
+  }
+  pointer_down_ = false;
+  if (!screens_.back()->painted()) {
+    return;
+  }
+  const ScopedInputSource source(input_source_, "mouse");
+  const float dx = float(e.x()) - pointer_down_x_;
+  const float dy = float(e.y()) - pointer_down_y_;
+  const float swipe = 0.1f * kTitleWidth * std::max(canvas_.scale, 0.01f);
+  if (std::abs(dx) > swipe && std::abs(dx) > 2.0f * std::abs(dy)) {
+    Apply(dx < 0.0f ? NavCommand::kNextTab : NavCommand::kPrevTab);
+    return;
+  }
+  const int target = HitTarget(pointer_down_x_, pointer_down_y_);
+  if (target >= 0) {
+    hovered_target_ = target;
+    applying_ = true;
+    const bool changed = screens_.back()->PointerAt(target, MenuScreen::Pointer::kClick);
+    applying_ = false;
+    if (close_pending_) {
+      close_pending_ = false;
+      finish_pending_ = nullptr;
+      Close();
+      return;
+    }
+    if (const MenuScreen* finished = std::exchange(finish_pending_, nullptr)) {
+      RemoveScreen(finished);
+      return;
+    }
+    if (changed) {
+      RequestPaint();
+    }
   }
 }
 
@@ -1203,6 +1736,12 @@ void HostUi::OnMouseWheel(rex::ui::MouseEvent& e) {
   }
   e.set_handled(true);
   const ScopedInputSource source(input_source_, "mouse");
+  if (screens_.back()->painted() && e.scroll_y() != 0) {
+    if (screens_.back()->Scroll(e.scroll_y() > 0 ? -1 : 1)) {
+      RequestPaint();
+      return;
+    }
+  }
   if (e.scroll_y() > 0) {
     Apply(NavCommand::kUp);
   } else if (e.scroll_y() < 0) {

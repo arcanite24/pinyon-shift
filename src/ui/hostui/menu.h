@@ -17,6 +17,21 @@ enum class NavCommand {
   kAccept,
   kBack,
   kClose,  // leave every screen (Start, like the title's pause menu)
+  // Painted screens only (MenuScreen::set_command): LB/RB or Q/E switch
+  // tabs, X/R and Y/T are the screen's own actions.
+  kPrevTab,
+  kNextTab,
+  kAuxX,
+  kAuxY,
+};
+
+class Painter;
+
+// A button in a painted screen's help bar.
+enum class HelpButton { kA, kB, kX, kY, kLB, kRB };
+struct HelpEntry {
+  HelpButton button = HelpButton::kA;
+  std::string label;
 };
 
 // One row of a host menu. A row with `value` shows it on the right and
@@ -38,6 +53,8 @@ struct MenuRow {
 
 class MenuScreen {
  public:
+  enum class Result { kNone, kChanged, kBack };
+
   MenuScreen(std::string title, std::vector<MenuRow> rows,
              std::function<std::string()> note = nullptr);
 
@@ -89,6 +106,30 @@ class MenuScreen {
   // does not dim (the HDR calibration patterns show there), or none.
   void set_backdrop_gap(float top, float bottom) { backdrop_gap_ = {top, bottom}; }
   std::pair<float, float> backdrop_gap() const { return backdrop_gap_; }
+  // A screen that draws itself instead of rows (the achievements screen):
+  // the host UI dims the title, draws the title text and calls `paint`
+  // between them and the help bar. Commands go to `command`, pointer
+  // targets (Painter::Hit) to `pointer`, wheel steps to `scroll`.
+  enum class Pointer { kHover, kClick };
+  void set_paint(std::function<void(Painter&)> paint) { paint_ = std::move(paint); }
+  bool painted() const { return bool(paint_); }
+  void Paint(Painter& painter) { paint_(painter); }
+  void set_command(std::function<Result(NavCommand)> command) { command_ = std::move(command); }
+  void set_pointer(std::function<bool(int target, Pointer pointer)> pointer) {
+    pointer_ = std::move(pointer);
+  }
+  // Returns whether the screen changed.
+  bool PointerAt(int target, Pointer pointer) { return pointer_ && pointer_(target, pointer); }
+  void set_scroll(std::function<void(int steps)> scroll) { scroll_ = std::move(scroll); }
+  bool Scroll(int steps) {
+    if (!scroll_) return false;
+    scroll_(steps);
+    return true;
+  }
+  void set_help(std::function<std::vector<HelpEntry>()> help) { help_ = std::move(help); }
+  std::vector<HelpEntry> help() const { return help_ ? help_() : std::vector<HelpEntry>(); }
+  bool has_help() const { return bool(help_); }
+
   // A line shown under the rows, or empty.
   std::string note() const { return note_ ? note_() : std::string(); }
   const std::vector<MenuRow>& rows() const { return rows_; }
@@ -96,7 +137,6 @@ class MenuScreen {
   // Moves the focus to `index` if that row is enabled.
   bool SetFocus(size_t index);
 
-  enum class Result { kNone, kChanged, kBack };
   // Applies a navigation command: up and down move the focus over enabled
   // rows with wrap-around, left and right adjust a value row, accept runs an
   // action row or steps a value row forward, back leaves the screen.
@@ -111,6 +151,11 @@ class MenuScreen {
   std::function<void(char32_t)> text_input_;
   std::function<void(int)> key_capture_;
   std::function<void()> tick_;
+  std::function<void(Painter&)> paint_;
+  std::function<Result(NavCommand)> command_;
+  std::function<bool(int, Pointer)> pointer_;
+  std::function<void(int)> scroll_;
+  std::function<std::vector<HelpEntry>()> help_;
   size_t focus_ = 0;
   std::pair<float, float> backdrop_gap_ = {1.0f, 1.0f};
 };
@@ -124,14 +169,19 @@ class PadNavigator {
   static constexpr uint16_t kDpadLeft = 0x0004;
   static constexpr uint16_t kDpadRight = 0x0008;
   static constexpr uint16_t kStart = 0x0010;
+  static constexpr uint16_t kShoulderLeft = 0x0100;
+  static constexpr uint16_t kShoulderRight = 0x0200;
   static constexpr uint16_t kButtonA = 0x1000;
   static constexpr uint16_t kButtonB = 0x2000;
+  static constexpr uint16_t kButtonX = 0x4000;
+  static constexpr uint16_t kButtonY = 0x8000;
   static constexpr int16_t kStickThreshold = 16000;
   static constexpr uint64_t kRepeatDelayMs = 400;
   static constexpr uint64_t kRepeatIntervalMs = 110;
 
   // Returns the commands for this poll. Directions (d-pad or left stick)
-  // repeat while held; A, B and Start fire once per press. The first poll after
+  // repeat while held; A, B, X, Y, the shoulders and Start fire once per
+  // press. The first poll after
   // Reset only records what is held, so the press that opened the UI does
   // not also act inside it.
   std::vector<NavCommand> Poll(uint16_t buttons, int16_t thumb_lx, int16_t thumb_ly,

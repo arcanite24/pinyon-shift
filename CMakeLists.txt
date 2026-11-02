@@ -63,6 +63,7 @@ set(PINYON_SHIFT_HOST_SOURCES
     src/ui/fh1_ui_api.cpp
     src/ui/ui_strings.cpp
     src/ui/host_style.cpp
+    src/ui/hostui/bitmap_font.cpp
     src/ui/hostui/fh1_archive.cpp
     src/ui/hostui/glyph_atlas.cpp
     src/ui/hostui/host_ui.cpp
@@ -76,6 +77,10 @@ set(PINYON_SHIFT_HOST_SOURCES
     src/ui/png_writer.cpp
     src/ui/xam_dialogs.cpp
     src/ui/achievements_menu.cpp
+    src/ui/achievement_icons.cpp
+    src/achievements/fh1_achievements.cpp
+    src/achievements/achievement_progress.cpp
+    src/achievements/achievement_strings.cpp
     src/ui/touch_pad.cpp
     src/config/host_config.cpp
     src/platform/display_hdr.cpp
@@ -216,6 +221,7 @@ endif()
 
 add_executable(pinyon_shift_hostui_tests EXCLUDE_FROM_ALL
     tests/ui/hostui_test.cpp
+    src/ui/hostui/bitmap_font.cpp
     src/ui/hostui/fh1_archive.cpp
     src/ui/hostui/glyph_atlas.cpp
     src/ui/hostui/menu.cpp
@@ -224,7 +230,7 @@ add_executable(pinyon_shift_hostui_tests EXCLUDE_FROM_ALL
     src/ui/hostui/xds_texture.cpp
 )
 target_include_directories(pinyon_shift_hostui_tests PRIVATE src ${REXSDK_DIR}/include)
-target_link_libraries(pinyon_shift_hostui_tests PRIVATE rex::runtime)
+target_link_libraries(pinyon_shift_hostui_tests PRIVATE rex::ui rex::runtime)
 
 add_executable(pinyon_shift_host_config_tests EXCLUDE_FROM_ALL
     tests/config/host_config_test.cpp
