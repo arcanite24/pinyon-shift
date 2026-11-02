@@ -157,7 +157,8 @@ The same frame replayed on every device. The results differ enough that no savin
 | TEXTURE GAMMA FAST | none | −8 % / — | −2 % | darker midtones |
 
 - **Quads.** Quad lists were expanded in a geometry shader, which Adreno runs slowly; 77 of 220 driving pipelines had one. Converting them to triangle lists saved about 1.2 ms on the Odin and is the default everywhere.
-- **Coarse shading** uses the fragment shading rate extension: the Odin scene went 8.67 to 7.71 ms at 4x. Draws using alpha to coverage stay at full rate because Turnip turned them into dithered ghosts. It is a player option, SCENE SHADING, off by default.
+- **Coarse shading** uses the fragment shading rate extension: the Odin scene went 8.67 to 7.71 ms at 4x. Draws using alpha to coverage stay at full rate because Turnip turned them into dithered ghosts. It is a player option, SCENE SHADING, off by default except on Arm Mali GPUs, where a new config starts at COARSE: on a Mali-G720 (Galaxy Tab S10 Ultra) it saved 1.4-1.6 ms of a 21.5 ms race frame and the frames over 33 ms fell from 10-17 to 4-5 a run.
+- **Swapchain size on Android.** Android's swapchain scales its images to the window, so the presenter makes it the display's size divided by the largest whole number that still holds the game's output at the render scale (`android_present_divisor`, 0 automatic, 1 the display's size). A 2960 × 1848 tablet presents at 1480 × 924 at 1x and a 1080p phone at its own size. On the Mali-G720 that saved 0.8-1.2 ms a race frame; the image is scaled by the display hardware instead of the GPU.
 - **Texture gamma.** Sampling gamma textures through sRGB views skips the console's piecewise curve in every shader. The sRGB curve is darker in the midtones (half the pixels change), so the default stays accurate.
 
 ## Apple silicon
