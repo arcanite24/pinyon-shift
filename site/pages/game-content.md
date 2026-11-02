@@ -78,3 +78,10 @@ Which cars an event accepts comes from two places: its `EventRestrictions` row, 
 ## Title update content
 
 {{findings:content/Title update content}}
+
+## Achievements
+
+What the achievements screen and its progress bars rely on: see
+[the achievements UI backlog](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/ACHIEVEMENTS_UI_BACKLOG.md).
+
+{{findings:content/Achievements}}

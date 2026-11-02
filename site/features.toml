@@ -85,6 +85,12 @@ xbox = "Console storage"
 pinyon = "Automatic save backups, PNG photos, saves imported from Xenia"
 
 [[original]]
+feature = "Achievements"
+link = "playing.md#achievements"
+xbox = "The dashboard's list"
+pinyon = "A screen in the game's own style: wristband tiers, categories, progress bars where the save counts them, the closest ones to unlock, one tracked on the HUD, and an unlock toast with the game's reward sound"
+
+[[original]]
 feature = "Cheats"
 link = "playing.md#trainer"
 xbox = "None"
