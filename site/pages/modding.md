@@ -129,6 +129,9 @@ Capture one GPU frame with `vulkan_shader_discovery_dir` and
 draws, the HUD boundary and bound color/depth surfaces without disassembly.
 `--check-mod <mod>/shaders` compares a mod against that frame. Surfaces do
 not identify materials or objects. Keep capture files in `.local/`.
+The capture also includes used texture bindings with padded guest ranges
+and ordered completed resolves. Allocation overlaps locate possible writers;
+partial copies and conditional sampling still need analysis.
 
 Overrides can change existing inputs' use; preserve the renderer's bindings
 and stage interface. They cannot add game inputs. Rebuild and test after

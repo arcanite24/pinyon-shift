@@ -55,6 +55,14 @@ material or object labels. Use `--shader <hash>`, `--surface <key>` or
 distinguishes stale translations from shaders absent from that frame;
 a matching name still needs runtime validation.
 
+`draws.jsonl` also records used texture slots with dimensions, format,
+physical base/mip addresses and padded guest lengths. Ordered
+`resolves.jsonl` records completed copies and their actual source rectangles;
+`after_draw=N` means after N captured draws, before zero-based draw N.
+Intersecting allocations identifies possible producers, not proof of a
+sample or a complete overwrite. Partial rectangles, aliasing and CPU readers
+need separate analysis. See the [post-chain trace](MODERN_RENDERING_RESEARCH.md#ordered-post-chain-inputs-and-outputs).
+
 Overrides change how existing inputs are used. Preserve descriptor
 bindings, stage inputs/outputs, push constants and the entry point: this
 feature adds no textures, uniforms or game-side data. Validation does not

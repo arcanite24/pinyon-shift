@@ -34,6 +34,10 @@ Memory-export draws and draws inside guest occlusion queries remain. The
 image is deliberately wrong: this measures a candidate's scope before a
 replacement is designed. Render-target reuse still needs shader and resolve
 traces to separate semantic passes.
+The optional decimal `fh1_debug_skip_pixel_shader` filter isolates one
+shader within those targets: a race trace's final composite has two draws,
+followed by 170 HUD draws on the same color target. Treating that target as
+one post pass would remove both.
 
 Offline benchmarks retain byte-identical control images and reject missing
 GPU samples. `fh1_frame_replay_present=false` removes host presentation from

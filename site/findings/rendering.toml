@@ -472,9 +472,29 @@ name = """final post pass"""
 what = """The heaviest single post shader runs twice a frame: six bilinear taps of the 64-bit scene along the velocity (camera motion blur, visible as a horizontal smear in turns) and a 3D colour grade. It is bound by texture bandwidth. Turning motion blur and depth of field off changed GPU time by less than noise on a Snapdragon 8 Elite."""
 how = """Per-shader GPU profile; in-run A/B of the motion blur and depth-of-field switches."""
 confidence = """confirmed"""
-note = """The shader key is our translator's hash."""
+note = """The shader key is our translator's hash. MR-0 ordered capture (2026-11-02, base moving-race frame 8991): its two draws bind scene color at slot 0, processed 320x192 at slot 2, a 640x360 RGBA8 input at slot 5, the 16x16x16 LUT at slot 7, and the current 32x32 float exposure result at slot 17. The same full-size color attachment also receives a scene-preparation draw and 170 later HUD draws in this frame; its whole target cost is not the cost of the two final-composite draws."""
 issue = """#413"""
-source = """docs/ANDROID_ODIN_BACKLOG.md Coarse shading, Render scenario settings toward 60 fps; docs/ANDROID_60FPS_BACKLOG.md A60-10"""
+source = """docs/ANDROID_ODIN_BACKLOG.md Coarse shading, Render scenario settings toward 60 fps; docs/ANDROID_60FPS_BACKLOG.md A60-10; docs/MODERN_RENDERING_RESEARCH.md Ordered post-chain inputs and outputs"""
+
+[[finding]]
+group = """Post effects"""
+base = """pixel shaders ED74D20BC7DFB0F7, 4D3934F366930540"""
+name = """two post-chain history bindings"""
+what = """The 32x32 float producer ED74D20BC7DFB0F7 reads the current reduced scene at slot 0 and its previous 32x32 float result at slot 1 before resolving the new float result into the same allocation. The following 4D3934F366930540 draw reads a prior 320x192 image at slot 0, this frame's first 320x192 scene reduction at slot 1, and the new float result at slot 17 before resolving into that 320x192 allocation. A fused implementation needs both old values and must publish the updated exposure result for its later GPU and CPU readers."""
+how = """Ordered draw/texture/resolve metadata from base moving-race frame 8991 replayed five times, with memory-export counters zero; both inputs are read before the first overlapping resolve of their allocation, then overwritten later in the same frame. Trace-enabled and control front buffers are byte-identical."""
+confidence = """confirmed"""
+note = """Observed allocations were 0x1FCA6000 (32x32 float) and 0x1DE5D000 (320x192); they are allocation examples, not stable symbols. Used-texture masks identify possible shader reads, not per-fragment branch decisions or exact sampled coordinates. The precise filtering/adaptation maths are not established by this dependency trace."""
+source = """docs/MODERN_RENDERING_RESEARCH.md Ordered post-chain inputs and outputs; thirdparty/shiftglue-sdk/src/graphics/vulkan/fh1_native_executor.cpp shader discovery"""
+
+[[finding]]
+group = """Post effects"""
+base = """pixel shaders E17BECBE8BE65806, AE59F518D522BDD1, E68FE55ECD482EC5, ECE830AC0333767F, 64AEAE9314A0118B"""
+name = """ordered reductions and final-composite preparation"""
+what = """In base moving-race frame 8991, E17BECBE8BE65806 reduces scene color to 320x192 then 64x32; AE59F518D522BDD1 produces the following 32x32 reduction. Later E68FE55ECD482EC5 binds scene depth and writes a 640x360 RGBA8 intermediate, followed by ECE830AC0333767F reading that intermediate and resolving into the same allocation. Final composition binds the resulting image at slot 5. 64AEAE9314A0118B binds three views of scene color and resolves full-size color back into the scene allocation before final composition."""
+how = """Ordered shader identities, texture bindings and completed resolves from the same five-iteration replay used for the history bindings; padded guest ranges include all three scene-band writers."""
+confidence = """confirmed"""
+note = """These identify bindings, output dimensions and ordering, not exact filter mathematics or the semantic purpose of the scene-color rewrite. The 640x360 image is a distinct input from the earlier 1280x720 shadow mask. Draw numbers and allocation addresses are capture-specific."""
+source = """docs/MODERN_RENDERING_RESEARCH.md Ordered post-chain inputs and outputs"""
 
 [[finding]]
 group = """Post effects"""
@@ -483,7 +503,7 @@ name = """temporal post surface"""
 what = """One post-chain destination is temporal: a padded 1280x736 surface updated 256 rows per frame, fully republished every other frame and read back the next frame, alternating between history destinations `0x1BDB1000` and `0x1C149000`, with several guest formats per address. Treating it as a plain single-frame output fails."""
 how = """Race-pilot resolve census; a rejected simple post-chain handoff (PERF-10)."""
 confidence = """confirmed"""
-note = """Addresses from one seed."""
+note = """Addresses from one seed. MR-0's newer base frame 8991 resolves its final front buffer to 0x1C149000 with no shader texture binding reading that address in the captured frame. Alternating allocations or a partial resolve alone do not prove a temporal post input. The newer ordered trace establishes history separately at 32x32 float and 320x192 allocations; preserve the observed reads, not an address-only classification."""
 source = """docs/native-renderer/XENOS_RETIREMENT_BACKLOG.md FH1 frame facts; docs/native-renderer/RESEARCH.md Rayman and scene-native era"""
 
 [[finding]]

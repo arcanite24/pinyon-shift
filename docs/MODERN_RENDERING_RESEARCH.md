@@ -35,6 +35,11 @@ from `fh1_native_gpu_profile`, such as
 `1024/32/4x/d1+0/32/4x/c3,1024/32/4x/d1`. Set the selection at launch, then
 toggle `fh1_debug_skip_rendering_draws` live. Both settings default to doing
 nothing. Empty selection selects nothing; a partial label does not match.
+`fh1_debug_skip_pixel_shader` additionally restricts that selection to one
+guest pixel-shader hash, supplied as a **decimal** unsigned 64-bit integer
+(zero means any shader). For example, `7009157937902174059` selects final
+composite shader `614588022744BF6B` without removing HUD draws on the same
+attachments. It requires a restart; the boolean remains the live toggle.
 
 The probe suppresses only `vkCmdDraw` / `vkCmdDrawIndexed`. The decoder,
 pipeline and binding work, renderings, ownership, clears, resolve dispatches,
@@ -47,6 +52,58 @@ deliberately wrong; do not use this as a player setting.
 Labels describe attachments, not semantic pass identities. In particular, a
 small float target may serve more than one group. Do not call its entire cost
 "post processing" until shader and resolve traces establish the boundaries.
+
+## Ordered post-chain inputs and outputs
+
+The Vulkan one-frame shader discovery now records sampled bindings and
+ordered resolves as well as shader identities. `draws.jsonl` has a zero-based
+`index` and each used texture slot's fetch dimensions, format, physical base
+and mip addresses, and padded guest allocation lengths. `resolves.jsonl`
+records completed resolves: destination extent, format, sample selection,
+packed destination info, untile band, source surface keys and rectangles.
+`after_draw=N` places a resolve after N captured draws, before draw index N;
+several resolves at the same boundary retain file order. Discovery remains
+off by default and writes only into the requested local capture directory.
+
+The lengths use the production texture upload layout, including guest
+padding and packed mips. Host image bytes are unsuitable: the scene's
+32-bit guest texture can have a 64-bit host view. Intersecting these ranges
+finds **possible** producers, not exact dependencies. A resolve can write
+only a rectangle of its allocation; a later partial write does not erase
+all earlier producers. Bound slots also do not prove every shader branch
+samples them. CPU readers and fences require separate traces.
+
+A base-game moving-race frame (8991) replayed at native frame 2 contains
+5,590 emitted draws and 92 completed resolves. All control front-buffer
+bytes match with and without discovery. Its post-chain order is:
+
+| Draw indices | Inputs and output established by bindings and resolves |
+| --- | --- |
+| 5334–5336 | Scene color to 320×192, then 64×32 and 32×32 reductions |
+| 5337, `ED74D20BC7DFB0F7` | Current 32×32 reduction plus a prior 32×32 float texture; resolves the new float result back into that history allocation |
+| 5338, `4D3934F366930540` | Prior 320×192 texture, current first reduction and the new float result; resolves into the 320×192 history allocation |
+| 5339–5358 | Filtering, downsample and upsample chain, including logical 40×24 and 80×48 rectangles in padded 64×32 and 96×64 allocations; exact filter math remains open |
+| 5359–5360 | Scene depth and a 640×360 RGBA8 intermediate produce the mask later bound by final composition |
+| 5361, `64AEAE9314A0118B` | Three views of the scene color allocation; resolves full-size color back to it; exact purpose remains open |
+| 5418–5419, `614588022744BF6B` | Scene color (slot 0), processed 320×192 (2), mask 640×360 (5), 16³ LUT (7), current 32×32 float (17) |
+| 5420–5589 | 170 later HUD draws sharing the final composite's color target |
+
+Both history inputs have no earlier overlapping resolve in this frame,
+then receive their new result after the consuming draw. This establishes
+cross-frame allocation use, not the blend weights or exposure adaptation
+formula. A replacement must retain the old inputs until those reads finish.
+The historical exposure CPU readback also remains a separate requirement.
+
+Scene color and depth inputs span three band resolves, not merely the
+resolve containing the first byte of the texture. The final front-buffer
+resolve at physical `0x1C149000` has no sampled reader in this frame;
+alternating front-buffer addresses alone do not establish temporal filtering.
+Addresses and draw indices here identify this capture, not stable symbols.
+
+The shader-restricted knock-out was checked independently with 210 replay
+iterations: off/on/off suppressed 0/420/0 commands, exactly two per enabled
+iteration. Decoded draw counts remained equal and control bytes matched.
+This verifies selection; timings from that build-concurrent check are excluded.
 
 ### Reproducible replay checks
 
