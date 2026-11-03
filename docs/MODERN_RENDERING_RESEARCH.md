@@ -13,11 +13,11 @@ correct renderer and its saving is not a replacement's expected saving.
 
 | Item | Question still to answer | Status |
 | --- | --- | --- |
-| MR-0 | Per-pass cost on Mali, Deck, UHD 620, M4 Pro and RTX 4080 | Probes and initial main-scene measurements; complete census pending |
+| MR-0 | Per-pass cost on Mali, Deck, UHD 620, M4 Pro and RTX 4080 | Live draw/resolve measurements below; night-sprite, reflection-mip and MSAA budgets remain |
 | MR-1 | Remove both tiled scene work and the decoder's later-tile walk | Open; the existing untile option does not remove that walk |
 | MR-2 | Reduce MSAA and reconstruct edges without losing sample-dependent reads | Open; existing off/2x/4x settings are controls, not a temporal replacement |
 | MR-3 | Reuse or cull sun-shadow casters | Open; shadow-mask and headlight dependencies must remain |
-| MR-4 | Reuse the second depth pass's result | Open; establish its consumers before substituting main depth |
+| MR-4 | Reuse the second depth pass's result | Same-frame substitution is blocked by the depth → mask → scene dependency; a different prepass remains open |
 | MR-5 | Fuse bloom/luminance reductions and final composition | Open; target reuse and CPU exposure readback prevent assuming the whole chain is one independent pass |
 | MR-6 | Remove copies by rendering into sampled images | Open; preserve CPU-read resolves and ownership transitions |
 | MR-7 | Change reflection update scheduling | Open; distinguish face updates, mip generation and their consumers |
@@ -90,8 +90,10 @@ bytes match with and without discovery. Its post-chain order is:
 
 Both history inputs have no earlier overlapping resolve in this frame,
 then receive their new result after the consuming draw. This establishes
-cross-frame allocation use, not the blend weights or exposure adaptation
-formula. A replacement must retain the old inputs until those reads finish.
+read-before-write allocation use. Their cross-frame history role is an
+inference; a one-frame GPU binding trace does not exclude CPU resets or
+establish blend weights or the exposure adaptation formula. A replacement
+must retain the old inputs until those reads finish.
 The historical exposure CPU readback also remains a separate requirement.
 
 Scene color and depth inputs span three band resolves, not merely the
@@ -104,6 +106,31 @@ The shader-restricted knock-out was checked independently with 210 replay
 iterations: off/on/off suppressed 0/420/0 commands, exactly two per enabled
 iteration. Decoded draw counts remained equal and control bytes matched.
 This verifies selection; timings from that build-concurrent check are excluded.
+
+### Depth before the shadow mask
+
+The same ordered race trace corrects an earlier pass label. The 1040-pitch
+D24S8 target at EDRAM tile 720 produces the 1024×1024 shadow atlases. It
+precedes the 1280-pitch float-depth target at base 0. The latter's depth
+resolve is bound at slot 0 by `93626E75D17576C5` and the following mask
+draws, alongside a 1024×1024 atlas at slot 1. The mask resolves to a
+1280×720 RGBA8 texture before scene lighting samples it at slot 13.
+
+The early full-size depth dump and the final three-band scene depth show
+the same camera-view road, car and barriers; the latter adds foliage.
+The 1280-wide pass is camera depth for the screen-space mask, not the
+light-space sun map. Skipping it removes shadows because it feeds their
+mask. The older knock-out alone could not establish its projection.
+
+This creates a same-frame ordering constraint for MR-4: camera depth feeds
+the mask, and the mask feeds scene shading. Main-scene depth arrives after
+those mask reads, so substituting that result would require changing the
+render order and breaking this dependency cycle, or accepting older data.
+It is not an independent duplicate that can simply be removed. A different
+prepass remains a separate hypothesis requiring an image-correct prototype.
+The 1,168 full-size depth draws, first mask reads at draw 1335, and main
+band depth resolves at boundaries 2294, 4553 and 5333 establish that order
+in this frame. Raw dumps remain local; their addresses are not symbols.
 
 ### Reproducible replay checks
 
@@ -187,7 +214,7 @@ The offline replay runs decoding and recording on one thread. A small
 frame-span saving can mean that thread is starving the GPU; it does not
 establish that the selected pass is cheap. Keep the normal recorder split
 for live measurements and use `make-ab-route.py --mark` to toggle the probe
-and `perf_aa_toggle` together. Pair an A/A run with the same marker schedule.
+and `perf_aa_toggle` together. Pair an A/A run with the same window cadence.
 
 The initial live route parks the seeded Miata at the Gauntlet, takes its
 reference capture before any knock-out, then alternates every 150 wall-clock
@@ -249,3 +276,117 @@ not separate post composition from HUD work.
 
 After testing, the tablet's original APK was restored. Its installed profile
 hash and the pinned PC profile hashes are unchanged.
+
+### Live draw-group census, 2026-11-02
+
+These use the same parked route and five disjoint blocks as the live main
+probe. Values are **off minus on GPU frame span**, in ms, with standard
+errors over blocks. No per-pass timestamps run during the comparison.
+They measure marginal effects of suppressing draws, including effects on
+downstream work, while retaining clears, resolves and command decoding.
+They are not additive totals or strict upper bounds on replacing a pass
+and its copies. A paced or CPU-limited frame can hide removed GPU work.
+
+| Device | Main scene | Camera depth | Shadow atlas | Small post group | Final composite | Reflection face |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Mali-G720, v4, 1x/MSAA off | 1.64 ± 0.30 | 1.52 ± 0.16 | 0.86 ± 0.10 | 1.79 ± 0.24 | 1.57 ± 0.27 | 0.11 ± 0.12 |
+| Deck LCD, 1x/MSAA off | 1.73 ± 0.12 | 0.57 ± 0.10 | 0.22 ± 0.18 | 0.18 ± 0.07 | 0.31 ± 0.11 | 0.08 ± 0.08 |
+| M4 Pro, 2x/4x, untile off | 8.43 ± 0.09 | 0.61 ± 0.17 | 0.30 ± 0.18 | 0.27 ± 0.18 | 1.15 ± 0.12 | 0.07 ± 0.21 |
+| UHD 620, 1x/MSAA off | 28.64 ± 0.58 | 4.22 ± 0.27 | 0.53 ± 0.53 | 1.27 ± 0.32 | 6.37 ± 0.44 | 2.09 ± 0.50 |
+| RTX 4080, 2x/4x | Paced | Paced | Paced | Paced | Paced | Paced |
+
+Selectors are exact guest attachment labels; the host's MSAA override does
+not rename them:
+
+| Group | Rendering selector | Extra shader filter |
+| --- | --- | --- |
+| Main scene | `1024/32/4x/d1+0/32/4x/c3,1024/32/4x/d1` | None |
+| Camera depth | `0/16/1x/d1` | None |
+| Shadow atlas | `720/13/1x/d0,720/13/4x/d0` | None |
+| Small post group | `0/16/1x/c3` | None; establish any other use in each capture |
+| Final composite | `0/16/1x/c2` | Decimal `7009157937902174059` |
+| Reflection face | `128/4/2x/d1+0/4/2x/c3` | None; excludes the separate mip-chain draws |
+
+Generate the measured route schedules from the committed parked base:
+
+```powershell
+python tools/make-ab-route.py config/render-tests/fh1-modern-rendering-parked.fh1test `
+  --setting fh1_debug_skip_rendering_draws --values false true `
+  --every 150 --from 1500 --mark --output .local/mr-draws-ab.fh1test
+python tools/make-ab-route.py config/render-tests/fh1-modern-rendering-parked.fh1test `
+  --setting perf_aa_toggle --values 0 1 `
+  --every 150 --from 1500 --output .local/mr-draws-aa.fh1test
+```
+
+Run each in a new private output directory through `run-fh1-render-test.py`
+with the pinned seed, `--hidden --no-performance-gate`, the selected labels,
+`gpu_record_thread=true`, `fh1_native_gpu_profile=false`, `vsync=false`,
+`host_present_fps_limit=0` and `pinyon_shift_fh1_render_fps_limit=120`.
+Set `disable_bloom`, `disable_motion_blur` and `disable_depth_of_field` all
+false, `present_effect=bilinear`, `present_hdr=false`, and the scale/MSAA
+settings in the device table. Require successful route completion and a
+positive `debug_rendering_draw_skipped` counter in an enabled window.
+Analyze from the first side-1 marker, following the validity and settling
+rules above; `summarize-inrun-ab.py` supplies the disjoint-block estimator.
+
+The tablet's camera-depth and atlas rows explicitly enable shadows, giving
+control spans about 25.7 ms rather than the daylight preset's 18.2 ms.
+Other tablet rows retain daylight shadows off and quarter-rate reflections.
+This is not a measurement of the entire shadow-setting trade. All devices
+use original post coefficients and an explicit 120 source limit. The Mac
+and Deck have the earlier A/A controls described above. UHD 620's A/A GPU
+shift is -0.45 ± 0.60 ms (95% half-width 1.66 ms), so its smaller rows
+need caution. Its approximately 70 ms frames leave fewer samples in a
+2.5-second window: retain at least 10 after the same 15-frame settling
+period, rather than the 30 required on the other devices.
+
+The UHD small-post, depth and reflection follow-up uses native stats every
+100 frames, because a 600-frame reporting interval could end before any
+enabled probe window appeared in the log. Positive skip counters establish
+selection; an absent periodic report was not treated as zero cost. Earlier
+evidence file names `sun-depth` and `second-depth` mean the camera-depth
+and atlas selectors respectively; the corrected semantic names above follow
+the ordered dependency trace.
+
+The RTX's completed post probes remain at the 120 Hz source floor:
+8.35 ms frame time on control windows, with changes below 0.03 ms of frame
+time. Its additional A/A GPU shift is -0.02 ± 0.08 ms and frame-time shift
++0.05 ± 0.06 ms. The evidence directory calls that A/A run
+`desktop-census-resolves-ab2`: it uses marker changes only, with the resolve
+probe off throughout, and is not a resolve-cost measurement.
+This cannot establish the isolated GPU cost of those groups. The resolve
+probe below supplements the draw groups. Reflection mips and night-only
+sprites still need separate budgets, along with MSAA comparisons, before
+the census supplies a gate for every MR row. The Mali post
+groups, UHD final composite and UHD reflections warrant further study;
+the small noisy reflection-face results on the other devices do not yet
+reject MR-7's whole workload.
+
+### Live resolve-dispatch probe
+
+The existing default-false `fh1_debug_skip_resolve_dispatches` can now be
+toggled live. It is read at each dispatch and changes no cached setup.
+Use the same parked A/B schedule, changing that boolean instead of the draw
+probe, so loading and the reference capture finish with normal copies.
+`debug_resolve_dispatch_skipped` counts suppressed commands. Every tested
+route completed and had positive counters; replay controls with the probe
+off remain byte-identical after the metadata/counter change.
+
+| Device and settings above | GPU frame-span saving, ms | Frame-time saving, ms |
+| --- | ---: | ---: |
+| Mali-G720 | 1.48 ± 0.08 | 1.42 ± 0.08 |
+| Deck LCD | 1.35 ± 0.12 | 1.46 ± 0.09 |
+| M4 Pro | 4.80 ± 0.40 | 4.14 ± 0.17 |
+| UHD 620 | 10.42 ± 0.43 | 10.38 ± 0.48 |
+| RTX 4080 | Paced (0.10 ± 0.04 span change) | -0.01 ± 0.01 |
+
+Errors are standard errors over five disjoint blocks. Setup, descriptors,
+barriers, clears, fences and readback paths still run, but the sampled
+contents are wrong and can make downstream work cheaper. These are
+marginal frame effects, not isolated dispatch times. Neither zeroing every
+copy nor enabling this probe is a replacement: MR-6 must preserve the
+current value for shader consumers and CPU readers, including exposure
+and saved thumbnails. The nonpaced results justify investigating selective
+direct sampling or aliasing; they do not establish how much an image-correct
+implementation will save. Tablet testing again restored the original APK
+and retained the installed profile hash.

@@ -47,7 +47,16 @@ saved 8.19 ± 0.12 ms on the M4 Pro at 2x/4x in three replay blocks, and
 28.06 ± 0.16 ms on a UHD 620 at 1x/MSAA off. These are marginal GPU frame
 spans, not promised replacement savings. The Deck and desktop need live
 controls because replay also serializes decoding and recording. No modern
-replacement is enabled by these probes. See the
+replacement is enabled by these probes. Live draw-group comparisons on all
+five target GPUs put the Mali small post group at 1.79 ± 0.24 ms and final
+composition at 1.57 ± 0.27 ms; the UHD 620 final composite is 6.37 ± 0.44 ms.
+These are standard errors over five disjoint blocks. RTX 4080 runs at
+2x/4x remain paced near 8.35 ms and do not reveal isolated phase costs.
+The live resolve-dispatch probe removes 4.80 ± 0.40 ms of GPU frame span
+on the M4 Pro and 10.42 ± 0.43 ms on UHD 620. It retains setup and barriers
+but supplies wrong sampled contents, so these are marginal effects rather
+than promised gains from direct sampling. Night-sprite budgets and
+MSAA comparisons remain. See the
 [method, device settings and open candidates](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/MODERN_RENDERING_RESEARCH.md).
 
 ## The recorder thread

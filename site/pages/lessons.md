@@ -17,6 +17,15 @@ Replace the parts where emulation is expensive (render targets, EDRAM, resolves,
 
 ## Find where the frame actually goes
 
+A knock-out proves a dependency, not a pass's purpose. Removing FH1's
+1280-wide depth pass removed shadows, leading to its older sun-map label.
+Ordered texture/resolve traces and depth-output comparisons instead show
+camera-view depth feeding the screen-space shadow mask, before scene shading
+reads that mask. Reusing the same frame's main depth would arrive too late.
+Also trace whole padded guest allocations: the scene texture spans three
+band resolves, and looking up only its first byte misses two producers.
+[Depth and post-chain dependencies](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/MODERN_RENDERING_RESEARCH.md#depth-before-the-shadow-mask).
+
 Profile before optimizing generated code. Here the guest threads were flat, with no function above 3 %, and at 1x the limit was the host thread recording GPU commands: about 1.6 µs per draw at 5,000 draws a frame. Halving that per-draw cost was worth more than any change to code generation.
 
 Most per-draw savings came from noticing that inputs hadn't changed. 58 % of draws changed only shader constants, so caching pipeline, binding and constant derivation behind a state epoch paid off repeatedly. Replaying whole recorded draws did not: proving a recorded draw is still valid cost as much as deriving it. Once each subsystem got an O(1) unchanged-since-last-draw test (fetch constants written, a texture usage generation, a per-state memo), skipping the stages it covers saved 8 % of a draw. What remains is spread over about 20 small steps, so per-draw reuse has a floor, and only replaying whole buffers on the GPU goes below it.

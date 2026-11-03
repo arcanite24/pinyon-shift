@@ -388,12 +388,12 @@ source = """docs/ANDROID_PORT_BACKLOG.md"""
 
 [[finding]]
 group = """Shadows"""
-name = """sun shadow map"""
-what = """The race's 1280-wide 1x depth-only pass at EDRAM base 0 is the sun shadow map: skipping it removes every shadow. It holds about 18 % of race draws, all cheap depth-only draws, interleaved with its own resolves. The 1040-pitch `D24S8` depth pass (EDRAM tile 720, resolved to 1024x1024) holds another 11 %. One shadow epoch of 80 draws was 64 draws of one dominant family, then four repeats of three secondary draws and one tertiary draw."""
-how = """Skipping each pass in turn; per-target draw counts; ordered-draw census of a shadow epoch; MR-0 daylight shader-discovery trace on Mali."""
+name = """shadow-related depth passes"""
+what = """The 1040-pitch D24S8 pass at EDRAM tile 720 produces 1024x1024 shadow atlas inputs. The 1280-wide 1x float-depth pass at base 0 produces camera-view depth used with those atlases to build the 1280x720 screen-space shadow mask before main-scene shading. The latter was historically labelled the sun shadow map because skipping it removes every shadow; that experiment proved a dependency, not a light-space projection. In base race frame 8991 its 1,168 full-size draws precede the mask's consumers and the three-band main scene; the early depth and later scene-depth dumps show the same camera-view geometry, with additional foliage in the latter. Earlier race counts assigned about 18 % of draws to the 1280-wide pass and 11 % to the atlas pass. One shadow epoch of 80 draws was 64 draws of one dominant family, then four repeats of three secondary draws and one tertiary draw."""
+how = """Skipping each pass in turn; ordered target and resolve/texture traces; untiled depth-output comparisons from base frame 8991; MR-0 daylight shader-discovery trace on Mali."""
 note = """R03 (2026-10-24): enabled alpha-test or alpha-to-mask register bits alone are not a foliage selector. A target-filtered prototype also removed the player car's self-shadowing in stock/skip/stock daytime captures. Most raw alpha-flagged candidates had no effective pixel shader. Requiring a pixel shader whose coverage depends on alpha selected about 38/47 draws per race frame on the two targets and 30/45 in free roam; it saved only 0.12/0.08 ms GPU on an RTX 4080 at 3x, below the 0.5 ms gate. Both filters were removed. The Odin was unreachable, so no mobile result is claimed. See the R03 experiment in the performance backlog. MR-0 (2026-11-02): the Galaxy Tab S10 Ultra's daylight v4 free-roam trace contains 1,503 emitted draws and neither depth-only shadow target. Android defaults pinyon_shift_fh1_shadows to false, which removes these passes while the lights are off; its reflection rate also defaults to 0.25. Their absence is an existing preset trade, not a new shadow optimization or a night-time cost bound."""
 confidence = """confirmed"""
-source = """docs/PERFORMANCE_BACKLOG.md Fidelity trades, PB-1.10, R03 alpha-tested shadow casters; docs/native-renderer/RESEARCH.md Vehicles and shadow epochs; docs/MODERN_RENDERING_RESEARCH.md Mali daylight profile"""
+source = """docs/PERFORMANCE_BACKLOG.md Fidelity trades, PB-1.10, R03 alpha-tested shadow casters; docs/native-renderer/RESEARCH.md Vehicles and shadow epochs; docs/MODERN_RENDERING_RESEARCH.md Depth before the shadow mask; Mali daylight profile"""
 
 [[finding]]
 group = """Shadows"""
@@ -482,8 +482,8 @@ base = """pixel shaders ED74D20BC7DFB0F7, 4D3934F366930540"""
 name = """two post-chain history bindings"""
 what = """The 32x32 float producer ED74D20BC7DFB0F7 reads the current reduced scene at slot 0 and its previous 32x32 float result at slot 1 before resolving the new float result into the same allocation. The following 4D3934F366930540 draw reads a prior 320x192 image at slot 0, this frame's first 320x192 scene reduction at slot 1, and the new float result at slot 17 before resolving into that 320x192 allocation. A fused implementation needs both old values and must publish the updated exposure result for its later GPU and CPU readers."""
 how = """Ordered draw/texture/resolve metadata from base moving-race frame 8991 replayed five times, with memory-export counters zero; both inputs are read before the first overlapping resolve of their allocation, then overwritten later in the same frame. Trace-enabled and control front buffers are byte-identical."""
-confidence = """confirmed"""
-note = """Observed allocations were 0x1FCA6000 (32x32 float) and 0x1DE5D000 (320x192); they are allocation examples, not stable symbols. Used-texture masks identify possible shader reads, not per-fragment branch decisions or exact sampled coordinates. The precise filtering/adaptation maths are not established by this dependency trace."""
+confidence = """probable"""
+note = """The within-frame read-before-write bindings and output order are confirmed; interpreting the old values as cross-frame history is an inference, since a single GPU frame does not exclude CPU resets. Observed allocations were 0x1FCA6000 (32x32 float) and 0x1DE5D000 (320x192); they are allocation examples, not stable symbols. Used-texture masks identify possible shader reads, not per-fragment branch decisions or exact sampled coordinates. The precise filtering/adaptation maths are not established by this dependency trace."""
 source = """docs/MODERN_RENDERING_RESEARCH.md Ordered post-chain inputs and outputs; thirdparty/shiftglue-sdk/src/graphics/vulkan/fh1_native_executor.cpp shader discovery"""
 
 [[finding]]
