@@ -55,8 +55,18 @@ These are standard errors over five disjoint blocks. RTX 4080 runs at
 The live resolve-dispatch probe removes 4.80 ± 0.40 ms of GPU frame span
 on the M4 Pro and 10.42 ± 0.43 ms on UHD 620. It retains setup and barriers
 but supplies wrong sampled contents, so these are marginal effects rather
-than promised gains from direct sampling. Night-sprite budgets and
-MSAA comparisons remain. See the
+than promised gains from direct sampling. Reflection mip draws account for
+0.50 ± 0.11 ms on M4 Pro and 1.43 ± 0.44 ms on UHD 620 in separate live
+probes; mip resolves still execute. Mali with shadows enabled measures
+0.49 ± 0.08 ms at quarter-rate reflections and 2.46 ± 0.22 ms at full rate.
+Night lamp/headlight probes are small
+relative to controls, while smoke and other particles remain unmeasured.
+Fixed-command 4x-to-2x comparisons save 3.67 ± 0.10 ms on Mali and
+7.65 ± 0.36 ms on UHD 620, with identical repeated control images. These
+sample-count controls do not include AA reconstruction. One static RGB8
+comparison of existing scene-only FXAA plus 2x against original 4x gives
+40.98 dB PSNR, versus 43.01 dB for 2x alone. It has not qualified a default
+change. Current Vulkan ports are the qualification scope. See the
 [method, device settings and open candidates](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/MODERN_RENDERING_RESEARCH.md).
 
 ## The recorder thread

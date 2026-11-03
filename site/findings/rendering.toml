@@ -838,10 +838,10 @@ source = """docs/native-renderer/NATIVE_FRAME_CONTRACT.md Textures; docs/native-
 [[finding]]
 group = """Shaders, textures and models"""
 name = """reflection cube"""
-what = """The car reflection map is a persistent six-face, nine-level 256x256 cube in `2_10_10_10` (R10G10B10A2), fetched as `2_10_10_10_AS_16_16_16_16`. The game renders one face and that face's mips each frame; each face's mips take 8 draws and 8 resolves (48 of each per cube) from six cached lists of 2,352 packets per cube. Car paint fetches it trilinearly (mips 0 to 8) with the coarse derivatives of the cube direction passed as explicit gradients, which the Xenos resolves as implicit LOD plus bias."""
-how = """Command-stream contract for a mip-chain replacement (since removed) checked against captures; register captures of the paint shader on two backends; layer-level reload tracking on Android."""
+what = """The car reflection map is a persistent six-face, nine-level 256x256 cube in `2_10_10_10` (R10G10B10A2), fetched as `2_10_10_10_AS_16_16_16_16`. Face rendering and mip generation have distinct schedules: base race frame 8991 updates one base face but executes all six eight-draw mip chains, 48 draws and 48 resolves in total. The mip shader is 21937679208E59A5, drawing into EDRAM base 0, pitch 2, single-sample color format 3; the six cached lists contain 2,352 packets per cube. Car paint fetches it trilinearly (mips 0 to 8) with the coarse derivatives of the cube direction passed as explicit gradients, which the Xenos resolves as implicit LOD plus bias."""
+how = """Command-stream contract for a mip-chain replacement (since removed); ordered texture and resolve trace of base race frame 8991 (mip draws 1540-1587); register captures of the paint shader on two backends; layer-level reload tracking on Android. A v4 daytime Galaxy Tab S10 Ultra frame-3000 comparison with full-rate reflections, normal recorder and untile enabled finds no mip-shader draws among 1,644 draws with shadows off, and 48 among 2,326 with only shadows enabled. Per-draw shader/selector/toggle/suppression metadata and a frozen off/on/off replay validate selection. This is a route-specific coupling; its guest-code cause and cube resolve contents with shadows off remain untraced."""
 confidence = """confirmed"""
-source = """docs/native-renderer/archive/REFLECTION_MIPMAP_REPLACEMENT.md Runtime behavior, Validation; docs/NATIVE_PORT_BACKLOG.md NP-12.4; docs/ANDROID_ODIN_BACKLOG.md Cube faces and vertex multiplies"""
+source = """docs/native-renderer/archive/REFLECTION_MIPMAP_REPLACEMENT.md Runtime behavior, Validation; docs/NATIVE_PORT_BACKLOG.md NP-12.4; docs/ANDROID_ODIN_BACKLOG.md Cube faces and vertex multiplies; docs/MODERN_RENDERING_RESEARCH.md Reflection mip work"""
 
 [[finding]]
 group = """Shaders, textures and models"""
@@ -920,9 +920,9 @@ source = """docs/NEXT_LEVEL_RESEARCH.md NL-5"""
 group = """Light glows"""
 name = """light glow sprites"""
 what = """Street lamps, outpost lights and car headlights are camera-facing sprites drawn into the 4x main scene, in each predicated tile, after the opaque world: pixel shaders E6A37477D3491A43 (lamps; vertex shaders FB9E8663EA73E066 and F1663100A698025F) and 36ADB4C3E44F265F (headlights), blending `SRC_ALPHA`/`ONE` (`RB_BLENDCONTROL0` 0x01060106). The vertex shader moves each sprite a little toward the camera and takes its brightness from the vertex data; the pixel shader multiplies a sprite texture by a 1D colour ramp. Occlusion is the per-pixel depth test alone: `GREATER_EQUAL` without depth writes against the scene's reversed depth (viewport z scale -1, offset 1)."""
-how = """A night frame's draw log with every draw's textures and depth and stencil state; hiding one blended pixel shader at a time in a live drive; the vertex shaders' translated microcode."""
+how = """A night frame's draw log with every draw's textures and depth and stencil state; hiding one blended pixel shader at a time in a live drive; the vertex shaders' translated microcode. The MR-0 base parked trace at time 23 with shadows enabled independently finds seven lamp-shader and 76 headlight-shader draws. Five-block live suppression on five Vulkan devices establishes only small or unresolved marginal costs in this view, not a budget for smoke or other particles."""
 confidence = """confirmed"""
-source = """docs/native-renderer/HEADLIGHT_FLICKER.md Lights through the car and terrain"""
+source = """docs/native-renderer/HEADLIGHT_FLICKER.md Lights through the car and terrain; docs/MODERN_RENDERING_RESEARCH.md Night lights and missing particle scope"""
 
 [[finding]]
 group = """Light glows"""

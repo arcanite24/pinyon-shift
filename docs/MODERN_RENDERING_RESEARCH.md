@@ -5,6 +5,9 @@ replacing FH1's rendering techniques after identifying each pass's inputs,
 outputs, readers and guest-visible side effects. Improving command submission
 alone is the earlier [D3D renderer investigation](D3D_RENDERER_RESEARCH.md).
 
+Qualification targets the current Vulkan ports, as confirmed by the maintainer
+on 2026-11-02. Restoring the legacy D3D12 path is outside this investigation.
+
 No replacement technique is enabled by this work. The first stage, MR-0, is
 measurement and validation of the probes. A draw-target knock-out is not a
 correct renderer and its saving is not a replacement's expected saving.
@@ -13,9 +16,9 @@ correct renderer and its saving is not a replacement's expected saving.
 
 | Item | Question still to answer | Status |
 | --- | --- | --- |
-| MR-0 | Per-pass cost on Mali, Deck, UHD 620, M4 Pro and RTX 4080 | Live draw/resolve measurements below; night-sprite, reflection-mip and MSAA budgets remain |
+| MR-0 | Per-pass cost on Mali, Deck, UHD 620, M4 Pro and RTX 4080 | Live draw/resolve, night-light, reflection-mip and MSAA measurements below; smoke/particles remain and Mac MSAA timing controls are unqualified |
 | MR-1 | Remove both tiled scene work and the decoder's later-tile walk | Open; the existing untile option does not remove that walk |
-| MR-2 | Reduce MSAA and reconstruct edges without losing sample-dependent reads | Open; existing off/2x/4x settings are controls, not a temporal replacement |
+| MR-2 | Reduce MSAA and reconstruct edges without losing sample-dependent reads | Open; off/2x cost census and existing scene-only FXAA comparison below, temporal alternative unqualified |
 | MR-3 | Reuse or cull sun-shadow casters | Open; shadow-mask and headlight dependencies must remain |
 | MR-4 | Reuse the second depth pass's result | Same-frame substitution is blocked by the depth → mask → scene dependency; a different prepass remains open |
 | MR-5 | Fuse bloom/luminance reductions and final composition | Open; target reuse and CPU exposure readback prevent assuming the whole chain is one independent pass |
@@ -64,6 +67,9 @@ packed destination info, untile band, source surface keys and rectangles.
 `after_draw=N` places a resolve after N captured draws, before draw index N;
 several resolves at the same boundary retain file order. Discovery remains
 off by default and writes only into the requested local capture directory.
+Each draw also records the requested probe shader, exact rendering match,
+hot-toggle state, actual draw shader and final command-suppression decision.
+These fields distinguish a missing pass from a selector or toggle failure.
 
 The lengths use the production texture upload layout, including guest
 padding and packed mips. Host image bytes are unsuitable: the scene's
@@ -355,9 +361,9 @@ time. Its additional A/A GPU shift is -0.02 ± 0.08 ms and frame-time shift
 `desktop-census-resolves-ab2`: it uses marker changes only, with the resolve
 probe off throughout, and is not a resolve-cost measurement.
 This cannot establish the isolated GPU cost of those groups. The resolve
-probe below supplements the draw groups. Reflection mips and night-only
-sprites still need separate budgets, along with MSAA comparisons, before
-the census supplies a gate for every MR row. The Mali post
+probe below supplements the draw groups. The further mip, night-light and
+MSAA comparisons below still leave smoke/particles and qualified Mac MSAA
+timings before the census supplies a gate for every MR row. The Mali post
 groups, UHD final composite and UHD reflections warrant further study;
 the small noisy reflection-face results on the other devices do not yet
 reject MR-7's whole workload.
@@ -390,3 +396,196 @@ and saved thumbnails. The nonpaced results justify investigating selective
 direct sampling or aliasing; they do not establish how much an image-correct
 implementation will save. Tablet testing again restored the original APK
 and retained the installed profile hash.
+
+### Reflection mip work
+
+The base moving-race trace separates face rendering from mip generation:
+one 256×256 base face is updated, then draws 1540–1587 execute six chains of
+eight reductions. Pixel shader `21937679208E59A5` uses the
+`0/2/1x/c3` rendering, reading 256×256 through 2×2 inputs and producing
+128×128 through 1×1 outputs for each face. The earlier description that
+only the updated face's mips run was too narrow. Those 48 mip draws and
+48 resolves need their own cost bound, separate from reflection geometry.
+They do not yet prove that other faces' mip chains can be omitted: CPU
+writes, inherited state, clears and ownership changes still need checking.
+
+On the tablet's v4 daytime route, mip-draw presence also depends on the
+shadow setting. With full-rate reflections, the normal recorder and untile
+enabled, a frame-3000 discovery has 1,644 draws and no instances of this
+shader with shadows off. Changing only shadows to on produces 2,326 draws,
+including all 48 mip draws. Each reports the requested shader, matching
+rendering selector and active suppression; the later periodic skip count
+is positive. A frozen off/on/off replay independently confirms selection.
+This establishes a coupling in this route, not its guest-code cause or
+whether resolves still update cube contents without those draws. The
+default daytime shadow-off run cannot bound mip work in shadow-on scenes.
+
+The shader-filtered live mip knock-out saves 0.50 ± 0.11 ms on M4 Pro and
+1.43 ± 0.44 ms on UHD 620. Deck's 0.05 ± 0.12 ms is unresolved; RTX remains
+source-paced (frame change below 0.01 ms). These are five-block marginal
+GPU frame-span effects with resolves still executing, using the preceding
+device settings. M4 uses `vulkan_pipeline_cache_persist=false`: an earlier
+night batch reported `VK_INCOMPLETE` during cache writing and was excluded.
+None of these measurements establishes the cost of an image-correct mip
+replacement or rejects reflection scheduling as a whole.
+
+On Mali with shadows enabled, 1x/MSAA off, untile on and the normal
+recorder, the same five-block probe saves 0.49 ± 0.08 ms at the Android
+quarter-rate reflection preset, or 2.46 ± 0.22 ms at full rate. Frame-time
+savings are 0.50 ± 0.06 and 2.48 ± 0.21 ms respectively. Both routes finish
+with positive selected-draw counters. This changes only mip draw commands;
+face geometry, all mip resolves and their synchronization remain. The
+shadow-off no-match run is excluded rather than reported as zero cost.
+
+### Night lights and missing particle scope
+
+The parked route at time-of-day 23 with shadows enabled selects lamp-glow
+shader `E6A37477D3491A43` or headlight shader `36ADB4C3E44F265F` within the
+main-scene rendering. The base night trace contains seven lamp draws and
+76 headlight draws; their presence is verified independently from daytime
+captures. The private run's cheat configuration sets the time, leaving the
+installed save untouched. Original post effects and the normal recorder
+remain enabled. These are five disjoint live A/B blocks, with positive
+selection counters and no per-draw GPU profiling.
+
+| Device | Lamp-draw suppression saving, ms | Headlight-draw suppression saving, ms | Night A/A shift, ms |
+| --- | ---: | ---: | ---: |
+| Mali-G720 | -0.17 ± 0.34 | 0.11 ± 0.13 | 0.04 ± 0.05 |
+| Deck LCD | -0.11 ± 0.05 | 0.17 ± 0.11 | -0.05 ± 0.20 |
+| M4 Pro | -0.06 ± 0.09 | 0.02 ± 0.12 | -0.11 ± 0.14 |
+| UHD 620 | -0.24 ± 0.26 | -0.42 ± 0.73 | -0.81 ± 0.63 |
+| RTX 4080 | Paced | Paced | -0.01 ± 0.01 |
+
+Errors are standard errors; A/A is marker side 1 minus side 0, while the
+two probe columns are control minus suppressed. They are not corrected by
+subtracting A/A. UHD's night A/A frame-time shift is -2.54 ± 2.36 ms,
+larger than these small effects. The measurements do not justify a lamp or
+headlight batching prototype yet. They cannot decide MR-8: this stationary
+view has not budgeted smoke or other particles. A tablet brake/throttle
+route produced no visible smoke and is excluded from particle evidence.
+
+## MR-2: lower MSAA and existing scene-only FXAA
+
+The maintainer agreed on 2026-11-02 to a 40 dB RGB8 PSNR floor plus visual
+checks. Each accepted capture must meet that floor against its own original
+4x reference. Motion, edges, HUD, lighting and temporal stability must also
+show no visible defects before a default change. The measured sample-count
+budgets justify a 1 ms net GPU frame-span saving gate on at least one
+GPU-bound target, with no regression beyond interleaved control uncertainty
+on the others. A static PSNR pass alone does not meet this gate.
+
+### Fixed-command sample-count census
+
+Use the same base moving-race dump for three disjoint 4x/off/4x blocks and
+three 4x/2x/4x blocks. Each process replays 210 frames, discards the first
+100 and requires at least 100 complete valid GPU samples. Host presentation,
+per-pass profiling, untile and scaled-MSAA overrides are disabled. The
+median decoded draw count remains 5,808 for every variant; this isolates
+sample-count settings without removing decoder work. Each mode's control
+front-buffer bytes must match every repeat on that device.
+
+| Device and scale | 4x → off saving, ms | 4x → 2x saving, ms |
+| --- | ---: | ---: |
+| Mali-G720, 1x | 8.71 ± 0.41 | 3.67 ± 0.10 |
+| Deck LCD, 1x | 1.08 ± 0.11 | 0.68 ± 0.02 |
+| UHD 620, 1x | 18.68 ± 0.67 | 7.65 ± 0.36 |
+| RTX 4080, 2x | 0.21 ± 0.19 | 0.13 ± 0.08 |
+| M4 Pro, 2x | Unqualified controls | Unqualified controls |
+
+Errors are standard errors over three blocks. All four reported devices
+pass same-mode byte equality. Mac controls changed slightly even after
+longer warmup and disabling asynchronous specialized passes; no qualified
+Mac replay result is reported. These are serialized replay GPU frame spans,
+including idle gaps, so the small Deck/RTX changes cannot establish their
+isolated sample-shading cost. Live comparisons are needed for a net gain.
+The tablet replays the base recorded commands on its v4 runtime; this is
+not a claim about identical base/v4 gameplay frames or release binaries.
+
+### Capture after the AA effect
+
+The existing `swap_post_effect=fxaa` and `fxaa_extreme` can process the scene
+before the HUD is composited (`swap_post_effect_scene_only=true`). Raw
+replay front-buffer bytes precede this effect and cannot measure its image.
+The default-empty Vulkan `fh1_frame_replay_output_path` now captures RGB8
+PPM after the swap effect and gamma, before presenter upscaling and host UI.
+It requires replay presentation and an existing parent directory. Capture
+failure produces a nonzero process exit; the Python replay runner rejects
+that exit even if the earlier native JSON reports successful readback, and
+cannot publish a golden from it. Temporal presenter AA needs a presented
+capture instead; this output is not a capture of FSR's result.
+
+On RTX at 1x, the identical moving-race dump, 30 repeats, bilinear SDR
+presentation and original guest post constants give the following RGB8
+whole-image comparisons against original 4x. Two independent 4x captures
+are byte-identical. FXAA leaves raw guest resolve bytes unchanged.
+
+| Candidate | PSNR, dB | Mean absolute error, 8-bit levels |
+| --- | ---: | ---: |
+| Off | 39.46 | 0.68 |
+| Off + FXAA | 39.16 | 0.78 |
+| Off + extreme FXAA | 39.13 | 0.82 |
+| 2x | 43.01 | 0.43 |
+| 2x + FXAA | 40.98 | 0.60 |
+
+FXAA smooths edges but scores worse against the 4x reference than 2x alone;
+these numbers do not establish better quality. A check of 6,552 opaque
+bright HUD pixels in three regions finds zero changes between off and
+off+FXAA, not proof that every HUD edge is preserved. One static image does
+not qualify temporal stability, particles, night lighting or other GPUs.
+No default changes or image-quality acceptance follow from this test.
+
+The same 1x, 30-repeat capture comparison on the other Vulkan ports gives:
+
+| Device | 2x PSNR, dB | 2x + FXAA PSNR, dB |
+| --- | ---: | ---: |
+| Deck LCD | 43.20 | 40.98 |
+| UHD 620 | 43.36 | 40.78 |
+| M4 Pro | 43.26 | 41.01 |
+| Mali-G720 | 43.24 | 40.97 |
+
+Each pair uses that device's own original 4x reference. Repeated 4x RGB8
+PPMs are byte-identical on these four devices, and enabling FXAA preserves
+the off/2x raw guest resolve bytes respectively. Mac's successful 1x RGB8
+control does not qualify the failed raw-byte 2x timing controls above.
+These are still one scene, not a temporal-quality or 2x-scale validation.
+
+**No MSAA plus existing FXAA is rejected for MR-2 under the agreed gate:**
+it scores 39.10–39.24 dB on these four devices and 39.16 dB on RTX, below
+40 dB in every case. Extreme FXAA also fails the RTX static gate at
+39.13 dB. This rejects those combinations for a default replacement, not
+the separate existing player options or a different temporal algorithm.
+The 2x + FXAA combination passes this one static-image floor on all five
+GPUs, but its motion and cross-device timing qualification remains open.
+The original tablet APK was restored after each batch and its installed
+profile retains SHA-256 `864dafc1…383644`.
+
+### Live 4x versus 2x + FXAA
+
+Use three disjoint original/candidate/original restart blocks at 120 Hz
+source rate, original guest post effects, normal recorder, untile off,
+explicit full 4x versus 2x and scene-only FXAA, SDR bilinear output and no
+per-pass profiling. The pinned parked route captures the vehicle before
+measurement; require a valid pose within 0.1 m across runs. Measure complete
+CSV rows after the frame-1800 marker and 30 output frames of settling,
+requiring at least 200 valid GPU samples. Runtime, module, seed and route
+hashes accompany each local report.
+
+| Device | GPU frame-span saving, ms | Frame-time saving, ms |
+| --- | ---: | ---: |
+| Deck LCD, 1x | 0.52 ± 0.05 | 0.54 ± 0.05 |
+| Mali-G720, 1x | 3.95 ± 0.47 | 3.96 ± 0.47 |
+| UHD 620, 1x | 1.96 ± 1.38 | 2.50 ± 0.95 |
+| RTX 4080, 2x | -0.04 ± 0.01 | -0.001 ± 0.003 |
+
+Errors are standard errors over three blocks. RTX remains source-paced;
+Deck controls average 104 ± 20 more decoded draws than candidate runs, so
+its gain includes scene variation. UHD has substantial between-block drift.
+The first Mac series moved more than 8 m at the third capture and was
+rejected before completing a block. A second series also fails position
+equality; a handbraked follow-up adds an end capture and fails its within-run
+0.1 m limit. No qualified Mac live result is reported. The cause of that
+motion is unlocalized; holding the handbrake alone did not stabilize it.
+Mali controls average 22 ± 19 fewer decoded draws than the candidate;
+its control GPU span drifts from 27.48 to 31.08 ms across the series despite
+the fixed pose, so retain interleaving and the between-block error. These
+results do not yet satisfy a cross-device acceptance gate.
