@@ -75,7 +75,7 @@ but are platform work, tracked in FB-11 by pointer.
 
 ## Verification rules
 
-- **Seeds only.** Never the AppData save (AGENTS.md, CLAUDE.md). Feature
+- **Seeds only.** Never the AppData save (AGENTS.md). Feature
   tests run through `tools/run-fh1-render-test.py` on a pinned seed from
   `tools/create-render-seed.py`.
 - **Off by default until qualified.** A new feature that changes gameplay,

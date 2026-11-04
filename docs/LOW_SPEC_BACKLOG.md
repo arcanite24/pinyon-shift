@@ -176,7 +176,7 @@ What follows from it:
 
 ## Verification rules
 
-- **Seeds only.** Never the AppData save (AGENTS.md, CLAUDE.md).
+- **Seeds only.** Never the AppData save (AGENTS.md).
 - **A/B method.** Settings that apply live use the in-run A/B: the setting
   alternates every 300 frames in one route. Restart-only settings use
   interleaved pairs on the same route. Compare by draw band, and report

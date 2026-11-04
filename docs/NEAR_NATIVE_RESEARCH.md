@@ -581,7 +581,7 @@ Odin's 38.8 ms, leaving 19-29 ms a frame, against an estimated native
 - **The A/A noise floors** (NN-0.3) for every A/B; restart pairs for
   init-only changes such as NN-4.2.
 - **Reverse-engineering records** go in `site/findings` in the same
-  change that identifies them (CLAUDE.md), not later with the change that
+  change that identifies them (AGENTS.md), not later with the change that
   uses them. This research identified several, listed under
   [Before committing this page](#before-committing-this-page).
 
@@ -630,7 +630,7 @@ Lessons carried over from NL:
 
 Dispositions of the items as they are executed, with the evidence, in the
 form of NEXT_LEVEL_RESEARCH's Progress table. A kept or rejected result
-also goes on the docs site in the same change (CLAUDE.md).
+also goes on the docs site in the same change (AGENTS.md).
 
 | Item | Outcome | Evidence |
 | --- | --- | --- |
