@@ -142,7 +142,10 @@ jobs:
           path: .artifacts/prebuilt/
 
   package:
-    if: github.event.repository.visibility == 'public'
+    # A prebuilt job can also end cancelled when GitHub has no runner for
+    # it; package without that asset, as after a failure. !cancelled()
+    # still stops here when someone cancels the whole run.
+    if: ${{ !cancelled() && github.event.repository.visibility == 'public' }}
     needs: [prebuilt-windows, prebuilt-linux, prebuilt-macos, prebuilt-android]
     runs-on: windows-latest
     steps:
@@ -199,7 +202,10 @@ jobs:
   # The Linux (Steam Deck) and macOS launchers: the same source payload,
   # the Avalonia launcher (docs/LINUX.md, docs/MACOS.md).
   package-linux:
-    if: github.event.repository.visibility == 'public'
+    # A prebuilt job can also end cancelled when GitHub has no runner for
+    # it; package without that asset, as after a failure. !cancelled()
+    # still stops here when someone cancels the whole run.
+    if: ${{ !cancelled() && github.event.repository.visibility == 'public' }}
     needs: [prebuilt-windows, prebuilt-linux, prebuilt-macos, prebuilt-android]
     runs-on: ubuntu-latest
     steps:
@@ -225,7 +231,10 @@ jobs:
           path: .artifacts/PinyonShift-Launcher-linux-x86_64.tar.gz
 
   package-macos:
-    if: github.event.repository.visibility == 'public'
+    # A prebuilt job can also end cancelled when GitHub has no runner for
+    # it; package without that asset, as after a failure. !cancelled()
+    # still stops here when someone cancels the whole run.
+    if: ${{ !cancelled() && github.event.repository.visibility == 'public' }}
     needs: [prebuilt-windows, prebuilt-linux, prebuilt-macos, prebuilt-android]
     runs-on: macos-latest
     steps:
@@ -251,7 +260,12 @@ jobs:
           path: .artifacts/PinyonShift-Launcher-macos-arm64.zip
 
   release:
-    if: startsWith(github.ref, 'refs/tags/')
+    # Every launcher must exist; only the prebuilt assets may be missing.
+    if: >-
+      ${{ !cancelled() && startsWith(github.ref, 'refs/tags/')
+      && needs.package.result == 'success'
+      && needs.package-linux.result == 'success'
+      && needs.package-macos.result == 'success' }}
     needs: [package, package-linux, package-macos]
     runs-on: ubuntu-latest
     steps:
