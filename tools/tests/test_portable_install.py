@@ -185,7 +185,10 @@ class RelocatedBuildTreeTests(unittest.TestCase):
         build = read("tools/build-preview.ps1")
         check = build.index("Reset-PinyonRelocatedCMakeCache -BuildDirectory $buildTree")
         self.assertIn("Join-Path $sdkRoot 'out/build/win-amd64'", build)
-        self.assertIn("(Join-Path $root \"out/build/$previewPreset\")", build)
+        self.assertIn("Join-Path $root \"out/build/$previewPreset\"", build)
+        # A kit build must not pass a $null tree to the mandatory parameter
+        # (0.8.0 failed with "BuildDirectory ... is an empty string").
+        self.assertNotIn("@($(if (-not $kitRoot)", build)
         self.assertLess(check, build.index("'--preset', 'win-amd64'"))
         self.assertLess(check, build.index("'--preset', $previewPreset"))
 
