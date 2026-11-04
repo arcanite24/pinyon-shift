@@ -37,7 +37,7 @@ jobs:
         run: |
           . ./tools/release-common.ps1
           $config = Get-PinyonReleaseToolchain
-          $output = Resolve-PinyonLocalPath -RelativePath '.artifacts/prebuilt'
+          $output = Join-Path (Get-PinyonRepoRoot) '.artifacts/prebuilt'
           [void](New-Item -ItemType Directory -Force -Path $output)
           $python = Join-Path (Resolve-PinyonLocalPath -RelativePath $config.python.install_path) 'python.exe'
           & $python tools/repack-toolchain.py llvm --platform windows-x64 `
@@ -68,7 +68,7 @@ jobs:
           $env:PATH = "$(Split-Path $environment.Ninja);$env:PATH"
           $config = Get-PinyonReleaseToolchain
           $python = Join-Path (Resolve-PinyonLocalPath -RelativePath $config.python.install_path) 'python.exe'
-          $output = Resolve-PinyonLocalPath -RelativePath '.artifacts/prebuilt'
+          $output = Join-Path (Get-PinyonRepoRoot) '.artifacts/prebuilt'
           foreach ($variant in @(@{ Name = 'base'; Preset = 'win-amd64-release' }, @{ Name = 'v4'; Preset = 'win-amd64-v4' })) {
             & $python tools/build-host-objects.py --kit (Join-Path $env:RUNNER_TEMP 'kit/kit') `
               --platform windows-x64 --preset $variant.Preset --variant $variant.Name `
@@ -85,6 +85,13 @@ jobs:
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
+      # The full LLVM and sysroot unpack beside the kit build and do not fit
+      # in the runner's free space; drop preinstalled SDKs this job never uses.
+      - name: Free runner disk
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL /usr/local/share/boost
+          df -h /
       - uses: actions/checkout@v7
       - name: Build the trimmed LLVM and sysroot and the ShiftGlue kit
         run: python3 tools/build-prebuilt.py --output .artifacts/prebuilt
