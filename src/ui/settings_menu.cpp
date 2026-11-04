@@ -516,9 +516,11 @@ std::unique_ptr<MenuScreen> SettingsPages::Display() {
   if (rex::ui::GetFrameGenerationState().offered) {
     std::vector<Choice> backends = {{"OFF", {{"present_frame_generation", "\"off\""}}}};
 #if defined(__APPLE__)
+    // Experimental: MetalFX interpolates from the colour pair alone, so fast
+    // foliage, thin objects and sun glare ghost or tear (docs/FRAME_GENERATION.md).
     backends.push_back({"METALFX", {{"present_frame_generation", "\"metalfx\""}}});
 #endif
-    rows.push_back(Setting("FRAME GENERATION", std::move(backends)));
+    rows.push_back(Setting("FRAME GENERATION (EXPERIMENTAL)", std::move(backends)));
   }
 #if defined(__APPLE__)
   // Apple's Metal performance HUD over the window: frame rate, frame time,

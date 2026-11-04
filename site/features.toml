@@ -175,7 +175,7 @@ link = "playing.md#frame-generation"
 cells = [
   "not yet",
   "not yet",
-  "yes: MetalFX interpolation on macOS 26 and Apple silicon, opt-in and off by default",
+  "partly: experimental MetalFX interpolation on macOS 26 and Apple silicon, opt-in and off by default; the colour-only warp ghosts fast foliage, thin objects and sun glare",
   "not yet",
 ]
 

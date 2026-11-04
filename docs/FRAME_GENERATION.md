@@ -1,9 +1,32 @@
 # Frame generation
 
-Opt-in, off by default. One generated frame is presented between each pair
-of frames the game rendered, so a GPU-bound machine shows about twice as
-many frames. The setting is **F6 > DISPLAY > FRAME GENERATION**
-(`present_frame_generation`). The first target is the MacBook Pro M1, where
+**Experimental.** Opt-in, off by default. One generated frame is presented
+between each pair of frames the game rendered, so a GPU-bound machine shows
+about twice as many frames. The setting is
+**F6 > DISPLAY > FRAME GENERATION (EXPERIMENTAL)**
+(`present_frame_generation`).
+
+**Measurement status.** Every M1 number in this document was taken before
+the 2026-11-02 rebase onto upstream (which added the 3840 x 2160
+pixel-area cap on the macOS drawable and the borderless fullscreen
+default). None was remeasured afterwards, and they stay as recorded. The
+"about 17 fps" free-roam baseline below predates the macOS defaults of fast
+pixel and vertex math and no MoltenVK argument buffers (see
+MACOS_RENDERER_OPTIMIZATION.md for those A/B results).
+
+The MetalFX backend interpolates from the colour pair alone (no depth or
+motion vectors yet, stage 4 below). Its optical flow fails on content it
+cannot track between two finished frames: fast-moving foliage against sky
+ghosts and smears with a bright fringe, thin vertical objects (a radio
+antenna) stretch, and a hard sun flare or a fast camera pan can leave a
+flat dark wedge. These appear only on the generated frames, so the real
+frames in between are correct; the effect is a flicker rather than a
+persistent corruption. The 2026-10-19 investigation confirmed the same
+artifacts in the pre-MetalFX-rebase build, so they are inherent to
+colour-only interpolation, not a regression. Stage 4 (depth and camera
+motion vectors) is the fix; until then the backend stays experimental.
+
+The first target is the MacBook Pro M1, where
 free roam renders at about 17 fps (57 ms GPU median, bound by render-pass
 restarts on the tile-based GPU; see docs/MACOS.md). The game's rate is not
 changed: it still simulates and renders at its own cadence, and the
