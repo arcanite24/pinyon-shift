@@ -30,14 +30,20 @@ the [platform measurements](platforms.md#macos-on-apple-silicon) explain
 the tested workload and its limits. The older 120 Hz result used a different
 optimization route.
 
-Fullscreen uses a borderless window on the current desktop. The presenter
-keeps the Metal drawable at the swapchain size through fullscreen changes;
-scripted transitions passed, while the OS-visible result still needs an
-interactive check on the affected Macs.
+Fullscreen uses a borderless window on the current desktop, not a separate
+macOS Space. The presenter keeps the Metal drawable at the swapchain size
+through fullscreen changes, and the window rebuilds its connection when SDL
+reports a fullscreen transition finished; scripted transitions passed, while
+the OS-visible result still needs an interactive check on the affected Macs.
+On a 5K or 6K display, or a 4K one in a scaled HiDPI mode, the drawable is
+capped by pixel area at 3840 x 2160 (`window_max_pixel_density`; 0, the
+default, is that automatic cap, 4 uses every backing pixel; restart required)
+and the system scales it to the window. Automatic density never falls below
+one drawable pixel per window point.
 
 The launcher's **DLC** panel imports your own DLC packages ([DLC and title update](dlc.md)), and **Import a save** brings a save from another install or from Xenia. On the M4 Pro all 21 packages imported and their 84 car rows loaded and could be driven in a scripted route, and the v4 build ran the 1000 Club challenges and reached the Horizon Rally entry.
 
-On an M1 the free-roam drive renders at about 52 fps at 1x (19 ms of GPU a frame) with the defaults, more with TEXTURE GAMMA FAST, shadows off and quarter-rate reflections (in play, with the frame rate limit at 60 and shadows, bloom, motion blur and depth of field all on, it holds 60 fps); on macOS 26, [frame generation](playing.md#frame-generation) can add generated frames on top. It is opt-in and off by default. How the M1 frame got there is on the [macOS renderer performance](macos-renderer.md) page.
+In the recorded M1 tests, the free-roam drive rendered at about 52 fps at 1x (19 ms of GPU a frame) with the defaults, more with TEXTURE GAMMA FAST, shadows off and quarter-rate reflections (in the play session, with the frame rate limit at 60 and shadows, bloom, motion blur and depth of field all on, it held 60 fps). These figures predate the 2026-11-02 upstream rebase and have not been remeasured. On macOS 26, [frame generation](playing.md#frame-generation) can add generated frames on top. It is opt-in and off by default. How the M1 frame got there is on the [macOS renderer performance](macos-renderer.md) page.
 
 More detail is in [docs/MACOS.md](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/MACOS.md).
 

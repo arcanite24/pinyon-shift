@@ -9,6 +9,10 @@ are about MoltenVK, Metal and Apple's tile-based GPUs, not about one game,
 so they should transfer to any Vulkan renderer that translates Xenos
 shaders and replays the console's render passes.
 
+The M1 measurements below predate the 2026-11-02 upstream rebase and have
+not been repeated on the rebased renderer. Its macOS drawable-density cap
+and borderless fullscreen default are noted separately from those results.
+
 Everything here is the project's own analysis. There is no game code,
 disassembly or game data in it (see `LEGAL.md`).
 
@@ -298,7 +302,9 @@ rendered, 4 real frames dropped in 46 s, at 29-31 ms of GPU a rendered
 frame. Because a real frame is held back to make room for the generated
 one, input feels a little less immediate, and the player preferred the
 uncapped real frames once the frame fit 60 fps, so generation is an
-option, off by default. The design is in `FRAME_GENERATION.md`.
+option, off by default. The design is in `FRAME_GENERATION.md`. These
+figures are historical M1 measurements, not remeasured after the
+2026-11-02 rebase onto upstream.
 
 ### The totals
 
@@ -342,6 +348,10 @@ and depth of field all on, the M1 holds 60 fps.
   rebuilds the connection. SDL's `SDL_EVENT_WINDOW_ENTER_FULLSCREEN` and
   `LEAVE_FULLSCREEN` fire when the transition has finished; rebuild the
   swapchain on them even though the size event that follows is unchanged.
+  (This project's default is now a borderless window on the current
+  desktop, with no separate Space; the rebuild stays because a Space can
+  still be used with `SDL_VIDEO_MAC_FULLSCREEN_SPACES=1`. The drawable is
+  also capped by pixel area at 3840 x 2160 on high-density displays.)
 - **Measurement traps**, all in the method section: menu medians, thermal
   drift across runs, stalled first runs, a full disk, and an image check by
   MAE alone.

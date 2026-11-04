@@ -93,7 +93,14 @@ external drive.
   drawable at the swapchain's size before acquiring an image. Fullscreen
   defaults to a borderless window on the current desktop; it does not open a
   separate Space. `SDL_VIDEO_MAC_FULLSCREEN_SPACES=1` restores SDL's Space
-  behavior for diagnosis, but that path has reported black output.
+  behavior for diagnosis, but that path has reported black output. The
+  window still rebuilds the swapchain connection when SDL reports a
+  fullscreen transition finished (ENTER/LEAVE_FULLSCREEN), in case a Space
+  is used. The drawable is also capped by pixel area at 3840 x 2160 on
+  high-density displays (`window_max_pixel_density`, 0 = automatic cap,
+  4 = every backing pixel); the system scales it to the window. The cap is
+  upstream's, from an M4 Pro measurement of 3 ms of GPU a frame spent
+  presenting 6016 x 3384 backing pixels.
 - **Free roam is too bright and flashes.** Two paths need correct luminance
   data. GPU memory tracks 4 KB guest pages so writes beside the exposure
   resolve do not discard it, even on a Mac with 16 KB host pages. Completed

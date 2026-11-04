@@ -7,7 +7,7 @@ description: How the free-roam frame on an M1 went from 131 to 19 ms on MoltenVK
 
 # macOS renderer performance
 
-A guide for bringing a recompiled Xbox 360 game to Apple silicon through MoltenVK, drawn from the four days (2026-10-15 to 2026-10-18) in which Pinyon Shift's free-roam frame on a MacBook Pro M1 (8-core GPU, 16 GB, macOS 26, MoltenVK 1.4.1) went from 131 ms to 19 ms. The full text, with every measurement, is [docs/MACOS_RENDERER_OPTIMIZATION.md](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/MACOS_RENDERER_OPTIMIZATION.md); the same guide is published on its own for other projects in the [xbox360-macos-renderer-guide](https://github.com/jricks92/xbox360-macos-renderer-guide) repository.
+A guide for bringing a recompiled Xbox 360 game to Apple silicon through MoltenVK, drawn from the four days (2026-10-15 to 2026-10-18) in which Pinyon Shift's free-roam frame on a MacBook Pro M1 (8-core GPU, 16 GB, macOS 26, MoltenVK 1.4.1) went from 131 ms to 19 ms. The full text, with every measurement, is [docs/MACOS_RENDERER_OPTIMIZATION.md](https://github.com/jricks92/pinyon-shift/blob/feat/frame-generation/docs/MACOS_RENDERER_OPTIMIZATION.md); the same guide is published on its own for other projects in the [xbox360-macos-renderer-guide](https://github.com/jricks92/xbox360-macos-renderer-guide) repository.
 
 ## The frame, step by step
 
@@ -20,7 +20,7 @@ A guide for bringing a recompiled Xbox 360 game to Apple silicon through MoltenV
 | fast vertex math | 21 | the same for vertex shaders, with `Invariant` kept on positions |
 | no Metal argument buffers | **19** | MoltenVK's argument-buffer mode ends a Metal encoder at every barrier outside a render pass; 43 % of the 21 ms frame was gaps between encoders |
 
-In play, with the frame rate limit at 60 and shadows, bloom, motion blur and depth of field on, the M1 holds 60 fps. [Frame generation](playing.md#frame-generation) sits on top as an option.
+In the recorded play session, with the frame rate limit at 60 and shadows, bloom, motion blur and depth of field on, the M1 held 60 fps. [Frame generation](playing.md#frame-generation) sits on top as an experimental option. These M1 figures are historical and were not remeasured after the 2026-11-02 rebase onto upstream; the fast pixel and vertex math and no-argument-buffer defaults they depend on predate it, and the A/B tables show each effect.
 
 ## What carries over
 
