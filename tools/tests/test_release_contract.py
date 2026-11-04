@@ -139,6 +139,21 @@ if ((Get-PinyonVisualStudioRoot) -ne 'compatible-vs2022') { throw 'Supported too
         self.assertIn("if ($release.channel -eq 'preview') { 'dev' } else { 'main' }", workflow)
         self.assertIn('--main-ref "refs/remotes/origin/$branch"', workflow)
 
+    def test_release_attaches_and_pins_prebuilt_assets(self):
+        # TP-1 to TP-3: every platform's prebuilt job may fail without
+        # blocking the release, every packager pins what was built (on tags
+        # only, where the release URL exists), and the sidecars stay out.
+        workflow = (ROOT / ".github/workflows/release.yml").read_text()
+        for platform in ("windows", "linux", "macos", "android"):
+            job = workflow.split(f"  prebuilt-{platform}:\n", 1)[1].split("\n\n", 1)[0]
+            self.assertIn("continue-on-error: true", job)
+            self.assertIn(f"name: prebuilt-{platform}", job)
+        self.assertEqual(workflow.count("needs: [prebuilt-windows, prebuilt-linux, prebuilt-macos, prebuilt-android]"), 3)
+        self.assertIn("-PrebuiltAssets .artifacts/prebuilt", workflow)
+        self.assertEqual(workflow.count("--prebuilt-assets .artifacts/prebuilt --release-base-url"), 2)
+        self.assertIn("releases/download/{1}', github.repository, github.ref_name)", workflow)
+        self.assertIn("*.json|'.artifacts/prebuilt/*') ;;", workflow)
+
 
     @unittest.skipUnless(shutil.which("powershell"), "Windows PowerShell is required")
     def test_build_command_keeps_stderr_and_exit_status(self):
@@ -258,12 +273,19 @@ catch { [Console]::Error.Write($_.Exception.Message); exit 2 }
         self.assertIn("-fasync-exceptions", integration)
         self.assertIn("target_precompile_headers", integration)
         self.assertIn("_recomp OBJECT", integration)
-        self.assertIn("--ignore-stamp", integration)
+        # The generator's stamp check must stay on, or the first build after
+        # the bootstrap translates the game twice.
+        self.assertNotIn("--ignore-stamp", integration)
         self.assertIn("rexglue-sdk EXCLUDE_FROM_ALL", integration)
         self.assertIn("PINYON_SHIFT_REXGLUE_CODEGEN_DEPENDS", integration)
-        self.assertIn("$<TARGET_FILE:rexruntime>", integration)
-        self.assertIn("$<TARGET_FILE:rexgpu-fh1>", integration)
-        self.assertIn("DEPENDS ${target_name} rexruntime rexgpu-fh1", integration)
+        # The staging target copies the source build's libraries, or the
+        # prebuilt kit's imported ones (TP-3).
+        self.assertIn("set(_pinyon_runtime rexruntime)", integration)
+        self.assertIn("set(_pinyon_gpu rexgpu-fh1)", integration)
+        self.assertIn("set(_pinyon_stage_depends ${target_name} rexruntime rexgpu-fh1)", integration)
+        self.assertIn("set(_pinyon_runtime rex::runtime)", integration)
+        self.assertIn("$<TARGET_FILE:${_pinyon_runtime}>", integration)
+        self.assertIn("$<TARGET_FILE:${_pinyon_gpu}>", integration)
         graphics_cmake = (
             ROOT / "thirdparty/shiftglue-sdk/src/graphics/CMakeLists.txt"
         ).read_text(encoding="utf-8")
@@ -328,7 +350,9 @@ catch { [Console]::Error.Write($_.Exception.Message); exit 2 }
         self.assertNotIn("Get-Command git.exe", get_git)
         self.assertIn("$config.git.install_path", get_git)
         self.assertNotIn("Get-Command git.exe", provision)
-        self.assertIn("$config.git.install_path", provision)
+        install_git = common.split("function Install-PinyonGit", 1)[1].split("\nfunction ", 1)[0]
+        self.assertIn("$config.git.install_path", install_git)
+        self.assertIn("Install-PinyonGit", provision)
         self.assertIn("ConvertTo-PinyonCommandPath", common)
         self.assertIn("$inheritedPath = $env:PATH", common)
 

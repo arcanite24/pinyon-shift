@@ -101,6 +101,57 @@ class DiscImageTests(unittest.TestCase):
         self.assertEqual(pinyon_setup.check_paths([("DEFAULT.XEX", 0, 1), ("media/A.zip", 0, 1)],
                                                   expected), [])
 
+    def catalog(self, files: dict) -> tuple[dict, dict]:
+        """A dump whose executables are default.xex and the two facades."""
+        entries = {name.lower(): {"guest_path": name, "size_bytes": len(content),
+                                  "sha256": hashlib.sha256(content).hexdigest().upper()}
+                   for name, content in files.items()}
+        entries["media/a.bin"] = {"guest_path": "media/a.bin", "size_bytes": 10,
+                                  "sha256": hashlib.sha256(b"inner file").hexdigest().upper()}
+        executables = [entries[name.lower()] for name in
+                       ("default.xex", "SpeechFacade_default.xex", "XMediaFacade_default.xex")]
+        return {"id": "test", "executables": executables}, entries
+
+    def test_executables_come_out_first_and_the_rest_waits_for_the_swap(self):
+        # TP-7: the build starts on the executables while extraction runs.
+        files = {"default.xex": b"xex" * 1000, "SpeechFacade_default.xex": b"speech",
+                 "XMediaFacade_default.xex": b"xmedia", "readme.txt": b"hello"}
+        with tempfile.TemporaryDirectory() as directory:
+            image = Path(directory) / "disc.iso"
+            make_image(image, files)
+            game = Path(directory) / "game" / "base"
+            with patch.object(pinyon_setup, "load_catalog", return_value=self.catalog(files)), \
+                    patch.object(pinyon_setup, "GAME", game):
+                pinyon_setup.copy_executables(image, game)
+                self.assertEqual(sorted(path.name for path in game.iterdir()),
+                                 ["SpeechFacade_default.xex", "XMediaFacade_default.xex",
+                                  "default.xex"])
+                dump, staging = pinyon_setup.Extraction(image).result()
+                self.assertEqual(dump["id"], "test")
+                self.assertEqual((staging / "media" / "a.bin").read_bytes(), b"inner file")
+                # The executables alone are not a game until the swap.
+                self.assertFalse(pinyon_setup.game_ready())
+                pinyon_setup.replace_game(staging)
+                self.assertFalse(staging.exists())
+                self.assertTrue((game / "readme.txt").is_file())
+                self.assertTrue(pinyon_setup.game_ready())
+
+    def test_another_disc_fails_before_anything_is_built(self):
+        files = {"default.xex": b"xex" * 1000, "SpeechFacade_default.xex": b"speech",
+                 "XMediaFacade_default.xex": b"xmedia", "readme.txt": b"hello"}
+        dump, expected = self.catalog(files)
+        dump["executables"][0] = dict(dump["executables"][0], sha256="0" * 64)
+        with tempfile.TemporaryDirectory() as directory:
+            image = Path(directory) / "disc.iso"
+            make_image(image, files)
+            with patch.object(pinyon_setup, "load_catalog", return_value=(dump, expected)):
+                with self.assertRaises(pinyon_setup.SetupError):
+                    pinyon_setup.copy_executables(image, Path(directory) / "out")
+            make_image(image, dict(files, **{"extra.bin": b"x"}))
+            with patch.object(pinyon_setup, "load_catalog", return_value=self.catalog(files)):
+                with self.assertRaises(pinyon_setup.SetupError):
+                    pinyon_setup.copy_executables(image, Path(directory) / "out2")
+
     def test_the_supported_catalog_matches_the_dump_manifest(self):
         dump, expected = pinyon_setup.load_catalog()
         self.assertEqual(len(expected), dump["extraction"]["file_count"])

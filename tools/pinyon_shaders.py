@@ -15,14 +15,25 @@ first time.
 The attempt is recorded for each build (fh1-vulkan-preparation-skipped.json),
 so a preparation that failed or was stopped is not retried at every start.
 
+The route covers the opening only. Free roam's pipelines come from a catalog
+of earlier play (config/fh1-aot-pipelines.json, AOT-4): its shaders are
+rebuilt from the player's own disc and DLC and written to
+4D5309C9.fbo.aot.xpso, which the game builds behind the title. That file is
+rewritten when the catalog or the installed DLC change.
+
   pinyon.py prepare-shaders [--state-root DIR] [--game-root DIR]
-                            [--build-directory DIR] [--json]
+                            [--build-directory DIR] [--pipelines-only] [--json]
+
+--pipelines-only writes the ahead-of-time list and nothing else; Windows
+setup (tools/prepare-fh1-shaders.ps1) runs it before its own route, holding
+the preparation lock itself.
 """
 
 from __future__ import annotations
 
 import argparse
 import contextlib
+import hashlib
 import json
 import os
 import shutil
@@ -33,6 +44,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import pinyon_common as common  # noqa: E402
+import fh1_aot_pipelines as aot  # noqa: E402
 
 ROUTE = common.ROOT / "config" / "render-tests" / "fh1-shader-preparation.fh1test"
 SKIPPED = "fh1-vulkan-preparation-skipped.json"
@@ -40,6 +52,10 @@ STORAGE = (("cache/shaders/shareable", ("*.xsh", "*.vk.xpso")),
            ("cache/shaders", ("*.vkpipelinecache.*.bin",)))
 # The route plays the opening, hidden; a stuck run is stopped after this.
 ROUTE_TIMEOUT = 3600
+CATALOG = common.ROOT / "config" / "fh1-aot-pipelines.json"
+AOT_FILE = "4D5309C9.fbo.aot.xpso"
+AOT_RECORD = "fh1-aot-pipelines.json"
+CONTENT = Path("user/0000000000000000/4D5309C9/00000002")
 
 
 def event(percent: int, message: str, as_json: bool) -> None:
@@ -110,9 +126,53 @@ def keep_storage(route_state: Path, state: Path) -> int:
     return copied
 
 
+def prepare_aot(state: Path, game: Path, build: Path, as_json: bool) -> str:
+    """Writes the ahead-of-time pipelines; returns what happened, for the log."""
+    cache = state / "cache"
+    output = cache / "shaders" / "shareable" / AOT_FILE
+    content = state / CONTENT
+    packages = sorted(path for path in content.iterdir() if path.is_dir()) if content.is_dir() else []
+    key = hashlib.sha256(CATALOG.read_bytes()).hexdigest() if CATALOG.is_file() else None
+    key = {"catalog": key, "content": [path.name for path in packages]}
+    try:
+        current = json.loads((cache / AOT_RECORD).read_text(encoding="utf-8")) == key
+    except (OSError, ValueError):
+        current = False
+    if key["catalog"] is None or (current and output.is_file()):
+        return "ready" if key["catalog"] else "no catalog"
+    extractor = build / common.EXTRACTOR
+    if not extractor.is_file():
+        return f"skipped: {extractor} is not built"
+    event(0, "Preparing Vulkan pipelines for free roam from the game files.", as_json)
+    work = common.ROOT / ".local" / "native-renderer" / f"aot-pipelines-{uuid.uuid4().hex}"
+    command = [common.python_executable(), str(common.ROOT / "tools" / "extract-fh1-shader-corpus.py"),
+               str(game), "--output", str(work / "corpus.json"), "--binary-dir", str(work / "corpus"),
+               "--archive-extractor", str(extractor),
+               *[f"--content-root={path}" for path in packages]]
+    try:
+        completed = subprocess.run(command, capture_output=True, text=True, errors="replace")
+        if completed.returncode:
+            return f"skipped: shader extraction failed ({completed.stderr.strip()[-300:]})"
+        result = aot.generate(work / "corpus", CATALOG, output)
+        common.write_json_atomic(cache / AOT_RECORD, key)
+    except (OSError, ValueError) as error:
+        return f"skipped: {error}"
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+    return f"{result['pipelines']} pipelines from {result['shaders']} shaders"
+
+
 def prepare(state: Path, game: Path, build: Path, as_json: bool) -> dict:
-    """Returns {"shaders": "ready" | "prepared" | "skipped", "message"}."""
+    """Returns {"shaders": "ready" | "prepared" | "skipped", "message", "aot"}."""
     common.require_game_closed("preparing graphics")
+    with preparation_lock(state / "cache"):
+        pipelines = prepare_aot(state, game, build, as_json)
+    result = prepare_route(state, game, build, as_json)
+    result["aot"] = pipelines
+    return result
+
+
+def prepare_route(state: Path, game: Path, build: Path, as_json: bool) -> dict:
     cache = state / "cache"
     skipped = cache / SKIPPED
     key = build_key(build)
@@ -138,6 +198,12 @@ def prepare(state: Path, game: Path, build: Path, as_json: bool) -> dict:
         update = state / "title-update-v4"
         if update.is_dir():
             shutil.copytree(update, route_state / "title-update-v4")
+        # The route's start builds the ahead-of-time pipelines too, so the
+        # driver keeps them and the player's first start finds them compiled.
+        pipelines = cache / "shaders" / "shareable" / AOT_FILE
+        if pipelines.is_file():
+            (route_state / "cache" / "shaders" / "shareable").mkdir(parents=True)
+            shutil.copyfile(pipelines, route_state / "cache" / "shaders" / "shareable" / AOT_FILE)
 
         def skip(reason: str) -> dict:
             message = (f"Vulkan shader preparation was skipped: {reason} The first race may "
@@ -176,8 +242,12 @@ def run(args: argparse.Namespace) -> dict:
     build = (args.build_directory or common.build_directory()).resolve()
     if not (build / common.EXECUTABLE).is_file():
         raise common.CommandError(f"the game is not built at {build}")
-    return prepare(common.state_root(args.state_root), common.game_root(args.game_root), build,
-                   args.json)
+    state, game = common.state_root(args.state_root), common.game_root(args.game_root)
+    if args.pipelines_only:
+        pipelines = prepare_aot(state, game, build, args.json)
+        event(100, f"Ahead-of-time Vulkan pipelines: {pipelines}.", args.json)
+        return {"aot": pipelines}
+    return prepare(state, game, build, args.json)
 
 
 def add_parser(commands) -> None:
@@ -186,6 +256,8 @@ def add_parser(commands) -> None:
     parser.add_argument("--state-root", type=Path)
     parser.add_argument("--game-root", type=Path)
     parser.add_argument("--build-directory", type=Path)
+    parser.add_argument("--pipelines-only", action="store_true",
+                        help="only write the ahead-of-time pipeline list")
     parser.add_argument("--json", action="store_true")
 
 

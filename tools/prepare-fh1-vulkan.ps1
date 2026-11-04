@@ -29,6 +29,14 @@ $work = Resolve-PinyonLocalPath -RelativePath ('.local/native-renderer/vulkan-pr
 $routeState = Join-Path $work 'state'
 [void][IO.Directory]::CreateDirectory((Join-Path $routeState 'config'))
 if (Test-Path -LiteralPath $config) { Copy-Item -LiteralPath $config -Destination (Join-Path $routeState 'config/pinyon_shift.toml') }
+# The route's start builds the ahead-of-time pipelines too, so the driver's
+# cache holds them before the player's first start.
+$pipelines = Join-Path $cache 'shaders/shareable/4D5309C9.fbo.aot.xpso'
+if (Test-Path -LiteralPath $pipelines) {
+    $shareable = Join-Path $routeState 'cache/shaders/shareable'
+    [void][IO.Directory]::CreateDirectory($shareable)
+    Copy-Item -LiteralPath $pipelines -Destination $shareable
+}
 
 function Skip-Preparation([string]$Reason) {
     Write-PinyonEvent shaders 100 "Vulkan shader preparation was skipped: $Reason The first race may stutter while shaders are prepared. Details: $work" -JsonEvents:$JsonEvents

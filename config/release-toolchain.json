@@ -20,6 +20,19 @@
       "Microsoft.VisualStudio.Component.Windows11SDK.22621"
     ]
   },
+  "msvc_sysroot": {
+    "comment": "TP-4: opt-in instead of the Build Tools with a prebuilt ShiftGlue kit; xwin fetches the CRT and Windows SDK from Microsoft after the player accepts Microsoft's license",
+    "install_path": ".local/toolchain/msvc-sysroot",
+    "sdk_version": "10.0.22621",
+    "license_url": "https://go.microsoft.com/fwlink/?LinkId=2179911",
+    "xwin": {
+      "version": "0.10.0",
+      "url": "https://github.com/Jake-Shadle/xwin/releases/download/0.10.0/xwin-0.10.0-x86_64-pc-windows-msvc.tar.gz",
+      "sha256": "96E83665EF5C1406AABD0BE603A8D08E67E604F36FDA630B6807EE948A614E26",
+      "install_path": ".local/toolchain/xwin-0.10.0",
+      "executable": "xwin.exe"
+    }
+  },
   "cmake": {
     "version": "3.31.10",
     "url": "https://github.com/Kitware/CMake/releases/download/v3.31.10/cmake-3.31.10-windows-x86_64.zip",
@@ -144,7 +157,7 @@
   },
   "rexglue": {
     "repository": "https://github.com/arcanite24/shiftglue-sdk",
-    "revision": "8e32080bfa4383b0bb7402a0f5289e4308de4383",
+    "revision": "101ad468f1398646ecf74a6dcdead772cbe08624",
     "submodule_path": "thirdparty/shiftglue-sdk",
     "fallback_path": ".local/rexglue"
   }

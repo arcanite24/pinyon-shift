@@ -6,6 +6,7 @@
 #include <cctype>
 #include <chrono>
 #include <cmath>
+#include <cstdio>
 #include <ctime>
 #include <cstdint>
 #include <cstdlib>
@@ -55,6 +56,7 @@
 #include "auto_start.h"
 #include "pinyon_shift_runtime_hooks.h"
 #include "cheats.h"
+#include "achievements/achievement_progress.h"
 #include "cheats_map.h"
 #include "cheats_travel.h"
 #include "dev_options.h"
@@ -5601,6 +5603,79 @@ static void UpdateRallyPace(PPCContext& ctx, uint8_t* base) {
   g_rally_audio_update(ctx, base);
 }
 
+// AC-3.3: notification sounds through the title's own UI event project. The
+// title's MiniAchieve UI event is silent (it maps to the Blank cue), so an
+// unlock uses the HUD reward cue its sponsor and flyer notifications play.
+// Cues are created, played and released only inside CAudioEngine::Update,
+// where cue work is safe (the FMOD channel settings race).
+static PPCFunc* g_ui_audio_update = nullptr;
+static std::atomic<uint32_t> g_ui_sounds_requested{0};
+static void UpdateUiSounds(PPCContext& ctx, uint8_t* base) {
+  static uint32_t scratch = 0, cue = 0, consumed = 0;
+  auto method = [](uint32_t object, uint32_t offset) -> uint32_t {
+    if (!object || !PinyonShiftGuestRangeReadable(object, 4)) return 0;
+    const uint32_t table = LoadGuestU32(object);
+    if (!table || !PinyonShiftGuestRangeReadable(table + offset, 4)) return 0;
+    const uint32_t value = LoadGuestU32(table + offset);
+    return value && PinyonShiftGuestRangeReadable(value, 4) ? value : 0;
+  };
+  auto call_guest = [](uint32_t address, std::initializer_list<uint32_t> args) {
+    std::array<uint64_t, 6> values{};
+    std::copy(args.begin(), args.end(), values.begin());
+    return uint32_t(rex::system::kernel_state()->function_dispatcher()->ExecuteTrap(
+        rex::runtime::ThreadState::Get(), address, values.data(), args.size()));
+  };
+  auto release = [&] {
+    if (const auto stop = method(cue, 76)) call_guest(stop, {cue});
+    if (const auto release_cue = method(cue, 12)) call_guest(release_cue, {cue});
+    cue = 0;
+  };
+  if (cue) {
+    const auto playing = method(cue, 84), channels = method(cue, 88);
+    if (!playing || !channels || (!call_guest(playing, {cue}) && !call_guest(channels, {cue}))) {
+      release();
+    }
+  }
+  const uint32_t requested = g_ui_sounds_requested.load();
+  if (requested != consumed) {
+    consumed = requested;
+    const uint32_t manager = LoadGuestU32(FH1_ADDR(0x83439490u));
+    const auto create = method(manager, 300);
+    auto* memory = rex::system::kernel_state()->memory();
+    if (!scratch) scratch = memory->SystemHeapAlloc(128, 16);
+    if (create && scratch) {
+      if (cue) release();  // one notification sound at a time
+      auto* text = reinterpret_cast<char*>(memory->virtual_membase() + scratch);
+      std::snprintf(text + 16, 48, "UIInGame/UI/HorizonHud");
+      std::snprintf(text + 64, 64, "HUD_General_Notification_Reward");
+      StoreGuestU32(scratch, 0);
+      call_guest(create, {scratch, manager, scratch + 16, scratch + 64, 1});
+      cue = LoadGuestU32(scratch);
+      const auto play = method(cue, 72);
+      if (play) call_guest(play, {cue, 0});
+      pinyon_shift::diagnostics::RecordEvent(
+          "achievements.sound", {{"result", !cue ? "no_cue" : play ? "played" : "no_play"}});
+      if (cue && !play) release();
+    }
+  }
+  g_ui_audio_update(ctx, base);
+}
+
+void PinyonShiftPlayNotificationSound() {
+  static std::once_flag installed;
+  std::call_once(installed, [] {
+    auto* dispatcher = rex::system::kernel_state()->function_dispatcher();
+    // Chains with the Rally pace hook on the same function, either order.
+    g_ui_audio_update = dispatcher->GetFunction(FH1_ADDR(0x82BB5918u));
+    const bool ok =
+        g_ui_audio_update && dispatcher->SetFunction(FH1_ADDR(0x82BB5918u), UpdateUiSounds);
+    if (!ok) g_ui_audio_update = nullptr;
+    pinyon_shift::diagnostics::RecordEvent("achievements.sound_hook",
+                                           {{"installed", ok ? "1" : "0"}});
+  });
+  if (g_ui_audio_update) g_ui_sounds_requested.fetch_add(1);
+}
+
 // Native upgrade views and test-only DLC qualification.
 static PPCFunc* g_dlc_async_query = nullptr;
 static PPCFunc* g_dlc_raw_query = nullptr;
@@ -6764,6 +6839,8 @@ void PinyonShiftTraceFrameTelemetry(PPCRegister& r28, PPCRegister& r31) {
   // The trainer's collectible markers (NP-8.6) queue their pass here, so it
   // also runs while the pause map is open.
   pinyon_shift::cheats::UpdateCollectibleMarkers();
+  // The achievements screen's collectible count (AC-4.1).
+  pinyon_shift::achievements::Update();
   pinyon_shift::cheats::UpdateDestinations();
   // The Treasure Map add-on's reveal, when the setting owns it.
   pinyon_shift::dlc::UpdateTreasureMap();
@@ -7943,6 +8020,11 @@ void PinyonShiftTraceSavePreEncryption(PPCRegister& r4, PPCRegister& r5) {
   pinyon_shift::mod::RecordSave(r4.u32, r5.u32);
   SnapshotSavePayload("plaintext", r4.u32, r5.u32, FH1_ADDR(0x82C666D4u));
   ScanLiveProfile(r4.u32, r5.u32);
+  if (r4.u32 != 0 && r5.u32 != 0 && r5.u32 <= (16u << 20)) {
+    // The title has just written the body here, so the range is mapped.
+    pinyon_shift::achievements::ObserveProfile(
+        rex::system::kernel_state()->memory()->TranslateVirtual<const uint8_t*>(r4.u32), r5.u32);
+  }
 }
 
 void PinyonShiftObserveSaveDecrypted(PPCRegister& r24, PPCRegister& r30) {
@@ -7963,6 +8045,7 @@ void PinyonShiftObserveSaveDecrypted(PPCRegister& r24, PPCRegister& r30) {
   auto* body = kernel_state->memory()->TranslateVirtual<uint8_t*>(address);
   pinyon_shift::dlc::GrantProfileUnlocks(body, size);
   pinyon_shift::cheats::EditLoadedProfile(body, size);
+  pinyon_shift::achievements::ObserveProfile(body, size);
 }
 
 void PinyonShiftAcceptModdedBlock(PPCRegister& r3, PPCRegister& r24) {

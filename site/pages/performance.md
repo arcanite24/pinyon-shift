@@ -78,7 +78,22 @@ The Low-spec 60 preset on the heavy start of the race (about 6,200 draws a frame
 | 4 slow cores, Balanced 40 | 40 | 39.9 | 25.00 ms | 25.48 ms |
 | 4 cores, 8 threads, about 1 GB VRAM free | 60 | 59.6 | 16.68 ms | 17.02 ms |
 
-The game needs about 1.1 GB of graphics memory at 1x without MSAA, so a 2 GB card has room. Integrated GPUs and the Steam Deck haven't been measured yet.
+The game needs about 1.1 GB of graphics memory at 1x without MSAA, so a 2 GB card has room. Integrated graphics and an old discrete GPU are in the next section; the Steam Deck hasn't been measured for this table.
+
+## An old laptop
+
+One 2017-era laptop with two GPUs: Intel Core i5-8250U (4 cores, 8 threads), 15.9 GB RAM, Windows 11, a TV at 1920 × 1080 60 Hz over HDMI. The GeForce 930MX (2 GB, driver 511.69) renders by default and the Intel UHD 620 (driver 31.0.101.2140) drives the display. The route is the race from `fh1-race-sync` at 1x, one run each, so these are single measurements with no spread.
+
+| Preset and GPU | Target | Presents a second | Median | p95 |
+| --- | ---: | ---: | ---: | ---: |
+| Low-spec 60, UHD 620 | 60 | 12.5 | 76 ms | 90 ms |
+| Low-spec 60, GeForce 930MX | 60 | 6.8 | 65 ms | 670 ms |
+| Ultra Low 30, UHD 620 | 30 | 19.7 | 51 ms | 58 ms |
+| Ultra Low 30, GeForce 930MX | 30 | 9.8 | 41 ms | 625 ms |
+
+Neither GPU reaches its target, so this machine is below what the presets support. The Ultra Low 30 rows count only 335 and 574 frames, so they are thin. On the Intel GPU the recorder thread takes 14 to 24 ms a frame, so the CPU limits it as well as the GPU.
+
+The 930MX has a median frame time at or below the Intel's, but about one frame in seven takes 550 to 700 ms, which is why its p95 is so high. These stalls come from showing the window, not from drawing: with the window hidden none occurred in 90 seconds and the median was 55 ms. Turning vsync off cut them to a third, windowed mode and the number of swapchain images did not change them, and timing every presenter and queue call found none that blocked. The wait is below the graphics API, probably in the driver's hand-off from the 930MX to the Intel GPU that drives the display; that is a guess from one machine. On this laptop the Intel GPU is the better choice, which the game can be told with `vulkan_device = 1`. The records are in [benchmarks/low-spec/2026-10-29](https://github.com/arcanite24/pinyon-shift/tree/dev/benchmarks/low-spec/2026-10-29) and the method in [docs/LOW_SPEC_BACKLOG.md](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/LOW_SPEC_BACKLOG.md).
 
 ## Android
 

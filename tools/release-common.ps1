@@ -298,6 +298,108 @@ function Get-PinyonVisualStudioRoot {
     $root
 }
 
+# TP-4 (docs/TIME_TO_PLAY_BACKLOG.md): the Microsoft C++ libraries (CRT and
+# STL) and the Windows SDK headers and import libraries, fetched by xwin from
+# Microsoft's own Visual Studio packages after the player accepts Microsoft's
+# license. A build from the prebuilt ShiftGlue kit needs nothing else from the
+# Build Tools: clang reads INCLUDE, lld-link reads LIB, llvm-rc replaces rc.exe
+# and the link step embeds manifests in place of mt.exe.
+function Get-PinyonMsvcSysroot {
+    $config = Get-PinyonReleaseToolchain
+    if (-not ($config.PSObject.Properties.Name -contains 'msvc_sysroot')) { return $null }
+    $root = Resolve-PinyonLocalPath -RelativePath $config.msvc_sysroot.install_path
+    $record = Join-Path $root 'pinyon-sysroot.json'
+    if (-not (Test-Path -LiteralPath $record -PathType Leaf)) { return $null }
+    $data = Get-Content -LiteralPath $record -Raw | ConvertFrom-Json
+    [pscustomobject]@{
+        Root = $root
+        # VC/Tools/MSVC/<version>/include
+        MsvcVersion = (@($data.include)[0] -split '/')[3]
+        Include = @($data.include | ForEach-Object { [IO.Path]::Combine($root, $_) })
+        Lib = @($data.lib | ForEach-Object { [IO.Path]::Combine($root, $_) })
+    }
+}
+
+# Whether this build uses the fetched sysroot instead of Visual Studio. It is
+# the default for builds from the prebuilt kit, which carries the C++ runtime
+# DLLs the sysroot lacks, once the player accepted Microsoft's license (the
+# launcher asks), and it is preferred over an installed Visual Studio so every
+# install compiles against the same pinned C++ library. Declining falls back
+# to the Build Tools. Source builds opt in with PINYON_SHIFT_MSVC_SYSROOT=1;
+# PINYON_SHIFT_MSVC_SYSROOT=0 always uses Visual Studio.
+function Test-PinyonUseMsvcSysroot {
+    if ($env:PINYON_SHIFT_MSVC_SYSROOT -eq '0') { return $false }
+    if ($env:PINYON_SHIFT_MSVC_SYSROOT -eq '1') { return $true }
+    if ($null -eq (Get-PinyonShiftGlueKitEntry)) { return $false }
+    $env:PINYON_SHIFT_ACCEPT_MICROSOFT_LICENSE -eq '1' -or $null -ne (Get-PinyonMsvcSysroot)
+}
+
+# The pinned CLI uses narrow argv and file APIs. A UTF-8 process code page
+# keeps Unicode installation paths intact on Windows 10 1903 and newer. The
+# manifest goes in at link time: mt.exe comes only with the Build Tools, and
+# llvm-mt ignores -inputresource and -outputresource.
+function Get-PinyonCodegenManifestLinkFlag {
+    $manifest = (Join-Path (Get-PinyonRepoRoot) 'config/rexglue/codegen-windows.manifest') -replace '\\', '/'
+    "-Xlinker `"/MANIFESTINPUT:$manifest`""
+}
+
+function Install-PinyonMsvcSysroot {
+    param([switch]$AcceptMicrosoftLicense)
+    if (Get-PinyonMsvcSysroot) { return }
+    $sysroot = (Get-PinyonReleaseToolchain).msvc_sysroot
+    if (-not $AcceptMicrosoftLicense) {
+        $failure = [Exception]::new("Fetching the Microsoft C++ libraries and the Windows SDK needs Microsoft's license to be accepted: $($sysroot.license_url)")
+        $failure.Data['step'] = 'Fetch the Microsoft C++ libraries'
+        $failure.Data['hint'] = "Tick the launcher's Microsoft license box, or leave it unticked to install the Microsoft C++ Build Tools instead."
+        throw $failure
+    }
+    $xwinRoot = Resolve-PinyonLocalPath -RelativePath $sysroot.xwin.install_path
+    $xwin = Join-Path $xwinRoot $sysroot.xwin.executable
+    if (-not (Test-Path -LiteralPath $xwin -PathType Leaf)) {
+        $archive = Resolve-PinyonLocalPath -RelativePath ".local/downloads/$(Split-Path $sysroot.xwin.url -Leaf)"
+        Invoke-PinyonDownload -Uri $sysroot.xwin.url -Destination $archive -Sha256 $sysroot.xwin.sha256
+        $staging = "$xwinRoot.staging"
+        Remove-PinyonTree -Path $staging
+        [void](New-Item -ItemType Directory -Force -Path $staging)
+        # Windows 10 1803 and newer ship bsdtar.
+        & (Join-Path ([Environment]::SystemDirectory) 'tar.exe') -xzf $archive -C $staging
+        if ($LASTEXITCODE -ne 0) { throw "Could not unpack $archive." }
+        Remove-PinyonTree -Path $xwinRoot
+        $inner = @(Get-ChildItem -LiteralPath $staging -Directory)
+        [IO.Directory]::Move($inner[0].FullName, $xwinRoot)
+        Remove-PinyonTree -Path $staging
+    }
+    $root = Resolve-PinyonLocalPath -RelativePath $sysroot.install_path
+    # xwin renames unpacked files into the output, which fails across drives
+    # (os error 17), so the cache sits beside the sysroot, not in downloads.
+    $cache = "$root.xwin-cache"
+    Remove-PinyonTree -Path $root
+    # xwin's default layout links `sdk/include/<version>` to `.` even with
+    # --disable-symlinks, and Windows refuses that without Developer Mode
+    # (os error 1314). The winsysroot layout has real version folders.
+    # CMake's compiler check links Debug (msvcrtd.lib) in every configure.
+    & $xwin --accept-license --cache-dir $cache --http-retry 3 --arch x86_64 --variant desktop `
+        --sdk-version $sysroot.sdk_version splat --disable-symlinks --use-winsysroot-style --include-debug-libs `
+        --preserve-ms-arch-notation --output $root
+    if ($LASTEXITCODE -ne 0) { throw "xwin could not fetch the Microsoft C++ libraries (exit $LASTEXITCODE)." }
+    Remove-PinyonTree -Path $cache
+    $msvc = @(Get-ChildItem -LiteralPath (Join-Path $root 'VC/Tools/MSVC') -Directory)
+    $sdk = @(Get-ChildItem -LiteralPath (Join-Path $root 'Windows Kits/10/Include') -Directory)
+    if ($msvc.Count -ne 1 -or $sdk.Count -ne 1) { throw "xwin wrote an unexpected layout under $root." }
+    $crt = "VC/Tools/MSVC/$($msvc[0].Name)"
+    $kit = "Windows Kits/10"
+    $kitVersion = $sdk[0].Name
+    $record = [ordered]@{
+        schema_version = 2
+        xwin = $sysroot.xwin.version
+        sdk_version = $sysroot.sdk_version
+        include = @("$crt/include") + @('ucrt', 'um', 'shared', 'winrt' | ForEach-Object { "$kit/Include/$kitVersion/$_" })
+        lib = @("$crt/lib/x64") + @('ucrt', 'um' | ForEach-Object { "$kit/Lib/$kitVersion/$_/x64" })
+    }
+    [IO.File]::WriteAllText((Join-Path $root 'pinyon-sysroot.json'),
+        ($record | ConvertTo-Json) + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
+}
+
 function ConvertTo-PinyonCommandPath {
     param([AllowEmptyString()] [string]$PathValue)
 
@@ -312,10 +414,10 @@ function ConvertTo-PinyonCommandPath {
 }
 
 function Get-PinyonCMake {
-    param([Parameter(Mandatory)] [string]$VisualStudioRoot)
+    param([AllowEmptyString()] [string]$VisualStudioRoot = '')
     $config = Get-PinyonReleaseToolchain
     $candidate = Join-Path (Resolve-PinyonLocalPath $config.cmake.install_path) $config.cmake.executable
-    if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) {
+    if (-not (Test-Path -LiteralPath $candidate -PathType Leaf) -and $VisualStudioRoot) {
         $candidate = Join-Path $VisualStudioRoot 'Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe'
     }
     if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) {
@@ -898,6 +1000,118 @@ function Assert-PinyonFreeSpace {
 # Reachability of the hosts the remaining downloads need, checked once before
 # the first download so a proxy, firewall or offline PC is named up front
 # instead of failing one tool at a time (#393).
+# TP-2/TP-3: the prebuilt ShiftGlue kit for the pinned revision, when the
+# toolchain config names one (config/release-toolchain.json shiftglue_kit).
+# A kit for another revision is ignored: the build then uses the source tree.
+# PINYON_SHIFT_SOURCE_SDK=1 forces the source tree.
+function Get-PinyonShiftGlueKitEntry {
+    $config = Get-PinyonReleaseToolchain
+    if ($env:PINYON_SHIFT_SOURCE_SDK -eq '1') { return $null }
+    $kits = $config.PSObject.Properties['shiftglue_kit']
+    if ($null -eq $kits) { return $null }
+    $entry = $kits.Value.PSObject.Properties['windows-x64']
+    if ($null -eq $entry -or $entry.Value.revision -ne $config.rexglue.revision) { return $null }
+    $entry.Value
+}
+# The unpacked kit's folder when it holds the pinned revision, else $null.
+function Get-PinyonShiftGlueKitRoot {
+    if ($env:PINYON_SHIFT_SOURCE_SDK -eq '1') { return $null }
+    $config = Get-PinyonReleaseToolchain
+    $kitRoot = Resolve-PinyonLocalPath -RelativePath '.local/shiftglue-kit'
+    $manifest = Join-Path $kitRoot 'kit.json'
+    if (-not (Test-Path -LiteralPath $manifest -PathType Leaf)) { return $null }
+    $kit = Get-Content -LiteralPath $manifest -Raw | ConvertFrom-Json
+    if ($kit.shiftglue_revision -ne $config.rexglue.revision -or $kit.platform -ne 'windows-x64') { return $null }
+    $kitRoot
+}
+# Downloads and unpacks the pinned kit. Returns its folder, or $null (with the
+# reason on the warning stream) so setup can fall back to the source tree.
+function Install-PinyonShiftGlueKit {
+    $existing = Get-PinyonShiftGlueKitRoot
+    if ($existing) { return $existing }
+    $entry = Get-PinyonShiftGlueKitEntry
+    if ($null -eq $entry) { return $null }
+    $kitRoot = Resolve-PinyonLocalPath -RelativePath '.local/shiftglue-kit'
+    $staging = "$kitRoot-staging"
+    try {
+        $archive = Resolve-PinyonLocalPath -RelativePath ".local/downloads/shiftglue-kit-$($entry.revision.Substring(0, 12))-windows-x64.zip"
+        Invoke-PinyonDownload -Uri $entry.url -Destination $archive -Sha256 $entry.sha256
+        if (Test-Path -LiteralPath $staging) { Remove-Item -LiteralPath $staging -Recurse -Force }
+        Expand-PinyonZip -Archive $archive -Destination $staging
+        $children = @(Get-ChildItem -LiteralPath $staging -Directory)
+        if ($children.Count -ne 1) { throw 'The ShiftGlue kit archive layout is not recognized.' }
+        if (Test-Path -LiteralPath $kitRoot) { Remove-Item -LiteralPath $kitRoot -Recurse -Force }
+        Move-Item -LiteralPath $children[0].FullName -Destination $kitRoot
+        Remove-Item -LiteralPath $staging -Recurse -Force
+    }
+    catch {
+        Write-Warning "The prebuilt ShiftGlue kit could not be installed; building ShiftGlue from source instead. $($_.Exception.Message)"
+        return $null
+    }
+    Get-PinyonShiftGlueKitRoot
+}
+# TP-3 host split: the release's prebuilt host objects for a variant (base or
+# v4), pinned like the kit by tools/apply-prebuilt-pins.py.
+function Get-PinyonHostObjectsEntry {
+    param([Parameter(Mandatory)] [ValidateSet('base', 'v4')] [string]$Variant)
+    $config = Get-PinyonReleaseToolchain
+    $all = $config.PSObject.Properties['host_objects']
+    if ($null -eq $all) { return $null }
+    $platform = $all.Value.PSObject.Properties['windows-x64']
+    if ($null -eq $platform) { return $null }
+    $entry = $platform.Value.PSObject.Properties[$Variant]
+    if ($null -eq $entry -or $entry.Value.revision -ne $config.rexglue.revision) { return $null }
+    $entry.Value
+}
+# Downloads and unpacks them for a build from the kit. Returns the folder to
+# pass as PINYON_SHIFT_HOST_OBJECTS, or '' to compile the host code here: the
+# game build also checks their fingerprint and falls back on its own.
+function Install-PinyonHostObjects {
+    param([Parameter(Mandatory)] [ValidateSet('base', 'v4')] [string]$Variant)
+    $entry = Get-PinyonHostObjectsEntry -Variant $Variant
+    if ($null -eq $entry -or $null -eq (Get-PinyonShiftGlueKitRoot)) { return '' }
+    $target = Resolve-PinyonLocalPath -RelativePath ".local/host-objects/$Variant"
+    $stamp = Join-Path $target '.asset-sha256'
+    if ((Test-Path -LiteralPath $stamp -PathType Leaf) -and
+        (Get-Content -LiteralPath $stamp -Raw).Trim() -eq $entry.sha256) {
+        return $target
+    }
+    $staging = "$target-staging"
+    try {
+        $archive = Resolve-PinyonLocalPath -RelativePath ".local/downloads/$(Split-Path ([Uri]$entry.url).AbsolutePath -Leaf)"
+        Invoke-PinyonDownload -Uri $entry.url -Destination $archive -Sha256 $entry.sha256
+        Remove-PinyonTree -Path $staging
+        Expand-PinyonZip -Archive $archive -Destination $staging
+        $children = @(Get-ChildItem -LiteralPath $staging -Directory)
+        if ($children.Count -ne 1) { throw 'The host objects archive layout is not recognized.' }
+        Remove-PinyonTree -Path $target
+        Move-Item -LiteralPath $children[0].FullName -Destination $target
+        Remove-PinyonTree -Path $staging
+        Set-Content -LiteralPath $stamp -Value $entry.sha256 -Encoding ascii
+    }
+    catch {
+        Write-Warning "The prebuilt host objects could not be installed; compiling the host code instead. $($_.Exception.Message)"
+        return ''
+    }
+    $target
+}
+
+# A repacked tool archive (tools/repack-toolchain.py) holds each binary once and
+# lists its other names in pinyon-links.json; make those names hard links (no
+# extra disk), or copies where the volume has none.
+function Install-PinyonToolLinks {
+    param([Parameter(Mandatory)] [string]$Root)
+    $list = Join-Path $Root 'pinyon-links.json'
+    if (-not (Test-Path -LiteralPath $list -PathType Leaf)) { return }
+    $links = Get-Content -LiteralPath $list -Raw | ConvertFrom-Json
+    foreach ($property in $links.PSObject.Properties) {
+        $link = Join-Path $Root $property.Name
+        $target = Join-Path (Split-Path $link -Parent) $property.Value
+        if (Test-Path -LiteralPath $link) { Remove-Item -LiteralPath $link -Force }
+        try { [void](New-Item -ItemType HardLink -Path $link -Target $target -ErrorAction Stop) }
+        catch { Copy-Item -LiteralPath $target -Destination $link -Force }
+    }
+}
 function Assert-PinyonDownloadHosts {
     param([Parameter(Mandatory)] [AllowEmptyCollection()] [string[]]$Uris)
     $hosts = @($Uris | Where-Object { $_ } | ForEach-Object { ([Uri]$_).GetLeftPart([UriPartial]::Authority) } |
@@ -941,58 +1155,71 @@ function Enter-PinyonBuildEnvironment {
     }
     $root = Get-PinyonRepoRoot
     $config = Get-PinyonReleaseToolchain
-    $vsRoot = Get-PinyonVisualStudioRoot
-    $devCmd = Join-Path $vsRoot 'Common7/Tools/VsDevCmd.bat'
-    $inheritedPath = $env:PATH
-    $inheritedTemp = $env:TEMP
-    $inheritedTmp = $env:TMP
-    try {
-        # Quoted PATH entries containing parentheses break VsDevCmd's batch parser.
-        $env:PATH = ConvertTo-PinyonCommandPath -PathValue $inheritedPath
-        # VsDevCmd expands TEMP unquoted inside a parenthesized block even
-        # when debug logging is disabled. Portable install paths can break it.
-        $buildTemp = Join-Path ([Environment]::GetFolderPath('CommonApplicationData')) 'PinyonShift\build-temp'
-        New-Item -ItemType Directory -Path $buildTemp -Force | Out-Null
-        $env:TEMP = $buildTemp
-        $env:TMP = $buildTemp
-        $marker = '::pinyon-environment::'
-        # Merged stderr arrives as ErrorRecords; under 'Stop' the first one
-        # would end the function before the exit code is known.
-        $previousPreference = $ErrorActionPreference
-        $ErrorActionPreference = 'Continue'
-        $output = @(& $env:ComSpec /d /s /c "`"$devCmd`" -arch=x64 -host_arch=x64 && echo $marker&& set" 2>&1 |
-            ForEach-Object { $_.ToString() })
-        $devCmdExit = $LASTEXITCODE
-        $ErrorActionPreference = $previousPreference
+    $sysroot = if (Test-PinyonUseMsvcSysroot) { Get-PinyonMsvcSysroot } else { $null }
+    if ($sysroot) {
+        # TP-4: no Build Tools; the fetched CRT and Windows SDK instead.
+        $vsRoot = ''
+        $env:INCLUDE = $sysroot.Include -join ';'
+        $env:LIB = $sysroot.Lib -join ';'
+        # What the developer prompt would say: the game build compares it with
+        # the kit's runtime and fingerprints the host objects with it.
+        $env:VCToolsVersion = $sysroot.MsvcVersion
+        Remove-Item Env:VCToolsRedistDir -ErrorAction SilentlyContinue
     }
-    finally {
-        $env:PATH = $inheritedPath
-        $env:TEMP = $inheritedTemp
-        $env:TMP = $inheritedTmp
-    }
-    $markerIndex = -1
-    for ($i = 0; $i -lt $output.Count; $i++) {
-        if ($output[$i].Trim() -eq $marker) { $markerIndex = $i; break }
-    }
-    if ($devCmdExit -ne 0 -or $markerIndex -lt 0) {
-        # VsDevCmd prints its own [ERROR:...] lines; keep them in the report.
-        $devCmdOutput = @($output | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Last 20)
-        $failure = [Exception]::new('Unable to initialize the Microsoft x64 build environment. Restart Windows after installing the Microsoft C++ Build Tools, then run setup again. ' +
-            "VsDevCmd: $devCmd")
-        $failure.Data['step'] = 'Initialize the Microsoft x64 build environment'
-        $failure.Data['exit_code'] = $devCmdExit
-        $failure.Data['command'] = "`"$devCmd`" -arch=x64 -host_arch=x64"
-        $failure.Data['error_excerpt'] = [string[]]$devCmdOutput
-        throw $failure
-    }
-    $lines = if ($markerIndex + 1 -lt $output.Count) { $output[($markerIndex + 1)..($output.Count - 1)] } else { @() }
-    foreach ($line in $lines) {
-        $separator = $line.IndexOf('=')
-        if ($separator -gt 0) {
-            $name = $line.Substring(0, $separator)
-            if ($name -in @('TEMP', 'TMP')) { continue }
-            [Environment]::SetEnvironmentVariable($name,
-                $line.Substring($separator + 1), 'Process')
+    else {
+        $vsRoot = Get-PinyonVisualStudioRoot
+        $devCmd = Join-Path $vsRoot 'Common7/Tools/VsDevCmd.bat'
+        $inheritedPath = $env:PATH
+        $inheritedTemp = $env:TEMP
+        $inheritedTmp = $env:TMP
+        try {
+            # Quoted PATH entries containing parentheses break VsDevCmd's batch parser.
+            $env:PATH = ConvertTo-PinyonCommandPath -PathValue $inheritedPath
+            # VsDevCmd expands TEMP unquoted inside a parenthesized block even
+            # when debug logging is disabled. Portable install paths can break it.
+            $buildTemp = Join-Path ([Environment]::GetFolderPath('CommonApplicationData')) 'PinyonShift\build-temp'
+            New-Item -ItemType Directory -Path $buildTemp -Force | Out-Null
+            $env:TEMP = $buildTemp
+            $env:TMP = $buildTemp
+            $marker = '::pinyon-environment::'
+            # Merged stderr arrives as ErrorRecords; under 'Stop' the first one
+            # would end the function before the exit code is known.
+            $previousPreference = $ErrorActionPreference
+            $ErrorActionPreference = 'Continue'
+            $output = @(& $env:ComSpec /d /s /c "`"$devCmd`" -arch=x64 -host_arch=x64 && echo $marker&& set" 2>&1 |
+                ForEach-Object { $_.ToString() })
+            $devCmdExit = $LASTEXITCODE
+            $ErrorActionPreference = $previousPreference
+        }
+        finally {
+            $env:PATH = $inheritedPath
+            $env:TEMP = $inheritedTemp
+            $env:TMP = $inheritedTmp
+        }
+        $markerIndex = -1
+        for ($i = 0; $i -lt $output.Count; $i++) {
+            if ($output[$i].Trim() -eq $marker) { $markerIndex = $i; break }
+        }
+        if ($devCmdExit -ne 0 -or $markerIndex -lt 0) {
+            # VsDevCmd prints its own [ERROR:...] lines; keep them in the report.
+            $devCmdOutput = @($output | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Last 20)
+            $failure = [Exception]::new('Unable to initialize the Microsoft x64 build environment. Restart Windows after installing the Microsoft C++ Build Tools, then run setup again. ' +
+                "VsDevCmd: $devCmd")
+            $failure.Data['step'] = 'Initialize the Microsoft x64 build environment'
+            $failure.Data['exit_code'] = $devCmdExit
+            $failure.Data['command'] = "`"$devCmd`" -arch=x64 -host_arch=x64"
+            $failure.Data['error_excerpt'] = [string[]]$devCmdOutput
+            throw $failure
+        }
+        $lines = if ($markerIndex + 1 -lt $output.Count) { $output[($markerIndex + 1)..($output.Count - 1)] } else { @() }
+        foreach ($line in $lines) {
+            $separator = $line.IndexOf('=')
+            if ($separator -gt 0) {
+                $name = $line.Substring(0, $separator)
+                if ($name -in @('TEMP', 'TMP')) { continue }
+                [Environment]::SetEnvironmentVariable($name,
+                    $line.Substring($separator + 1), 'Process')
+            }
         }
     }
     $llvm = [IO.Path]::GetFullPath((Join-Path $root $config.llvm.install_path))
@@ -1003,7 +1230,7 @@ function Enter-PinyonBuildEnvironment {
     if (Test-Path -LiteralPath $ninja -PathType Leaf) {
         $env:PATH = "$(Split-Path $ninja -Parent);$env:PATH"
     }
-    else {
+    elseif ($vsRoot) {
         $ninja = Join-Path $vsRoot 'Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/ninja.exe'
     }
     Assert-PinyonBuildCapabilities -LlvmRoot $llvm
@@ -1038,7 +1265,7 @@ function Reset-PinyonRelocatedCMakeCache {
 function Set-PinyonGitEnvironment {
     param(
         [Parameter(Mandatory)] [string]$Root,
-        [Parameter(Mandatory)] [string]$Git
+        [AllowEmptyString()] [string]$Git = ''
     )
 
     # Settings for this process and every git it starts, passed as command
@@ -1080,6 +1307,17 @@ function Set-PinyonGitEnvironment {
     [Environment]::SetEnvironmentVariable('GIT_CONFIG_COUNT', [string]$count)
 }
 
+# The pinned MinGit, downloaded once.
+function Install-PinyonGit {
+    $root = Get-PinyonRepoRoot
+    $config = Get-PinyonReleaseToolchain
+    $gitRoot = [IO.Path]::GetFullPath((Join-Path $root $config.git.install_path))
+    if (Test-Path -LiteralPath (Join-Path $gitRoot $config.git.executable) -PathType Leaf) { return }
+    $archive = Resolve-PinyonLocalPath -RelativePath ".local/downloads/mingit-$($config.git.version).zip"
+    Invoke-PinyonDownload -Uri $config.git.url -Destination $archive -Sha256 $config.git.sha256
+    [void](New-Item -ItemType Directory -Force -Path $gitRoot)
+    Expand-PinyonZip -Archive $archive -Destination $gitRoot
+}
 function Get-PinyonGit {
     $root = Get-PinyonRepoRoot
     $config = Get-PinyonReleaseToolchain
@@ -1094,7 +1332,7 @@ function Get-PinyonGit {
 function Get-PinyonSourceProvenance {
     param(
         [Parameter(Mandatory)] [string]$Root,
-        [Parameter(Mandatory)] [string]$Git
+        [AllowEmptyString()] [string]$Git = ''
     )
 
     $sourceCommit = $null
@@ -1102,7 +1340,7 @@ function Get-PinyonSourceProvenance {
     # Launcher payloads are source archives, not Git working trees. Avoid
     # invoking Git there because Windows PowerShell promotes native stderr to a
     # terminating error before the packaged provenance fallback can run.
-    if (Test-Path -LiteralPath (Join-Path $Root '.git')) {
+    if ($Git -and (Test-Path -LiteralPath (Join-Path $Root '.git'))) {
         $gitCommit = @(& $Git -C $Root rev-parse HEAD 2>$null | Select-Object -First 1)
         if ($gitCommit.Count -eq 1 -and $gitCommit[0] -match '^[0-9a-fA-F]{40}$') {
             $sourceCommit = $gitCommit[0].ToLowerInvariant()

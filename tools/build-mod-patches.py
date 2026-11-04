@@ -8,7 +8,8 @@ asset-only mod <state>/mods/zz-db-patches, listed first in enabled_mods so
 its database wins over the game's. Nothing from the disc is distributed: the
 patched copy is built on the player's machine from their files. With no
 scripts enabled the generated mod is removed. Run it after changing mods
-(the launcher runs it before each start). The v4 title update reads its own
+(the launcher runs it before each start); it also brings an installed XE
+mod's mod.toml up to date (pinyon_xe.refresh_manifest). The v4 title update reads its own
 database from update:\\media.zip instead; build-mod-archives.py applies the
 same scripts there.
 
@@ -307,9 +308,19 @@ def main() -> int:
     (args.state_root / "mods").mkdir(parents=True, exist_ok=True)
     installed = install_builtin_mods(args.state_root.resolve())
     enabled = enable_builtin_mods(args.state_root.resolve())
+    # Before each start (both launch paths run this tool): an XE installed by
+    # an earlier release may lack a newer hide_dlc (#901).
+    # By path: the embedded toolchain Python does not search the script's folder.
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("pinyon_xe", Path(__file__).with_name("pinyon_xe.py"))
+    pinyon_xe = importlib.util.module_from_spec(spec)
+    assert spec.loader
+    spec.loader.exec_module(pinyon_xe)
+    xe_refreshed = pinyon_xe.refresh_manifest(args.state_root.resolve())
     result = build(args.state_root.resolve(), args.game_root.resolve())
     result["builtin_installed"] = installed
     result["builtin_enabled"] = enabled
+    result["xe_manifest_refreshed"] = xe_refreshed
     print(json.dumps(result, indent=2))
     return 0
 

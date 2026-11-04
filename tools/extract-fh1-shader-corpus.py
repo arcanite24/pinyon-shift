@@ -190,7 +190,7 @@ def extract_executable_declarations(data: bytes) -> set[tuple]:
 
 
 def extract(game_root: Path, output: Path, binary_dir: Path | None = None,
-            archive_extractor: Path | None = None) -> dict:
+            archive_extractor: Path | None = None, content_roots: list[Path] = ()) -> dict:
     shader_root = game_root / "media" / "shaders"
     if not shader_root.is_dir():
         raise ValueError(f"FH1 shader directory is unavailable: {shader_root}")
@@ -328,7 +328,13 @@ def extract(game_root: Path, output: Path, binary_dir: Path | None = None,
         # Method-21 members need one helper process each; run them in parallel
         # and consume every member in the original sorted order.
         members = []
-        for archive in sorted((game_root / "media").rglob("*.zip")):
+        # Installed downloadable content ships archives of its own; Rally's
+        # replaces Colorado's track materials, so its programs are drawn
+        # instead of the disc's.
+        archives = [(game_root, archive) for archive in sorted((game_root / "media").rglob("*.zip"))]
+        for content_root in content_roots:
+            archives += [(content_root.parent, archive) for archive in sorted(content_root.rglob("*.zip"))]
+        for archive_root, archive in archives:
             with ZipFile(archive) as zipped:
                 for member in sorted(zipped.infolist(), key=lambda item: item.filename):
                     if member.is_dir() or not member.filename.lower().endswith(".fxobj"):
@@ -338,14 +344,14 @@ def extract(game_root: Path, output: Path, binary_dir: Path | None = None,
                             f"FH1 method-21 shader archive requires --archive-extractor: "
                             f"{archive}!/{member.filename}"
                         )
-                    members.append((archive, member))
-        jobs = [(index, archive, member) for index, (archive, member) in enumerate(members)
+                    members.append((archive_root, archive, member))
+        jobs = [(index, archive, member) for index, (_, archive, member) in enumerate(members)
                 if member.compress_type == 21]
         with ThreadPoolExecutor(min(16, os.cpu_count() or 1)) as pool:
             decompressed = dict(zip((job[0] for job in jobs), pool.map(extract_member, jobs)))
         open_archive, zipped = None, None
         try:
-            for index, (archive, member) in enumerate(members):
+            for index, (archive_root, archive, member) in enumerate(members):
                 if index in decompressed:
                     data = decompressed.pop(index)
                 else:
@@ -354,7 +360,7 @@ def extract(game_root: Path, output: Path, binary_dir: Path | None = None,
                             zipped.close()
                         open_archive, zipped = archive, ZipFile(archive)
                     data = zipped.read(member)
-                source = f"{archive.relative_to(game_root).as_posix()}!/{member.filename}"
+                source = f"{archive.relative_to(archive_root).as_posix()}!/{member.filename}"
                 extract_source(source, data)
         finally:
             if zipped is not None:
@@ -414,11 +420,14 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--binary-dir", type=Path)
     parser.add_argument("--archive-extractor", type=Path)
+    parser.add_argument("--content-root", type=Path, action="append", default=[],
+                        help="an installed content package folder whose archives to scan too")
     args = parser.parse_args()
     try:
         manifest = extract(args.game_root.resolve(), args.output.resolve(),
                            args.binary_dir.resolve() if args.binary_dir else None,
-                           args.archive_extractor.resolve() if args.archive_extractor else None)
+                           args.archive_extractor.resolve() if args.archive_extractor else None,
+                           [root.resolve() for root in args.content_root])
     except (BadZipFile, OSError, ValueError) as error:
         parser.error(str(error))
     print(

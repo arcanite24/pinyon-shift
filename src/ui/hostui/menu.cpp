@@ -24,8 +24,19 @@ bool MenuScreen::SetFocus(size_t index) {
 }
 
 MenuScreen::Result MenuScreen::Handle(NavCommand command) {
+  if (command_) {
+    // A painted screen handles its own commands; back still leaves it
+    // unless the screen consumed it (closing a detail view).
+    const Result result = command_(command);
+    if (result != Result::kNone || command != NavCommand::kBack) {
+      return result;
+    }
+  }
   if (command == NavCommand::kBack || command == NavCommand::kClose) {
     return Result::kBack;
+  }
+  if (command >= NavCommand::kPrevTab) {
+    return Result::kNone;
   }
   if (rows_.empty()) {
     return Result::kNone;
@@ -106,6 +117,18 @@ std::vector<NavCommand> PadNavigator::Poll(uint16_t buttons, int16_t thumb_lx, i
   }
   if (pressed & kStart) {
     commands.push_back(NavCommand::kClose);
+  }
+  if (pressed & kShoulderLeft) {
+    commands.push_back(NavCommand::kPrevTab);
+  }
+  if (pressed & kShoulderRight) {
+    commands.push_back(NavCommand::kNextTab);
+  }
+  if (pressed & kButtonX) {
+    commands.push_back(NavCommand::kAuxX);
+  }
+  if (pressed & kButtonY) {
+    commands.push_back(NavCommand::kAuxY);
   }
   previous_buttons_ = buttons;
   return commands;

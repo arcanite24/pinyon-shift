@@ -31,10 +31,11 @@ verifies it, builds the game on your Mac and starts it.
    awake until the build is done: about 20 minutes on an M4 Pro.
 5. Choose **Play**. Press **F6** in game for settings.
 
-On an M4 Pro, the 2026-10-18 free-roam qualification averaged 59.9 fps at
-1x with MSAA off and a 60 fps limit. QUALITY 60 (2x, 4x MSAA) averaged
-39.6 fps, so its name is a target, not a guarantee on this Mac. Start with
-LOW-SPEC 60; see the renderer matrix below for the settings and limits.
+On an M4 Pro, full screen at 120 Hz with the limits off, the 2026-11-01
+free-roam drive held 120 fps at 1x (MSAA off or 4x), about 82 fps at 2x
+with MSAA off and 51 fps at 2x with 4x MSAA. On a Mac QUALITY 60 uses 2x MSAA,
+which held its 60 limit (59.6 and 60.0 fps); see the
+[full-screen results](#full-screen-drawable-2026-11-01) below.
 The title starts at once; the stored pipelines
 are compiled behind it, so the first seconds of a new scene can still hitch.
 
@@ -90,6 +91,11 @@ external drive.
   defaults to a borderless window on the current desktop; it does not open a
   separate Space. `SDL_VIDEO_MAC_FULLSCREEN_SPACES=1` restores SDL's Space
   behavior for diagnosis, but that path has reported black output.
+- **Low frame rate full screen on a 5K, 6K or scaled 4K display.** The
+  drawable is capped at 3840x2160 pixels by default
+  (`window_max_pixel_density = 0`) and macOS scales it to the screen.
+  Drawing every backing pixel (`4`) cost an M4 Pro half its frame rate on a
+  6016x3384 backing; `1` draws one pixel per point, the cheapest.
 - **Free roam is too bright and flashes.** Two paths need correct luminance
   data. GPU memory tracks 4 KB guest pages so writes beside the exposure
   resolve do not discard it, even on a Mac with 16 KB host pages. Completed
@@ -244,6 +250,94 @@ QUALITY 60 keeps its existing off setting. A separate uncapped 1x/MSAA-off run w
 it on reached 105.5 fps, median 9.30 ms, p95 11.65 ms. The older 8.35 ms,
 120 Hz result on the site used a different 40 s drive and two-run medians;
 it is historical, not a guarantee for every route or current build.
+
+### Full-screen drawable, 2026-11-01
+
+Every earlier result here ran hidden. Visible and full screen on the Mac
+mini's LG TV (4K panel at 120 Hz, macOS "looks like 3008x1692", so 6016x3384
+backing pixels), the same `fh1-macos-quality` drive at 1x/MSAA off, limits
+off, from the `appdata-2026-09-27` seed plus a warm-up run's shader catalogs:
+
+| Drawable | Game fps | Frame median / p95 | GPU ms | CPU |
+| --- | ---: | --- | ---: | ---: |
+| Hidden | 119.2 | 8.35 / 9.96 ms | 8.43 | 246 % |
+| 6016x3384, full density | 63.1–73.5 | 8.7 / 28 ms | 11.2–14.7 | 145–164 % |
+| 1280x720 window, 2560x1440 | 120.0 | 8.37 / 10.07 ms | 8.21 | 263 % |
+| 4512x2538, cap 1.5 | 119.9 | 8.42 / 10.03 ms | 8.39 | 246 % |
+| 3840x2160, automatic cap | 120.0 | 8.32 / 9.95 ms | 7.77 | 249 % |
+| 3008x1692, cap 1 | 119.4–120.0 | 8.28–8.33 / 9.9 ms | 7.9–8.3 | 250–260 % |
+
+GPU ms is `guest_frame_gpu_time_ns`; the extra ~3 ms at full density is the
+large drawable's cost on the same GPU. The game's frame alternated between
+8.3 and 28 ms, presenting on every second or third 120 Hz refresh.
+`window_max_pixel_density` (ShiftGlue `ff5965ab`) now defaults to an
+automatic cap of 3840x2160 drawable pixels on macOS; built-in MacBook panels
+stay below it. The `fh1-macos-fullscreen` route passed with it: 3840x2160
+full screen, 2560x1440 windowed. With `present_capture_readable=true` the
+presented full-screen drawable (3840x2160) held the whole frame, pause menu
+and HUD; the OS-side scaling to the 6016x3384 backing still needs a look on
+the screen itself.
+
+At 2x the game is GPU-bound and the cap changes nothing: 2x/MSAA off 82–84
+fps (12.0 ms GPU), 2x/2x MSAA 66 fps (15.0 ms), 2x/4x MSAA 51 fps (19.5 ms)
+at both full density and cap 1. 1x/4x MSAA held 120 fps. With
+`vulkan_debug_flat_pixel_shaders` 2x/4x drops to 11.5 ms of GPU, so about
+8 ms is pixel shading; the frame has about 180 renderings. At the 60 limit
+2x/2x MSAA ran 59.6 and 60.0 fps (16.7 ms GPU, p95 19.6 ms) against 51.9
+and 50.4 fps for 2x/4x, and its parked capture matches the 4x one, so the
+macOS QUALITY 60 preset sets `fh1_msaa_2x = true`. Peak surfaces fall from 848 to 584 MiB and
+Vulkan device memory from 4111 to 3865 MiB (1x/MSAA off: 99 and 988 MiB).
+
+Process CPU at 1x/120 fps is about 250 % of a core, spread over the guest and
+GPU threads: in a 10 s `ps -M` window the busiest thread used 49 % and the
+next four 35, 26, 26 and 19 %, so no thread limits the frame on this Mac.
+Load and store ops are not the 2x/4x cost either: with
+`fh1_debug_attachment_ops=7` (no attachment loads, MSAA or depth stores; a
+wrong image) GPU time went from 18.87 to 17.01 ms, loads alone 17.70 ms.
+The fragment shading rate extension that `fh1_coarse_shading` needs is not
+in MoltenVK 1.4.1, so coarse shading cannot cut the 2x shading cost here.
+
+Rejected in the same round (two interleaved runs each, see the site's
+"What didn't pay off" table): Apple QoS classes instead of SCHED_FIFO
+thread priorities, and MoltenVK asynchronous submits, Metal heaps and
+always-on fast math.
+
+### First-time pipeline spikes, 2026-11-01
+
+Played free roam on the LG TV (1x, full screen, a copy of the
+`appdata-2026-09-27-macwarm` seed, whose stored list holds the 314
+pipelines of the benchmark route). In 100 s of driving, 10 frames took
+60-192 ms. In each one the recorder was busy, and the GPU thread waited on
+it, for the whole frame while draws, uploads and GPU time stayed normal;
+the runtime log showed new graphics pipelines being created on the worker
+threads at the same moments, about 57 of them. A cold Metal compile of one
+pipeline takes 100-190 ms on the M4 Pro, and the draw waits for it
+(`vulkan_async_pipeline_wait_ms`, 250 ms).
+
+The spikes come once per pipeline on a machine. The new pipelines are added
+to the stored list, and the next start created all 371 of them behind the
+title in 58 ms, because macOS's own Metal cache (shared by every app, in
+`$(getconf DARWIN_USER_CACHE_DIR)/com.apple.metal`) kept the compiled code.
+A new player still meets them on every road and effect seen for the first
+time.
+
+Since AOT-4 (docs/AOT_PIPELINE_BACKLOG.md) setup writes a list of about
+5,200 pipelines from earlier play, rebuilt from the player's disc, and the
+game builds them behind the title (66 s on 9 threads the first time, about
+2 s once Metal's cache holds them; the preparation route does that first
+build). A texture-sign variant not built yet draws with its unspecialized
+pipeline. In two far-road drives, draws that waited for a compile fell
+from 51 to 0-3 and from 46 to 4.
+
+Rejected:
+
+- `MVK_CONFIG_SHOULD_MAXIMIZE_CONCURRENT_COMPILATION=1`: Metal reports a
+  `maximumConcurrentCompilationTaskCount` of 12 with it on and off, all
+  of the M4 Pro's cores, so compiles already run in parallel.
+- Not waiting (`vulkan_async_pipeline_wait_ms=0`,
+  `vulkan_async_skip_incomplete_frames=false`): in 250 s of driving new
+  roads, about 91 new pipelines and no spikes over 60 ms after loading, but
+  the player saw heavy graphical glitches from the skipped draws.
 
 ### Image and fullscreen gates
 

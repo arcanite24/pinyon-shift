@@ -16,6 +16,8 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
 
 import pinyon_android  # noqa: E402
+import pinyon_common  # noqa: E402
+import pinyon_shaders  # noqa: E402
 
 
 class AndroidPortTest(unittest.TestCase):
@@ -163,6 +165,37 @@ class AndroidPortTest(unittest.TestCase):
         source = (ROOT / "tools" / "pinyon_android.py").read_text(encoding="utf-8")
         push_data = source[source.index("def push_data"):source.index("def _pid")]
         self.assertIn("share_with_app(", push_data)
+
+    def test_push_data_copies_the_pcs_pipeline_list(self):
+        with tempfile.TemporaryDirectory() as temp:
+            game, state = Path(temp) / "game", Path(temp) / "state"
+            game.mkdir()
+            (game / "default.xex").write_bytes(b"xex")
+            shareable = state / "cache" / "shaders" / "shareable"
+            shareable.mkdir(parents=True)
+            (shareable / pinyon_android.AOT_PIPELINES).write_bytes(b"XEAO")
+            calls = []
+            args = mock.Mock(game_root=game, state_root=state, serial=None)
+            with mock.patch.object(pinyon_android, "Tools"),                     mock.patch.object(pinyon_android, "share_with_app"),                     mock.patch.object(pinyon_android, "adb",
+                                      side_effect=lambda tools, args, *command, **_: calls.append(command)):
+                pinyon_android.push_data(args)
+            remote = (f"{pinyon_android.DEVICE_FILES}/state/cache/shaders/shareable/"
+                      f"{pinyon_android.AOT_PIPELINES}")
+            self.assertIn(("push", (shareable / pinyon_android.AOT_PIPELINES).resolve(), remote),
+                          calls)
+            # Without --state-root the checkout's state is used, and a list
+            # missing there is written first when the extractor is built.
+            calls.clear()
+            args.state_root = None
+            empty = Path(temp) / "empty"
+            written = []
+            with mock.patch.object(pinyon_android, "Tools"),                     mock.patch.object(pinyon_android, "share_with_app"),                     mock.patch.object(pinyon_common, "default_state_root", return_value=empty),                     mock.patch.object(pinyon_common, "find_extractor",
+                                      return_value=Path(temp) / "build" / "extract"),                     mock.patch.object(pinyon_shaders, "prepare_aot",
+                                      side_effect=lambda *a: written.append(a) or "ready"),                     mock.patch.object(pinyon_android, "adb",
+                                      side_effect=lambda tools, args, *command, **_: calls.append(command)):
+                pinyon_android.push_data(args)
+            self.assertEqual(written[0][0], empty.resolve())
+            self.assertFalse(any(command[0] == "push" and remote in command for command in calls))
 
 
 class FakeProcess:
