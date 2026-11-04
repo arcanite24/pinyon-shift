@@ -17,13 +17,13 @@ correct renderer and its saving is not a replacement's expected saving.
 | Item | Question still to answer | Status |
 | --- | --- | --- |
 | MR-0 | Per-pass cost on Mali, Deck, UHD 620, M4 Pro and RTX 4080 | Census complete for every row ([gates and decisions](#gates-and-decisions)); Mac MSAA replay timing stays unqualified |
-| MR-1 | Remove both tiled scene work and the decoder's later-tile walk | Open, prototype needed; GPU side is the existing untile option, the decoder walk needs a CPU census on the Odin |
+| MR-1 | Remove both tiled scene work and the decoder's later-tile walk | Rejected: the decoder-level skip was built as NN-2.2 and saved -0.36 ± 0.40 ms of Odin decoder time; the GPU side is the existing untile option |
 | MR-2 | Reduce MSAA and reconstruct edges without losing sample-dependent reads | No default change; 2X and FXAA stay player options |
 | MR-3 | Reuse or cull sun-shadow casters | Rejected: atlas ceiling below the gate on every device |
 | MR-4 | Reuse the second depth pass's result | Rejected: same-frame reuse breaks the depth → mask → scene order; SHADOWS off already removes the pass |
-| MR-5 | Fuse bloom/luminance reductions and final composition | Open, prototype needed; ceiling above the gate on Mali and UHD 620 |
-| MR-6 | Remove copies by rendering into sampled images | Open, prototype needed; ceiling above the gate on four devices |
-| MR-7 | Change reflection update scheduling | Open, prototype needed for mip generation; face rendering is below the gate |
+| MR-5 | Fuse bloom/luminance reductions and final composition | Rejected for this issue: the composite is already one fused draw, the reductions stay in any fusion, and the scene-colour pass before it (draw 5361) is required; fusing that needs a host-written replacement shader |
+| MR-6 | Remove copies by rendering into sampled images | Rejected: resolves already write their textures; deferring the memory copy exactly saved 0.12 ± 0.16 ms on UHD 620 against a 2.41 ms ceiling |
+| MR-7 | Change reflection update scheduling | Kept: the lower-rate option already ships at 0.25 on Android and ULTRA LOW and cuts Mali mip work from 2.46 to 0.49 ms |
 | MR-8 | Batch sprites | Rejected: lamps, headlights and tyre smoke are under 100 draws a frame and their whole cost is below the gate |
 
 A row's gate was set after its census, before any replacement work. Keep
@@ -629,13 +629,13 @@ prototype's saving.
 
 | Row | Ceiling that decided it | Decision |
 | --- | --- | --- |
-| MR-1 | Main scene 1.6–28.6 ms of GPU span; the GPU part is what `fh1_untile_predicated_tiling` already draws once. The decoder still walks the later tiles' packets, which no probe here removes | Open. Needs a CPU census of the later-tile walk on the Odin before a prototype |
+| MR-1 | Main scene 1.6–28.6 ms of GPU span, of which `fh1_untile_predicated_tiling` already draws the tiles once (default on Android, macOS and ULTRA LOW). The decoder walk was prototyped before this issue as NN-2.2 (`fh1_untile_decoder_skip`): on the Odin race it dropped decoded draws from 3,702 to 1,919 a frame, yet moved the decoder by -0.36 ± 0.40 ms and process CPU by -0.13 ± 0.69 ms over 14 in-run pairs, and its exact-replay check diverged at half the resolve checkpoints | Rejected: below the gate on the CPU-bound device it targets, and not exact. The later-tile draws the early skip already drops (NN-2.1) were most of the cost |
 | MR-2 | 4x → 2x + scene-only FXAA live: 3.95 ms Mali, 1.96 ± 1.38 ms UHD 620, 0.52 ms Deck, -0.04 ms RTX | No default change. See below |
 | MR-3 | Shadow-atlas knock-out: 0.86 ms Mali, 0.22 Deck, 0.30 M4 Pro, 0.53 ± 0.53 UHD 620 | Rejected: below the gate everywhere. Caching casters on the host would not remove their decoding either, because the guest still issues them |
 | MR-4 | Camera-depth knock-out: 1.52 ms Mali, 0.57 Deck, 0.61 M4 Pro, 4.22 UHD 620 | Rejected. The pass is already a depth-only prepass; main-scene depth arrives after the mask reads it, so reuse needs a reorder or last frame's depth. Low-end machines can already drop it with SHADOWS off, which removes both shadow passes |
-| MR-5 | Small post group 1.79 ms Mali, 1.27 UHD 620; final composite 1.57 ms Mali, 6.37 UHD 620, 1.15 M4 Pro | Open. Prototype a fused composite first. It must keep the two history reads and the CPU exposure readback |
-| MR-6 | Resolve-dispatch knock-out: 1.48 ms Mali, 1.35 Deck, 4.80 M4 Pro, 10.42 UHD 620 | Open. Prototype direct sampling for the single-owner scene resolves, keeping every resolve the CPU reads |
-| MR-7 | Face rendering 0.07–0.11 ms except 2.09 ± 0.50 UHD 620; mip draws 0.49 ms Mali at the shipped quarter rate, 2.46 ms at full rate, 1.43 UHD 620, 0.50 M4 Pro | Open for mip generation only: rebuild only the updated face's chain. Face scheduling already exists as `pinyon_shift_fh1_env_map_rate` |
+| MR-5 | Small post group 1.79 ms Mali, 1.27 UHD 620; final composite 1.57 ms Mali, 6.37 UHD 620, 1.15 M4 Pro; draw 5361 3.29 ± 1.09 ms UHD 620 replay | Rejected for this issue. See below |
+| MR-6 | Resolve-dispatch knock-out: 1.48 ms Mali, 1.35 Deck, 4.80 M4 Pro, 10.42 UHD 620; memory copies alone 2.41 ± 0.29 ms UHD 620 | Rejected. An exact deferred copy saved 0.12 ± 0.16 ms. See [Resolve memory copies](#resolve-memory-copies-mr-6) |
+| MR-7 | Face rendering 0.07–0.11 ms except 2.09 ± 0.50 UHD 620; mip draws 0.49 ms Mali at the shipped quarter rate, 2.46 ms at full rate, 1.43 UHD 620, 0.50 M4 Pro | Kept, default on where it pays. See below |
 | MR-8 | Lamp and headlight knock-outs within noise everywhere; tyre smoke below | Rejected. See below |
 
 **MR-2.** 4x MSAA ships only in desktop QUALITY 60 (Windows and Linux)
@@ -646,6 +646,102 @@ paced), and Android QUALITY 30 is paced at 30 fps with room to spare. No
 default changes. The 2X MSAA row and the FXAA row remain player options.
 Motion and temporal checks for 2x + FXAA were not run, so it is not
 qualified as a default anywhere.
+
+**MR-7.** The row's candidate, updating faces at a lower rate, is the
+existing `pinyon_shift_fh1_env_map_rate`. All six mip chains run only on
+frames that update a face, so the rate cuts mip work as well: on Mali with
+shadows on, mip draws cost 2.46 ± 0.22 ms at full rate and 0.49 ± 0.08 ms
+at 0.25. Every Android preset and the desktop ULTRA LOW preset ship 0.25.
+Rebuilding only the updated face's chain would remove at most five sixths
+of the remaining mip draws: 0.41 ms on Mali at 0.25, and about 1.2 ± 0.4 ms
+on UHD 620 at the desktop rate of 1, inside that device's ±0.6 ms A/A
+spread. That refinement is not worth a prototype while ULTRA LOW already
+gives such machines the quarter rate.
+
+**MR-5.** The final composite (`614588022744BF6B`) is already a single
+full-screen draw. It reads scene colour, the processed 320×192 image, the
+640×360 mask, the 16³ grading LUT and the current 32×32 exposure. Its
+knock-out is its own work, which any replacement keeps. The small post
+group's reductions also stay in a fusion, which would only remove the
+passes between them, so its 1.27 ms (UHD 620) and 1.79 ms (Mali) are upper
+bounds above what fusion could save, and Mali was unavailable to qualify a
+prototype.
+
+The part above the gate is draw 5361 (`64AEAE9314A0118B`). It reads three
+views of scene colour and resolves a full-size result back into scene
+colour before the composite. Suppressing it in the race replay saves
+3.29 ± 1.09 ms on UHD 620 (controls drift from 59 to 72 ms across the
+series). It is not optional:
+
+- It runs with the shipped post defaults (bloom contribution, motion blur
+  and depth of field off) and with each of those effects on: the
+  shader-filtered knock-out removed 2,255–2,337 draws in each live run.
+- Without it the replayed frame falls to 11.8 dB RGB8 PSNR against the
+  control at the defaults and 11.6 dB with the original coefficients, so
+  it carries most of the image.
+
+Folding it into the composite would replace two title shaders with one the
+host writes, from math not yet established. The fusion would remove only
+the intermediate's write, resolve and re-read, not its sampling. That is a
+shader-replacement project of its own, so MR-5 is rejected for this issue
+with that ceiling recorded.
+
+### Resolve memory copies (MR-6)
+
+The renderer already resolves into sampled images: with
+`fh1_resolve_to_textures` (on by default), one compute dispatch writes the
+EDRAM rectangle into the guest memory copy and into up to two current
+textures over it. The copy into memory is the part that could go, since
+the textures are already current.
+
+**Ceiling.** `fh1_debug_resolve_textures_only` (diagnostic, default off)
+skips the memory stores of every resolve over 4 KB that has such a texture.
+It renders wrong where memory is read. Frozen race replay on UHD 620 (1x,
+MSAA off, untile off, three off/on/off blocks of 210 repeats):
+**2.41 ± 0.29 ms** of GPU frame span (blocks 2.74, 1.82 and 2.67). The image
+changes little (75.6 dB against the control, no pixel off by more than 8),
+because few later reads land in those ranges.
+
+**Exact prototype.** `fh1_resolve_defer_memory` left each such resolve's
+memory copy owed, tracked in 1 KB blocks, and wrote it from the texture
+(one small compute pass sampling the texture's 32-bit words in place) only
+when something requested that memory. Requests included texture loads,
+vertex or index fetches, memory export, frame dumps and later resolves.
+A 32-bit tiled resolve's 32×32 macro tile is a contiguous 4 KB, so a later
+resolve that covers a whole tile makes the old bytes there unowed. A
+partly covered tile is written first. Unscaled 32-bit resolves into
+textures without a load conversion that hold the whole rectangle
+qualified. On the RTX 4080 the race and night replays are byte-identical
+to the controls under the validation layer with synchronization checks.
+
+What the race frame does with that memory, per 30 replayed frames:
+
+| Owed 1 KB blocks | Count |
+| --- | ---: |
+| Overwritten whole by a later resolve (no copy needed) | 564,448 |
+| Written first, under a later resolve's partial tile | 27,144 |
+| Read by texture loads, so written from the texture | 147,520 |
+
+FH1 reuses resolve memory heavily: one 1280×720 allocation receives
+1280×256 strips, and a 640×360 one receives a 520×520 resolve at another
+pitch. Every texture-load reader is a texture the resolve could not write
+directly. These are the reflection cube's 18 face resolves (six each at
+256², 128² and 64², reloaded by the cube every frame) and a 1280×720 and
+a 640×360 result read through another texture.
+
+The same UHD replay A/B saved **0.12 ± 0.16 ms** (an earlier build, whose
+texture read the validation layer rejected, saved -0.16 ± 0.37 ms).
+Writing a quarter of the bytes from the textures, plus about 75 extra
+dispatches and their barriers a frame, used up the rest of the ceiling.
+On UHD 620 the on and off images also differed, a cause not investigated
+since the row failed the gate.
+
+**MR-6 is rejected.** Removing the remaining copies would need the cube
+faces resolved straight into the cube texture and the other two readers
+made direct targets. That is a resolve-target change, not deferral, and
+its ceiling is the copies' share of the 2.41 ms. The prototype is ShiftGlue
+commit `0ee82b25`, removed again in `101ad468`; the diagnostic switch
+stays.
 
 ### Tyre smoke
 

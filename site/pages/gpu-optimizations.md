@@ -74,10 +74,22 @@ reusing the camera-depth prepass (MR-4) and sprite batching (MR-8) were
 dropped: their whole knocked-out cost is below that everywhere, or reuse
 would break the depth, shadow mask and scene order. No MSAA default changed
 (MR-2), because 4x only ships where it already costs nothing measurable.
-Fusing the post chain (MR-5), sampling resolves in place (MR-6),
-rebuilding only the updated reflection face's mips (MR-7) and dropping the
-decoder's later-tile walk (MR-1) have ceilings above the gate and wait for
-prototypes. See the
+Dropping the decoder's later-tile walk (MR-1) was already built as an
+option and moved Odin decoder time by -0.36 ± 0.40 ms. Lower-rate
+reflection updates (MR-7) are kept: the existing rate option ships at a
+quarter on Android and ULTRA LOW and cuts Mali mip work from 2.46 to
+0.49 ms.
+
+Resolves already write their textures directly; only the guest memory
+copy beside them could go (MR-6). Skipping it outright saves
+2.41 ± 0.29 ms on UHD 620 but renders wrong. An exact version that writes
+the copy from the texture only when something reads that memory saved
+0.12 ± 0.16 ms. A quarter of the bytes are read every frame (mostly the
+reflection cube's faces), and the extra passes cost the rest. The post
+chain (MR-5) is not fused: the final composite is already one draw, and
+the scene-colour pass before it is required (without it the frame drops
+to 11.8 dB PSNR) and could only be folded in with a host-written shader.
+See the
 [gates, decisions and method](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/MODERN_RENDERING_RESEARCH.md#gates-and-decisions).
 
 ## The recorder thread

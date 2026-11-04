@@ -351,6 +351,15 @@ source = """docs/DESKTOP_RENDERER_BACKLOG.md DR-0.5; docs/native-renderer/GUEST_
 
 [[finding]]
 group = """Resolves"""
+name = """GPU readers of resolve memory"""
+what = """In a moving-race frame most resolve memory is overwritten by a later resolve before anything reads it. The title reuses allocations at other pitches and sizes: one 1280x720 color allocation receives 1280x256 strips, and a 640x360 one a 520x520 resolve at pitch 1024. Of the 1 KB blocks that resolves with a current texture write, about 76 % are overwritten whole by a later resolve's macro tiles and 4 % partly. About 20 % are read by texture loads of a texture the resolve does not write directly. Those readers are the reflection cube, which reloads its 18 face resolves (six each at 256x256, 128x128 and 64x64) every frame, plus a 1280x720 and a 640x360 result each read through another texture. No vertex, index or memory-export fetch read those blocks."""
+how = """`fh1_resolve_defer_memory` prototype: per-block ownership of each resolve's memory copy, with the request that consumed it (texture load, vertex, index, memexport or resolve), over 30 replays of the base race dump on the RTX 4080."""
+confidence = """confirmed"""
+note = """One frame and route; addresses are capture-specific. A 32-bit resolve's 32x32-texel macro tile is a contiguous 4 KB of its destination, which is what lets a later resolve's coverage be decided per tile."""
+source = """docs/MODERN_RENDERING_RESEARCH.md Resolve memory copies (MR-6); ShiftGlue commit 0ee82b25"""
+
+[[finding]]
+group = """Resolves"""
 name = """resolves the CPU reads"""
 what = """The title reads some resolves on the CPU: the car thumbnails it saves are one-off resolves read from guest memory. Handing the game the previous frame's data for every resolve never reaches free roam, so at least one other read before free roam needs the current frame."""
 how = """Thumbnail path checked against full synchronous readback; route runs in each readback mode."""
@@ -493,7 +502,7 @@ name = """ordered reductions and final-composite preparation"""
 what = """In base moving-race frame 8991, E17BECBE8BE65806 reduces scene color to 320x192 then 64x32; AE59F518D522BDD1 produces the following 32x32 reduction. Later E68FE55ECD482EC5 binds scene depth and writes a 640x360 RGBA8 intermediate, followed by ECE830AC0333767F reading that intermediate and resolving into the same allocation. Final composition binds the resulting image at slot 5. 64AEAE9314A0118B binds three views of scene color and resolves full-size color back into the scene allocation before final composition."""
 how = """Ordered shader identities, texture bindings and completed resolves from the same five-iteration replay used for the history bindings; padded guest ranges include all three scene-band writers."""
 confidence = """confirmed"""
-note = """These identify bindings, output dimensions and ordering, not exact filter mathematics or the semantic purpose of the scene-color rewrite. The 640x360 image is a distinct input from the earlier 1280x720 shadow mask. Draw numbers and allocation addresses are capture-specific."""
+note = """These identify bindings, output dimensions and ordering, not exact filter mathematics or the semantic purpose of the scene-color rewrite. The 640x360 image is a distinct input from the earlier 1280x720 shadow mask. Draw numbers and allocation addresses are capture-specific. The scene-color rewrite (64AEAE9314A0118B) is required and independent of the bloom, motion-blur and depth-of-field switches: it draws with each of them on or off (2,255-2,337 draws over each live run), and suppressing it drops the replayed frame to 11.8 dB PSNR against the control (MR-5)."""
 source = """docs/MODERN_RENDERING_RESEARCH.md Ordered post-chain inputs and outputs"""
 
 [[finding]]
