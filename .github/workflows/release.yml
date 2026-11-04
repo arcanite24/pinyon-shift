@@ -113,6 +113,21 @@ jobs:
           name: prebuilt-macos
           path: .artifacts/prebuilt/
 
+  # Intel Macs (experimental): the same kit and host objects, built on an
+  # Intel runner so the translator and runtime are native x86_64.
+  prebuilt-macos-intel:
+    if: github.event.repository.visibility == 'public'
+    runs-on: macos-15-intel
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build the ShiftGlue kit
+        run: python3 tools/build-prebuilt.py --output .artifacts/prebuilt
+      - uses: actions/upload-artifact@v7
+        with:
+          name: prebuilt-macos-intel
+          path: .artifacts/prebuilt/
+
   # TP-5: the Android shell (ShiftGlue for Android, the app's code and
   # resources), so a PC builds the APK with only the NDK, CMake and Ninja.
   prebuilt-android:
@@ -146,7 +161,7 @@ jobs:
     # it; package without that asset, as after a failure. !cancelled()
     # still stops here when someone cancels the whole run.
     if: ${{ !cancelled() && github.event.repository.visibility == 'public' }}
-    needs: [prebuilt-windows, prebuilt-linux, prebuilt-macos, prebuilt-android]
+    needs: [prebuilt-windows, prebuilt-linux, prebuilt-macos, prebuilt-macos-intel, prebuilt-android]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
@@ -206,7 +221,7 @@ jobs:
     # it; package without that asset, as after a failure. !cancelled()
     # still stops here when someone cancels the whole run.
     if: ${{ !cancelled() && github.event.repository.visibility == 'public' }}
-    needs: [prebuilt-windows, prebuilt-linux, prebuilt-macos, prebuilt-android]
+    needs: [prebuilt-windows, prebuilt-linux, prebuilt-macos, prebuilt-macos-intel, prebuilt-android]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -235,7 +250,7 @@ jobs:
     # it; package without that asset, as after a failure. !cancelled()
     # still stops here when someone cancels the whole run.
     if: ${{ !cancelled() && github.event.repository.visibility == 'public' }}
-    needs: [prebuilt-windows, prebuilt-linux, prebuilt-macos, prebuilt-android]
+    needs: [prebuilt-windows, prebuilt-linux, prebuilt-macos, prebuilt-macos-intel, prebuilt-android]
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v7
@@ -258,6 +273,17 @@ jobs:
         with:
           name: PinyonShift-Launcher-macos-arm64
           path: .artifacts/PinyonShift-Launcher-macos-arm64.zip
+      # The experimental Intel launcher: .NET cross-publishes osx-x64, and the
+      # payload is the same, so it packages on this Apple silicon runner.
+      - name: Package Intel launcher
+        continue-on-error: true
+        run: python3 tools/package-launcher.py --platform osx-x64 --payload .artifacts/launcher-desktop/pinyon-shift-source.zip
+      - uses: actions/upload-artifact@v7
+        continue-on-error: true
+        with:
+          name: PinyonShift-Launcher-macos-x86_64
+          path: .artifacts/PinyonShift-Launcher-macos-x86_64.zip
+          if-no-files-found: ignore
 
   release:
     # Every launcher must exist; only the prebuilt assets may be missing.
@@ -293,6 +319,10 @@ jobs:
             .artifacts/PinyonShift-Launcher-linux-x86_64.tar.gz
             .artifacts/PinyonShift-Launcher-macos-arm64.zip
             --verify-tag)
+          # Experimental: attached when it was built.
+          if [ -f .artifacts/PinyonShift-Launcher-macos-x86_64.zip ]; then
+            arguments+=(.artifacts/PinyonShift-Launcher-macos-x86_64.zip)
+          fi
           # The prebuilt assets the payloads pin; their .json sidecars stay
           # out of the release.
           for asset in .artifacts/prebuilt/*; do
