@@ -197,7 +197,9 @@ public static class AndroidShareContent
             }
             else
             {
-                var platform = OperatingSystem.IsMacOS() ? "macos-arm64" : "linux-x86_64";
+                var platform = !OperatingSystem.IsMacOS() ? "linux-x86_64"
+                    : System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture
+                        == System.Runtime.InteropServices.Architecture.X64 ? "macos-x86_64" : "macos-arm64";
                 if (!root.TryGetProperty("posix", out var platforms) ||
                     !platforms.TryGetProperty(platform, out var entry) || !entry.TryGetProperty("python", out python))
                     return null;

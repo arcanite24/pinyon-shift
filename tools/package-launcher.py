@@ -3,6 +3,7 @@
 
   python tools/package-launcher.py --platform linux-x64
   python tools/package-launcher.py --platform osx-arm64      (on a Mac)
+  python tools/package-launcher.py --platform osx-x64        (on a Mac; Intel, experimental)
 
 Both ship the Avalonia launcher in launcher/PinyonShift.Launcher.Desktop and
 the same source payload as the Windows release. The payload's file list is
@@ -11,6 +12,7 @@ the one in tools/package-launcher.ps1, so the releases cannot drift apart.
   .artifacts/PinyonShift-Launcher-linux-x86_64.tar.gz
       PinyonShift/PinyonShiftLauncher, PinyonShift/pinyon-shift-source.zip
   .artifacts/PinyonShift-Launcher-macos-arm64.zip
+  .artifacts/PinyonShift-Launcher-macos-x86_64.zip
       Pinyon Shift.app (ad-hoc signed; the payload is in Contents/Resources)
 """
 
@@ -135,19 +137,26 @@ INFO_PLIST = """<?xml version="1.0" encoding="UTF-8"?>
   <key>CFBundleExecutable</key><string>PinyonShiftLauncher</string>
   <key>CFBundleIconFile</key><string>PinyonShift.icns</string>
   <key>LSMinimumSystemVersion</key><string>13.0</string>
-  <key>LSArchitecturePriority</key><array><string>arm64</string></array>
+  <key>LSArchitecturePriority</key><array><string>{architecture}</string></array>
   <key>NSHighResolutionCapable</key><true/>
 </dict>
 </plist>
 """
 
 
-def package_mac(version: str, payload: Path, published: Path | None = None) -> Path:
+# The .NET runtime identifier, the release asset's suffix and Info.plist's
+# architecture for each macOS launcher.
+MAC_RUNTIMES = {"osx-arm64": ("macos-arm64", "arm64"), "osx-x64": ("macos-x86_64", "x86_64")}
+
+
+def package_mac(version: str, payload: Path, published: Path | None = None,
+                runtime: str = "osx-arm64") -> Path:
     if sys.platform != "darwin":
         raise SystemExit("package the macOS launcher on a Mac: the app must be signed there")
+    suffix, architecture = MAC_RUNTIMES[runtime]
     if published is None:
-        published = ARTIFACTS / "publish-osx-arm64"
-        publish("osx-arm64", version, published)
+        published = ARTIFACTS / f"publish-{runtime}"
+        publish(runtime, version, published)
     bundle = ARTIFACTS / "Pinyon Shift.app"
     if bundle.exists():
         shutil.rmtree(bundle)
@@ -161,12 +170,12 @@ def package_mac(version: str, payload: Path, published: Path | None = None) -> P
     (bundle / "Contents/MacOS/PinyonShiftLauncher").chmod(0o755)
     shutil.copy2(payload, bundle / "Contents/Resources/pinyon-shift-source.zip")
     (bundle / "Contents" / "Info.plist").write_text(INFO_PLIST.format(
-        version=version.split("-", 1)[0]), encoding="utf-8")
+        version=version.split("-", 1)[0], architecture=architecture), encoding="utf-8")
     make_icns(bundle / "Contents" / "Resources" / "PinyonShift.icns")
     # Apple silicon runs only signed code; an ad-hoc signature is enough for
     # an app the player opens themselves (docs/MACOS.md).
     subprocess.run(["codesign", "--force", "--deep", "--sign", "-", str(bundle)], check=True)
-    release = ROOT / ".artifacts" / "PinyonShift-Launcher-macos-arm64.zip"
+    release = ROOT / ".artifacts" / f"PinyonShift-Launcher-{suffix}.zip"
     if release.exists():
         release.unlink()
     # ditto keeps the signature and the bundle's attributes.
@@ -189,7 +198,7 @@ def make_icns(path: Path) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--platform", choices=("linux-x64", "osx-arm64"), required=True)
+    parser.add_argument("--platform", choices=("linux-x64", *MAC_RUNTIMES), required=True)
     parser.add_argument("--published", type=Path,
                         help="an existing dotnet publish folder for the platform, made on "
                              "another machine (.NET cross-publishes), instead of publishing here")
@@ -207,7 +216,7 @@ def main() -> int:
     if args.payload is None:
         build_payload(payload, args.prebuilt_assets, args.release_base_url)
     release = package_linux(version, payload, args.published) if args.platform == "linux-x64" \
-        else package_mac(version, payload, args.published)
+        else package_mac(version, payload, args.published, args.platform)
     print(release)
     return 0
 

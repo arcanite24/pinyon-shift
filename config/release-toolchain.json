@@ -153,6 +153,34 @@
         "install_path": ".local/toolchain/python-3.13.16-macos",
         "executable": "bin/python3"
       }
+    },
+    "macos-x86_64": {
+      "disk_space_gb": {
+        "first_build": 20,
+        "rebuild": 8
+      },
+      "cmake": {
+        "version": "3.31.10",
+        "url": "https://github.com/Kitware/CMake/releases/download/v3.31.10/cmake-3.31.10-macos-universal.tar.gz",
+        "sha256": "BE9F3FAEEAF7921CC2D77CEA711DD5E6F72C63AF2810CACD9205B3CE8D1593C9",
+        "install_path": ".local/toolchain/cmake-3.31.10-macos",
+        "executable": "CMake.app/Contents/bin/cmake"
+      },
+      "ninja": {
+        "version": "1.13.2",
+        "url": "https://github.com/ninja-build/ninja/releases/download/v1.13.2/ninja-mac.zip",
+        "sha256": "C99048673AA765960A99CF10C6DDB9F1FAD506099FF0A0E137AD8960A88F321B",
+        "install_path": ".local/toolchain/ninja-1.13.2-macos",
+        "executable": "ninja",
+        "strip_top": false
+      },
+      "python": {
+        "version": "3.13.16",
+        "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261003/cpython-3.13.16%2B20261003-x86_64-apple-darwin-install_only.tar.gz",
+        "sha256": "8E9CB087305BFB8969F68A905F79F41469D4AA5220C1AA71ADA7FC9953BDBA0F",
+        "install_path": ".local/toolchain/python-3.13.16-macos-x86_64",
+        "executable": "bin/python3"
+      }
     }
   },
   "rexglue": {

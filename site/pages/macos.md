@@ -2,7 +2,7 @@
 title: macOS
 section: Start
 order: 4
-description: Build and play Pinyon Shift natively on an Apple silicon Mac.
+description: Build and play Pinyon Shift natively on an Apple silicon Mac, or try the experimental Intel Mac build.
 ---
 
 # macOS
@@ -11,7 +11,7 @@ A native build for Apple silicon. The game's Vulkan renderer runs on Metal throu
 
 ## Requirements
 
-- An Apple silicon Mac (M1 or newer) with macOS 13 or newer.
+- An Apple silicon Mac (M1 or newer) with macOS 13 or newer. Intel Macs have an [experimental build](#intel-macs-experimental).
 - Your ISO of the USA retail disc (`MS-2505`) and about 20 GB free.
 - Apple's Command Line Tools. The launcher offers to install them.
 
@@ -56,3 +56,7 @@ and `rexglue-configure.log` from `.local/logs`, and keep the failed build
 directory. The [macOS troubleshooting guide](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/MACOS.md#troubleshooting)
 explains the missing `std::bit_cast` / `std::byteswap` report that still
 needs the affected Mac's compiler and header evidence.
+
+## Intel Macs (experimental)
+
+Releases after 0.8.0 also include `PinyonShift-Launcher-macos-x86_64.zip` for Intel Macs on macOS 13 or newer. Install and play the same way. The build has only run under Rosetta on an Apple silicon Mac, where it reached free roam and drew it correctly; it has not run on an Intel or AMD Mac GPU yet. Expect rendering bugs and lower frame rates, and please report what you see. A Radeon Pro 5500M or newer is the realistic target; Intel UHD 630 and Iris graphics are in the class of the UHD 620, which drew about 20 fps at ULTRA LOW 30 on Windows. Details in [docs/MACOS.md](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/MACOS.md#intel-macs-experimental).

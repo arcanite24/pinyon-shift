@@ -55,19 +55,23 @@ public sealed class Installation
     public string AndroidRecord => Path.Combine(Root, ".local", "android", "pinyon-shift.json");
     public static bool IsLinux => RuntimeInformation.IsOSPlatform(OSPlatform.Linux);
     public static bool IsMac => RuntimeInformation.IsOSPlatform(OSPlatform.OSX);
+    /// <summary>The Intel Mac launcher (experimental), also when Rosetta runs it.</summary>
+    public static bool IsIntelMac => IsMac && RuntimeInformation.ProcessArchitecture == Architecture.X64;
     // Windows keeps the WPF launcher; this one runs there for development.
     public static bool IsWindows => RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
     private static string ExeSuffix => IsWindows ? ".exe" : "";
     public static string Version =>
         typeof(Installation).Assembly.GetName().Version?.ToString(3) ?? "dev";
 
-    private static string Preset => IsMac ? "macos-arm64" : IsWindows ? "win-amd64" : "linux-amd64";
+    private static string Preset =>
+        IsMac ? (IsIntelMac ? "macos-amd64" : "macos-arm64") : IsWindows ? "win-amd64" : "linux-amd64";
 
     private Installation(string root, bool checkout)
     {
         Root = root;
         IsCheckout = checkout;
-        Platform = IsMac ? "macos-arm64" : IsWindows ? "windows-x86_64" : "linux-x86_64";
+        Platform = IsMac ? (IsIntelMac ? "macos-x86_64" : "macos-arm64")
+            : IsWindows ? "windows-x86_64" : "linux-x86_64";
         // As the Windows launcher (ResolveStateRoot), an override for testing;
         // a portable install has dropped it from the environment.
         StateRoot = FromEnvironment("PINYON_SHIFT_STATE_ROOT") ?? Path.Combine(root, ".local", "preview");

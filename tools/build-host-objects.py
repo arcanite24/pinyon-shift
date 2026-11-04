@@ -39,7 +39,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--kit", required=True, type=Path, help="unpacked ShiftGlue kit")
     parser.add_argument("--platform", required=True,
-                        choices=("windows-x64", "linux-x86_64", "macos-arm64", "android-arm64"))
+                        choices=("windows-x64", "linux-x86_64", "macos-arm64", "macos-x86_64",
+                                 "android-arm64"))
     parser.add_argument("--preset", required=True, help="the configure preset setup uses")
     parser.add_argument("--variant", required=True, choices=("base", "v4"))
     parser.add_argument("--output", required=True, type=Path)

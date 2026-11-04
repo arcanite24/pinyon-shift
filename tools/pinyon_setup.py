@@ -91,8 +91,14 @@ def host_platform() -> str:
         return "linux-x86_64"
     if sys.platform == "darwin" and machine in ("arm64", "aarch64"):
         return "macos-arm64"
+    if sys.platform == "darwin" and machine in ("x86_64", "amd64"):
+        # Experimental: built and run under Rosetta, not yet on Intel or AMD GPUs.
+        return "macos-x86_64"
     raise SetupError(f"no build for {sys.platform} on {machine}: Pinyon Shift builds on "
-                     "x86-64 Linux, Apple silicon Macs and Windows")
+                     "x86-64 Linux, Macs and Windows")
+
+
+MACOS_PLATFORMS = ("macos-arm64", "macos-x86_64")
 
 
 def toolchain_config() -> dict:
@@ -374,7 +380,7 @@ def provision(progress: Progress, config: dict, name: str) -> dict:
         found[key] = install / item["executable"] if item.get("executable") else install
     if name == "linux-x86_64":
         prepare_linux_toolchain(tools)
-    if name == "macos-arm64":
+    if name in MACOS_PLATFORMS:
         require_xcode_tools()
     progress("tools", 100, "Toolchain ready")
     return found
@@ -852,6 +858,8 @@ PRESETS = {
                      "generator": "out/linux-amd64/Release/rexglue"},
     "macos-arm64": {"sdk": "mac-arm64", "game": "macos-arm64",
                     "generator": "out/mac-arm64/Release/rexglue"},
+    "macos-x86_64": {"sdk": "mac-amd64", "game": "macos-amd64",
+                     "generator": "out/mac-amd64/Release/rexglue"},
 }
 
 
@@ -908,8 +916,10 @@ def cpu_baseline(name: str, cpuinfo: Path = Path("/proc/cpuinfo")) -> str:
     and later, the Steam Deck included; NN-1.8), the FMA3 variant, or SSE4.1.
     PINYON_SHIFT_CPU_BASELINE (sse4.1, fma or v3) overrides it, for example
     for a build copied to an older PC; the game's own guard stops a build on
-    a CPU without its baseline."""
-    if name != "linux-x86_64":
+    a CPU without its baseline. An Intel Mac reports its features through
+    sysctl; under Rosetta, whose instruction set depends on the macOS
+    version, the build keeps SSE4.1."""
+    if name not in ("linux-x86_64", "macos-x86_64"):
         return "native"
     chosen = os.environ.get("PINYON_SHIFT_CPU_BASELINE", "").strip()
     if chosen:
@@ -917,18 +927,37 @@ def cpu_baseline(name: str, cpuinfo: Path = Path("/proc/cpuinfo")) -> str:
             raise SetupError(f"PINYON_SHIFT_CPU_BASELINE must be one of "
                              f"{', '.join(CPU_BASELINE_FLAGS)}, not {chosen!r}", "build")
         return chosen
-    try:
-        text = cpuinfo.read_text(encoding="ascii", errors="replace")
-    except OSError:
-        return "sse4.1"
-    flags = set()
-    for line in text.splitlines():
-        if line.startswith("flags"):
-            flags = set(line.split(":", 1)[-1].split())
-            break
+    if name == "macos-x86_64":
+        flags = macos_cpu_flags()
+    else:
+        try:
+            text = cpuinfo.read_text(encoding="ascii", errors="replace")
+        except OSError:
+            return "sse4.1"
+        flags = set()
+        for line in text.splitlines():
+            if line.startswith("flags"):
+                flags = set(line.split(":", 1)[-1].split())
+                break
     if all(flag in flags for flag in V3_CPU_FLAGS):
         return "v3"
     return "fma" if {"fma", "avx2"} <= flags else "sse4.1"
+
+
+def macos_cpu_flags(run=subprocess.run) -> set[str]:
+    """An Intel Mac's CPU features in /proc/cpuinfo's names (LZCNT is abm),
+    or none under Rosetta or when sysctl fails, which keeps SSE4.1."""
+    def sysctl(*keys: str) -> str:
+        try:
+            result = run(["sysctl", "-n", *keys], capture_output=True, text=True)
+        except OSError:
+            return ""
+        return result.stdout if result.returncode == 0 else ""
+    if sysctl("sysctl.proc_translated").strip() == "1":
+        return set()
+    names = sysctl("machdep.cpu.features", "machdep.cpu.leaf7_features",
+                   "machdep.cpu.extfeatures").lower().split()
+    return {"abm" if name == "lzcnt" else name for name in names}
 
 
 def discard_unfinished_configure(directory: Path) -> None:
@@ -1018,6 +1047,12 @@ def toolchain_arguments(name: str) -> list[str]:
                 f"-DCMAKE_CXX_COMPILER={llvm / 'clang++'}"]
     if name == "macos-arm64":
         return ["-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"]
+    if name == "macos-x86_64":
+        # ShiftGlue's mac-amd64 preset compiles for x86-64-v3, which every
+        # Intel Mac on macOS 13 has but Rosetta may not; the translator and
+        # the kit need only the SSE4.1 baseline. The game picks its own.
+        return ["-DCMAKE_EXPORT_COMPILE_COMMANDS=ON", "-DCMAKE_C_FLAGS=-msse4.1",
+                "-DCMAKE_CXX_FLAGS=-msse4.1"]
     return []
 
 
@@ -1089,7 +1124,7 @@ def build_generator(progress: Progress, sdk: Path, presets: dict, name: str, cma
                     "--parallel", str(jobs)], LOGS / "rexglue-build.log", progress, "build", 2, 20,
                    "Building the translator", environment, cwd=sdk)
     except SetupError as error:
-        if name == "macos-arm64":
+        if name in MACOS_PLATFORMS:
             try:
                 diagnostic = diagnose_macos_pch(sdk / "out/build" / presets["sdk"],
                                                 LOGS / "rexglue-build.log", environment)
@@ -1108,6 +1143,7 @@ def build_generator(progress: Progress, sdk: Path, presets: dict, name: str, cma
 KIT_FLAGS = {
     "linux-x86_64": "-msse4.1 -DREXGLUE_ENABLE_PERF_COUNTERS -DREX_PHYSICAL_HEAP_4K_PAGES=1",
     "macos-arm64": "-DREXGLUE_ENABLE_PERF_COUNTERS",
+    "macos-x86_64": "-msse4.1 -DREXGLUE_ENABLE_PERF_COUNTERS",
 }
 # Linker flags for the kit's shared libraries, through LDFLAGS: CMake adds
 # that to the toolchain file's own linker flags, where a
@@ -1117,6 +1153,7 @@ KIT_LDFLAGS = {"linux-x86_64": "-Wl,-Bsymbolic-functions"}
 KIT_CACHE = {
     "linux-x86_64": ["-DREXGLUE_X86_64_CODE_MODEL=small"],
     "macos-arm64": ["-DCMAKE_OSX_ARCHITECTURES=arm64", "-DCMAKE_OSX_DEPLOYMENT_TARGET=13.0"],
+    "macos-x86_64": ["-DCMAKE_OSX_ARCHITECTURES=x86_64", "-DCMAKE_OSX_DEPLOYMENT_TARGET=13.0"],
 }
 # SDK files the host compiles or includes itself, at their source-tree paths
 # (PINYON_SHIFT_SDK_SOURCE_DIR in cmake/PinyonShiftRexGlue.cmake).
@@ -1157,7 +1194,7 @@ def build_kit(progress: Progress, tools: dict, sdk: Path, python: Path, name: st
     # first build (rexglue_helpers.cmake), built once here.
     ffx_tree = work / "fidelityfx-vk"
     ffx_arguments = [f"-DCMAKE_C_FLAGS={flags}", f"-DCMAKE_CXX_FLAGS={flags}"]
-    if name == "macos-arm64":
+    if name in MACOS_PLATFORMS:
         ffx_arguments.append(f"-DVulkan_LIBRARY={prefix / 'lib' / 'libvulkan.1.dylib'}")
     run_logged([cmake, "-S", str(sdk / "thirdparty/fidelityfx-vk"), "-B", str(ffx_tree), "-G", "Ninja",
                 "-DCMAKE_BUILD_TYPE=Release", *toolchain_arguments(name), *KIT_CACHE[name],
@@ -1167,7 +1204,7 @@ def build_kit(progress: Progress, tools: dict, sdk: Path, python: Path, name: st
     run_logged([cmake, "--build", str(ffx_tree), "--target", "amd_fidelityfx_vk",
                 "--parallel", str(jobs)], LOGS / "kit-ffx-build.log", progress, "build", 82, 90,
                "Building FidelityFX", environment)
-    library = "libamd_fidelityfx_vk.dylib" if name == "macos-arm64" else "libamd_fidelityfx_vk.so"
+    library = "libamd_fidelityfx_vk.dylib" if name in MACOS_PLATFORMS else "libamd_fidelityfx_vk.so"
     upscalers = prefix / "share/rexglue/upscalers/fidelityfx"
     upscalers.mkdir(parents=True, exist_ok=True)
     shutil.copy2(str(ffx_tree / "ffx-api" / library), str(upscalers / library))
@@ -1186,7 +1223,7 @@ def build_kit(progress: Progress, tools: dict, sdk: Path, python: Path, name: st
         kit["llvm"] = tools_config["llvm"]["version"]
     if "sysroot" in tools_config:
         kit["sysroot"] = tools_config["sysroot"]["version"]
-    if name == "macos-arm64":
+    if name in MACOS_PLATFORMS:
         kit["deployment_target"] = "13.0"
         kit["compiler"] = subprocess.run(["clang", "--version"], capture_output=True,
                                          text=True).stdout.splitlines()[0]

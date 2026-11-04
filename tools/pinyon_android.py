@@ -167,7 +167,9 @@ def _pinned_tool(name: str) -> Path | None:
         if WINDOWS:
             entry = config[name]
         else:
-            host = "macos-arm64" if platform.system() == "Darwin" else "linux-x86_64"
+            host = "linux-x86_64"
+            if platform.system() == "Darwin":
+                host = "macos-x86_64" if platform.machine().lower() in ("x86_64", "amd64") else "macos-arm64"
             entry = config["posix"][host][name]
     except (OSError, KeyError, json.JSONDecodeError):
         return None

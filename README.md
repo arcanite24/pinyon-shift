@@ -104,8 +104,9 @@ repository's releases.
 `PinyonShift-Launcher-linux-x86_64.tar.gz` instead, extract it and run
 `PinyonShiftLauncher`; after the build, **Add to Steam** puts the game in
 Game Mode. The steps are in [Linux and Steam Deck](docs/LINUX.md).
-**On a Mac**, download `PinyonShift-Launcher-macos-arm64.zip`; see
-[macOS](docs/MACOS.md).
+**On a Mac**, download `PinyonShift-Launcher-macos-arm64.zip`, or on an Intel
+Mac the experimental `PinyonShift-Launcher-macos-x86_64.zip` (releases after
+0.8.0); see [macOS](docs/MACOS.md).
 
 To install on another drive, make a portable install, change the language, or
 read the launcher's settings, see [Installing and setup](docs/INSTALLING.md).
@@ -115,7 +116,7 @@ If something goes wrong, see [Troubleshooting](docs/TROUBLESHOOTING.md).
 
 - The USA retail disc, serial `MS-2505`, title ID `4D5309C9`.
 - Windows 10 or 11, x64; x86-64 Linux, including SteamOS on the Steam
-  Deck; or macOS 13 or newer on Apple silicon.
+  Deck; or macOS 13 or newer on Apple silicon (Intel Macs experimental).
 - A GPU with Vulkan 1.3. NVIDIA is tested; AMD and Intel are not yet
   qualified.
 - A CPU with 4 cores for Low-spec 60. The Steam Deck holds 60 fps at 1x; other

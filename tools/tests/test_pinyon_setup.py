@@ -161,7 +161,7 @@ class DiscImageTests(unittest.TestCase):
 class ToolchainPinTests(unittest.TestCase):
     def test_posix_downloads_are_https_and_sha256_pinned(self):
         config = json.loads((ROOT / "config/release-toolchain.json").read_text(encoding="utf-8"))
-        for name in ("linux-x86_64", "macos-arm64"):
+        for name in ("linux-x86_64", "macos-arm64", "macos-x86_64"):
             tools = config["posix"][name]
             self.assertGreater(tools["disk_space_gb"]["first_build"], 0)
             for key, item in tools.items():
@@ -287,6 +287,47 @@ class ToolchainPinTests(unittest.TestCase):
                 if saved is not None:
                     pinyon_setup.os.environ["PINYON_SHIFT_CPU_BASELINE"] = saved
         self.assertEqual(pinyon_setup.cpu_baseline("macos-arm64"), "native")
+
+    def test_an_intel_mac_picks_its_baseline_from_sysctl(self):
+        # Experimental Intel Mac port: sysctl's feature names map to
+        # /proc/cpuinfo's, and Rosetta keeps SSE4.1.
+        def fake(features, translated="0"):
+            def run(command, **_):
+                keys = command[2:]
+                out = translated if keys == ["sysctl.proc_translated"] else features
+                return pinyon_setup.subprocess.CompletedProcess(command, 0, out + "\n", "")
+            return run
+        kaby_lake = ("FPU SSE SSE2 SSE3 SSSE3 SSE4.1 SSE4.2 FMA MOVBE POPCNT AVX F16C "
+                     "AVX2 BMI1 BMI2 SYSCALL LZCNT")
+        flags = pinyon_setup.macos_cpu_flags(fake(kaby_lake))
+        self.assertTrue(set(pinyon_setup.V3_CPU_FLAGS) <= flags)
+        self.assertEqual(pinyon_setup.macos_cpu_flags(fake(kaby_lake, translated="1")), set())
+        saved = pinyon_setup.macos_cpu_flags
+        try:
+            pinyon_setup.macos_cpu_flags = lambda: flags
+            self.assertEqual(pinyon_setup.cpu_baseline("macos-x86_64"), "v3")
+            pinyon_setup.macos_cpu_flags = lambda: set()
+            self.assertEqual(pinyon_setup.cpu_baseline("macos-x86_64"), "sse4.1")
+        finally:
+            pinyon_setup.macos_cpu_flags = saved
+
+    def test_intel_mac_presets_exist_for_setup(self):
+        presets = json.loads((ROOT / "CMakePresets.json").read_text(encoding="utf-8"))
+        configure = {item["name"]: item for item in presets["configurePresets"]}
+        build = {item["name"] for item in presets["buildPresets"]}
+        game = pinyon_setup.PRESETS["macos-x86_64"]["game"]
+        for suffix in ("release", "v4"):
+            self.assertIn(f"{game}-{suffix}", configure)
+            self.assertIn(f"{game}-{suffix}", build)
+        base = configure["macos-amd64-base"]["cacheVariables"]
+        self.assertEqual(base["CMAKE_OSX_ARCHITECTURES"], "x86_64")
+        self.assertIn("-msse4.1", base["CMAKE_CXX_FLAGS"])
+        sdk_presets = ROOT / "thirdparty/shiftglue-sdk/CMakePresets.json"
+        if not sdk_presets.is_file():
+            return  # a checkout without the submodule
+        sdk = json.loads(sdk_presets.read_text(encoding="utf-8"))
+        self.assertIn(pinyon_setup.PRESETS["macos-x86_64"]["sdk"],
+                      {item["name"] for item in sdk["configurePresets"]})
 
     def test_the_payload_ships_the_posix_setup(self):
         script = (ROOT / "tools/package-launcher.ps1").read_text(encoding="utf-8")
