@@ -101,9 +101,10 @@ group = """Profile values"""
 v4 = """same"""
 name = """ForzaProfile body layout"""
 what = """The decrypted `ForzaProfile` body opens with a self-describing section: a big-endian field count, then per field `[u32 name length][name][u32 0x20][u32 0][u8 type][value]`. Types are 0x00 bool, 0x01 u8, 0x03 u32, 0x04 u64, 0x07 i32, 0x09 float and 0x0F struct (its own count and fields). Player values are under `Main`: `Main/Credits` (u32), `Main/XP`, `Main/Level`, `Main/WristbandLevel` and `Main/TotalWinnings`. Class-serialised states and 0xBB padding follow."""
+note = """The archived 20,419-byte achievement-survey loaded profile also contains Main/TractionControl and Main/StabilityControl, both type 0x01 (u8) with value 1. MR-0 private-state Windows runs set both to 1 versus both to 0 through the after-decrypt hook, with per-field applied-value logs. Neither stationary five-second brake/throttle run produces visible tyre smoke. This establishes their encoding and the failed particle recipe, not each field's driving effect or why smoke is absent."""
 how = """Decoding decrypted bodies at the save hooks; `tools/fh1-profile.py` decodes, edits and round-trips every captured profile byte for byte, and field edits survive the title's later saves."""
 confidence = """confirmed"""
-source = """src/save/profile_body.h; docs/NATIVE_PORT_BACKLOG.md NP-8.3; docs/MODDING.md The profile body"""
+source = """src/save/profile_body.h; docs/NATIVE_PORT_BACKLOG.md NP-8.3; docs/MODDING.md The profile body; docs/MODERN_RENDERING_RESEARCH.md Night lights and missing particle scope"""
 
 [[finding]]
 group = """Profile values"""

@@ -16,20 +16,20 @@ correct renderer and its saving is not a replacement's expected saving.
 
 | Item | Question still to answer | Status |
 | --- | --- | --- |
-| MR-0 | Per-pass cost on Mali, Deck, UHD 620, M4 Pro and RTX 4080 | Live draw/resolve, night-light, reflection-mip and MSAA measurements below; smoke/particles remain and Mac MSAA timing controls are unqualified |
-| MR-1 | Remove both tiled scene work and the decoder's later-tile walk | Open; the existing untile option does not remove that walk |
-| MR-2 | Reduce MSAA and reconstruct edges without losing sample-dependent reads | Open; off/2x cost census and existing scene-only FXAA comparison below, temporal alternative unqualified |
-| MR-3 | Reuse or cull sun-shadow casters | Open; shadow-mask and headlight dependencies must remain |
-| MR-4 | Reuse the second depth pass's result | Same-frame substitution is blocked by the depth → mask → scene dependency; a different prepass remains open |
-| MR-5 | Fuse bloom/luminance reductions and final composition | Open; target reuse and CPU exposure readback prevent assuming the whole chain is one independent pass |
-| MR-6 | Remove copies by rendering into sampled images | Open; preserve CPU-read resolves and ownership transitions |
-| MR-7 | Change reflection update scheduling | Open; distinguish face updates, mip generation and their consumers |
-| MR-8 | Batch sprites | Open; identify shaders, state, order and depth/stencil rules first |
+| MR-0 | Per-pass cost on Mali, Deck, UHD 620, M4 Pro and RTX 4080 | Census complete for every row ([gates and decisions](#gates-and-decisions)); Mac MSAA replay timing stays unqualified |
+| MR-1 | Remove both tiled scene work and the decoder's later-tile walk | Open, prototype needed; GPU side is the existing untile option, the decoder walk needs a CPU census on the Odin |
+| MR-2 | Reduce MSAA and reconstruct edges without losing sample-dependent reads | No default change; 2X and FXAA stay player options |
+| MR-3 | Reuse or cull sun-shadow casters | Rejected: atlas ceiling below the gate on every device |
+| MR-4 | Reuse the second depth pass's result | Rejected: same-frame reuse breaks the depth → mask → scene order; SHADOWS off already removes the pass |
+| MR-5 | Fuse bloom/luminance reductions and final composition | Open, prototype needed; ceiling above the gate on Mali and UHD 620 |
+| MR-6 | Remove copies by rendering into sampled images | Open, prototype needed; ceiling above the gate on four devices |
+| MR-7 | Change reflection update scheduling | Open, prototype needed for mip generation; face rendering is below the gate |
+| MR-8 | Batch sprites | Rejected: lamps, headlights and tyre smoke are under 100 draws a frame and their whole cost is below the gate |
 
-Set a saving gate for each row after completing its census, before implementing
-the replacement. Keep prototypes behind default-off cvars. A default change
-requires image comparisons and an actual saving on at least one target without
-regressing the others. None of the measurements below closes an MR row.
+A row's gate was set after its census, before any replacement work. Keep
+prototypes behind default-off cvars. A default change requires image
+comparisons and an actual saving on at least one target without regressing
+the others.
 
 ## MR-0: target-filtered draw knock-outs
 
@@ -460,9 +460,33 @@ Errors are standard errors; A/A is marker side 1 minus side 0, while the
 two probe columns are control minus suppressed. They are not corrected by
 subtracting A/A. UHD's night A/A frame-time shift is -2.54 ± 2.36 ms,
 larger than these small effects. The measurements do not justify a lamp or
-headlight batching prototype yet. They cannot decide MR-8: this stationary
-view has not budgeted smoke or other particles. A tablet brake/throttle
+headlight batching prototype. This stationary view has no smoke or other
+particles; [Tyre smoke](#tyre-smoke) budgets those. A tablet brake/throttle
 route produced no visible smoke and is excluded from particle evidence.
+
+Particle-route preparation can use the existing private-profile load hook
+instead of editing the installed save. An archived decrypted 20,419-byte
+profile contains `Main/TractionControl` and `Main/StabilityControl`, both
+u8 fields with value 1. Their names and encoding are established by
+`tools/fh1-profile.py`. In two Windows private-state runs, explicitly set
+both fields to 1 versus both to 0 through the after-decrypt hook. Logs
+confirm each field's applied value; both routes complete and capture
+valid vehicle poses. Holding both triggers at 255 for five seconds
+produces no visible tyre smoke in either run. This rules out that recipe
+as particle evidence even with both fields zero; it does not establish
+the settings' driving effects or the cause of the earlier result. These
+diagnostic dumps require `gpu_record_thread=false`; the first recorder-on
+attempt correctly logged that its dump request was ignored and is excluded
+from command-stream evidence.
+
+A follow-up with both fields zero, full throttle for 450 script ticks
+(7.5 seconds), then the A-button handbrake and right steering produces
+visible white tyre smoke in the later capture. The early capture shows
+66 km/h; the later one shows the stopped car, skid marks and smoke. The
+route captures a 76,239,148-byte frame dump just afterward. This supplies a
+visible effect for shader identification, not a particle cost measurement
+or a separate proof of either assist field's effect. The same pinned
+profile's hash remains unchanged.
 
 ## MR-2: lower MSAA and existing scene-only FXAA
 
@@ -589,3 +613,77 @@ Mali controls average 22 ± 19 fewer decoded draws than the candidate;
 its control GPU span drifts from 27.48 to 31.08 ms across the series despite
 the fixed pose, so retain interleaving and the between-block error. These
 results do not yet satisfy a cross-device acceptance gate.
+
+## Gates and decisions
+
+Every row uses the gate already set for MR-2: a net saving of at least
+1 ms of GPU frame span on one GPU-bound target **at the preset that ships
+the work**, with no regression beyond control uncertainty on the others,
+and the 40 dB RGB8 PSNR floor plus visual checks. On the Odin, where the
+CPU front end dominates, the same 1 ms applies to CPU frame time and only
+counts when draws or decoder work go away. Following the issue's method, a
+row whose whole knocked-out cost is below the gate on every device is
+dropped without design work. A knock-out supplies a wrong image, so a
+ceiling that passes the gate only justifies a prototype; it is not that
+prototype's saving.
+
+| Row | Ceiling that decided it | Decision |
+| --- | --- | --- |
+| MR-1 | Main scene 1.6–28.6 ms of GPU span; the GPU part is what `fh1_untile_predicated_tiling` already draws once. The decoder still walks the later tiles' packets, which no probe here removes | Open. Needs a CPU census of the later-tile walk on the Odin before a prototype |
+| MR-2 | 4x → 2x + scene-only FXAA live: 3.95 ms Mali, 1.96 ± 1.38 ms UHD 620, 0.52 ms Deck, -0.04 ms RTX | No default change. See below |
+| MR-3 | Shadow-atlas knock-out: 0.86 ms Mali, 0.22 Deck, 0.30 M4 Pro, 0.53 ± 0.53 UHD 620 | Rejected: below the gate everywhere. Caching casters on the host would not remove their decoding either, because the guest still issues them |
+| MR-4 | Camera-depth knock-out: 1.52 ms Mali, 0.57 Deck, 0.61 M4 Pro, 4.22 UHD 620 | Rejected. The pass is already a depth-only prepass; main-scene depth arrives after the mask reads it, so reuse needs a reorder or last frame's depth. Low-end machines can already drop it with SHADOWS off, which removes both shadow passes |
+| MR-5 | Small post group 1.79 ms Mali, 1.27 UHD 620; final composite 1.57 ms Mali, 6.37 UHD 620, 1.15 M4 Pro | Open. Prototype a fused composite first. It must keep the two history reads and the CPU exposure readback |
+| MR-6 | Resolve-dispatch knock-out: 1.48 ms Mali, 1.35 Deck, 4.80 M4 Pro, 10.42 UHD 620 | Open. Prototype direct sampling for the single-owner scene resolves, keeping every resolve the CPU reads |
+| MR-7 | Face rendering 0.07–0.11 ms except 2.09 ± 0.50 UHD 620; mip draws 0.49 ms Mali at the shipped quarter rate, 2.46 ms at full rate, 1.43 UHD 620, 0.50 M4 Pro | Open for mip generation only: rebuild only the updated face's chain. Face scheduling already exists as `pinyon_shift_fh1_env_map_rate` |
+| MR-8 | Lamp and headlight knock-outs within noise everywhere; tyre smoke below | Rejected. See below |
+
+**MR-2.** 4x MSAA ships only in desktop QUALITY 60 (Windows and Linux)
+and Android QUALITY 30. The Mac's QUALITY 60 and Android's SMOOTH 60
+already store 4x surfaces with two samples, and every low-spec preset turns
+MSAA off. Where 4x ships, the RTX 4080 gains nothing (-0.04 ms, source
+paced), and Android QUALITY 30 is paced at 30 fps with room to spare. No
+default changes. The 2X MSAA row and the FXAA row remain player options.
+Motion and temporal checks for 2x + FXAA were not run, so it is not
+qualified as a default anywhere.
+
+### Tyre smoke
+
+The drive-and-handbrake dump in
+[Night lights and missing particle scope](#night-lights-and-missing-particle-scope)
+gives the smoke's draws. Suppressing one blended shader at a time in its
+replay, pixel shader `8A911DCC4060CAE4` (vertex shader `D0B4ADE58BA22B62`)
+removes all the visible smoke and nothing else. It accounts for **6 of
+the 1,889 draws** in the untiled discovery frame, all inside the
+main-scene rendering. Bound textures
+are a DXT5 sprite sheet, the 1280×720 float camera depth and the
+1024×1024 shadow atlas, which suggests soft depth-faded particles that
+receive shadows. Bound slots do not prove every branch samples them.
+
+The filter takes the hash as a decimal: `8A911DCC4060CAE4` is
+`9984794611947719396`. A mistyped decimal selects nothing, and the
+benchmark then fails with "selected draw count 0", which it did here.
+
+Frozen replays of that dump use the benchmark's three disjoint
+off/on/off blocks, untile on, presentation off and per-pass profiling off,
+with the shader filter on the main-scene selectors
+`1024/32/4x/d1+0/32/4x/c3,1024/32/1x/d1+0/32/1x/c3`:
+
+| Device and settings | Selected draws per frame | GPU frame-span saving, ms |
+| --- | ---: | ---: |
+| UHD 620, 1x, MSAA off, 210 repeats / 100 warm-up | 6 | 0.21 ± 0.48 |
+| M4 Pro, 2x, 4x MSAA, 610 / 300 | 6 | Unqualified |
+
+Controls are byte-identical within each device. The UHD controls drift
+from 59.6 to 66.6 ms across the series, so the result is "below the gate",
+not a measured cost. On the M4 Pro the controls move between 20.8 and
+24.8 ms from run to run and the blocks disagree in sign (-0.02 ± 1.3 ms),
+the same replay drift as its MSAA controls. No Android device was attached
+for this run, so Mali has no smoke figure.
+
+**MR-8 is rejected.** Batching or instancing removes draw submissions,
+not the pixels the sprites cover. The batchable families are 6 smoke,
+7 lamp and 76 headlight draws in the measured frames, and suppressing each
+family outright stays within noise on every device that resolved it. A
+fill-bound GPU such as the Mali would gain nothing from batching even if
+its smoke fill were expensive, because the blended pixels remain.

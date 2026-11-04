@@ -60,14 +60,25 @@ than promised gains from direct sampling. Reflection mip draws account for
 probes; mip resolves still execute. Mali with shadows enabled measures
 0.49 ± 0.08 ms at quarter-rate reflections and 2.46 ± 0.22 ms at full rate.
 Night lamp/headlight probes are small
-relative to controls, while smoke and other particles remain unmeasured.
-Fixed-command 4x-to-2x comparisons save 3.67 ± 0.10 ms on Mali and
+relative to controls, and suppressing tyre smoke (6 draws a frame) saves
+0.21 ± 0.48 ms in a UHD 620 replay. Fixed-command 4x-to-2x comparisons save 3.67 ± 0.10 ms on Mali and
 7.65 ± 0.36 ms on UHD 620, with identical repeated control images. These
 sample-count controls do not include AA reconstruction. One static RGB8
 comparison of existing scene-only FXAA plus 2x against original 4x gives
 40.98 dB PSNR, versus 43.01 dB for 2x alone. It has not qualified a default
-change. Current Vulkan ports are the qualification scope. See the
-[method, device settings and open candidates](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/MODERN_RENDERING_RESEARCH.md).
+change. Current Vulkan ports are the qualification scope.
+
+Each candidate then had to clear 1 ms of GPU frame span on one GPU-bound
+target at the preset that ships the work. Sun-shadow caster reuse (MR-3),
+reusing the camera-depth prepass (MR-4) and sprite batching (MR-8) were
+dropped: their whole knocked-out cost is below that everywhere, or reuse
+would break the depth, shadow mask and scene order. No MSAA default changed
+(MR-2), because 4x only ships where it already costs nothing measurable.
+Fusing the post chain (MR-5), sampling resolves in place (MR-6),
+rebuilding only the updated reflection face's mips (MR-7) and dropping the
+decoder's later-tile walk (MR-1) have ceilings above the gate and wait for
+prototypes. See the
+[gates, decisions and method](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/MODERN_RENDERING_RESEARCH.md#gates-and-decisions).
 
 ## The recorder thread
 

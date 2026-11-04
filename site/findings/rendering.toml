@@ -920,7 +920,7 @@ source = """docs/NEXT_LEVEL_RESEARCH.md NL-5"""
 group = """Light glows"""
 name = """light glow sprites"""
 what = """Street lamps, outpost lights and car headlights are camera-facing sprites drawn into the 4x main scene, in each predicated tile, after the opaque world: pixel shaders E6A37477D3491A43 (lamps; vertex shaders FB9E8663EA73E066 and F1663100A698025F) and 36ADB4C3E44F265F (headlights), blending `SRC_ALPHA`/`ONE` (`RB_BLENDCONTROL0` 0x01060106). The vertex shader moves each sprite a little toward the camera and takes its brightness from the vertex data; the pixel shader multiplies a sprite texture by a 1D colour ramp. Occlusion is the per-pixel depth test alone: `GREATER_EQUAL` without depth writes against the scene's reversed depth (viewport z scale -1, offset 1)."""
-how = """A night frame's draw log with every draw's textures and depth and stencil state; hiding one blended pixel shader at a time in a live drive; the vertex shaders' translated microcode. The MR-0 base parked trace at time 23 with shadows enabled independently finds seven lamp-shader and 76 headlight-shader draws. Five-block live suppression on five Vulkan devices establishes only small or unresolved marginal costs in this view, not a budget for smoke or other particles."""
+how = """A night frame's draw log with every draw's textures and depth and stencil state; hiding one blended pixel shader at a time in a live drive; the vertex shaders' translated microcode. The MR-0 base parked trace at time 23 with shadows enabled independently finds seven lamp-shader and 76 headlight-shader draws. Five-block live suppression on five Vulkan devices establishes only small or unresolved marginal costs in this view, not a budget for smoke; the tyre-smoke record covers that."""
 confidence = """confirmed"""
 source = """docs/native-renderer/HEADLIGHT_FLICKER.md Lights through the car and terrain; docs/MODERN_RENDERING_RESEARCH.md Night lights and missing particle scope"""
 
@@ -931,6 +931,14 @@ what = """After the player's car (drawn with stencil reference 0x15, `REPLACE` o
 how = """Draw log of the stencil and viewport registers; making the stamp ignore the stencil hid every later depth-tested draw on the whole screen."""
 confidence = """confirmed"""
 source = """docs/native-renderer/HEADLIGHT_FLICKER.md Lights through the car and terrain"""
+
+[[finding]]
+group = """Light glows"""
+name = """tyre smoke sprites"""
+what = """Tyre smoke is pixel shader 8A911DCC4060CAE4 with vertex shader D0B4ADE58BA22B62, drawn inside the main-scene rendering (depth at EDRAM base 1024, colour at base 0, pitch 32). A handbrake-turn frame draws it 6 times. Its bound textures are a DXT5 sprite sheet (128x128 or 256x256 with mips), the 1280x720 float camera depth and the 1024x1024 shadow atlas, which points to depth-faded smoke that receives shadows; bound slots alone do not prove each is sampled. Suppressing these draws removes all visible smoke and nothing else."""
+how = """MR-0 base drive-and-handbrake dump with untile on: suppressing one blended pixel shader at a time in frozen replays and comparing the images (ABDF3BCFB8325621 and E393573DD4D9A589, 1 and 2 draws, are not the smoke); ordered shader-discovery trace for bindings."""
+confidence = """confirmed"""
+source = """docs/MODERN_RENDERING_RESEARCH.md Tyre smoke"""
 
 [[finding]]
 group = """Light glows"""
