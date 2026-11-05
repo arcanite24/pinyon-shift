@@ -93,7 +93,23 @@ try {
     $doctorLog = Join-Path $logs 'android-doctor.log'
     Invoke-PinyonLoggedCommand -FilePath $python -Arguments @($pinyon, 'android', 'doctor') `
         -LogPath $doctorLog | Out-Host
-    if ($LASTEXITCODE -ne 0) {
+    if ($LASTEXITCODE -eq 3) {
+        # TP-5: the release's prebuilt shell is ready, so only the NDK (and
+        # adb) are missing; they come straight from dl.google.com by SHA-256,
+        # without the JDK or the SDK's command-line tools.
+        Assert-PinyonDownloadHosts -Uris @('https://dl.google.com/')
+        if (-not $AcceptAndroidLicenses) {
+            $failure = [Exception]::new('Installing the Android NDK needs the Android SDK license to be accepted.')
+            $failure.Data['step'] = 'Install the Android NDK'
+            $failure.Data['hint'] = "Accept the Android SDK license ($($android.direct.license_url)) when the launcher asks, or run: python tools/pinyon.py android doctor --install --accept-licenses"
+            throw $failure
+        }
+        Write-PinyonEvent android 18 'Installing the Android NDK (about 830 MB, once).' -JsonEvents:$JsonEvents
+        Invoke-PinyonBuildCommand $python @($pinyon, 'android', 'doctor', '--install', '--accept-licenses') `
+            (Join-Path $logs 'android-sdk-install.log') 'Installing the Android NDK failed.' `
+            -Step 'Install the Android NDK'
+    }
+    elseif ($LASTEXITCODE -ne 0) {
         # The SDK packages come from Google; the JDK and command-line tools
         # too when this PC has none. Named up front if a site is blocked.
         Assert-PinyonDownloadHosts -Uris @($bootstrap.jdk.url, $bootstrap.cmdline_tools.url, 'https://dl.google.com/')

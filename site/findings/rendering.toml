@@ -74,6 +74,14 @@ source = """docs/native-renderer/NATIVE_FRAME_CONTRACT.md Primitives, front buff
 
 [[finding]]
 group = """Frame structure and views"""
+name = """render size ignores the video mode"""
+what = """The title renders its 1280x720 16:9 scene, HUD and front buffer whatever video mode the system reports. With `VdQueryVideoMode` reporting 640x480, not widescreen and not high definition, a race drew and presented exactly as at 720p. The guest calls `VdQueryVideoMode` (four sites) and `VdGetCurrentDisplayInformation` (three), but not to size its render targets, so the video mode is no way to make it render smaller."""
+how = """Experiment, 2026-10-31: `fh1-race-sync` with `--video_mode_width=640 --video_mode_height=480` (Release 5998377); all five captures 1280x720 with the 16:9 HUD layout. Call sites counted in the generated code."""
+confidence = """probable"""
+source = """docs/RENDER_SCALE_BACKLOG.md RS-0.1"""
+
+[[finding]]
+group = """Frame structure and views"""
 name = """occlusion queries only while loading"""
 what = """The game's occlusion queries use `EVENT_WRITE_ZPD`: 1,056 events over 48 report addresses, all in two windows, the title-to-free-roam load and the event menus. Race, free roam, map, pause, photo and movie frames issue none in those censuses; the measured gameplay windows add no draws inside a legacy query. The race frame has 24 indirect point draws that write nothing, possibly query probes. At startup one query is ended in a later command buffer than the one it began in."""
 how = """Frame census; an Android counter of query ends (0 in the race); a Vulkan validation message at startup. In an October 18, 2026 exploratory two-minute night run on the Odin 2 Portal (0.5.1 v4, SDK 71e09d4), the cumulative `draw_in_occlusion_query` count remained at one through the driving window, including an oncoming car. This bounds the legacy host-query path in that sample, not shader-based depth visibility or all traffic-light rendering."""
@@ -343,6 +351,15 @@ source = """docs/DESKTOP_RENDERER_BACKLOG.md DR-0.5; docs/native-renderer/GUEST_
 
 [[finding]]
 group = """Resolves"""
+name = """GPU readers of resolve memory"""
+what = """In a moving-race frame most resolve memory is overwritten by a later resolve before anything reads it. The title reuses allocations at other pitches and sizes: one 1280x720 color allocation receives 1280x256 strips, and a 640x360 one a 520x520 resolve at pitch 1024. Of the 1 KB blocks that resolves with a current texture write, about 76 % are overwritten whole by a later resolve's macro tiles and 4 % partly. About 20 % are read by texture loads of a texture the resolve does not write directly. Those readers are the reflection cube, which reloads its 18 face resolves (six each at 256x256, 128x128 and 64x64) every frame, plus a 1280x720 and a 640x360 result each read through another texture. No vertex, index or memory-export fetch read those blocks."""
+how = """`fh1_resolve_defer_memory` prototype: per-block ownership of each resolve's memory copy, with the request that consumed it (texture load, vertex, index, memexport or resolve), over 30 replays of the base race dump on the RTX 4080."""
+confidence = """confirmed"""
+note = """One frame and route; addresses are capture-specific. A 32-bit resolve's 32x32-texel macro tile is a contiguous 4 KB of its destination, which is what lets a later resolve's coverage be decided per tile."""
+source = """docs/MODERN_RENDERING_RESEARCH.md Resolve memory copies (MR-6); ShiftGlue commit 0ee82b25"""
+
+[[finding]]
+group = """Resolves"""
 name = """resolves the CPU reads"""
 what = """The title reads some resolves on the CPU: the car thumbnails it saves are one-off resolves read from guest memory. Handing the game the previous frame's data for every resolve never reaches free roam, so at least one other read before free roam needs the current frame."""
 how = """Thumbnail path checked against full synchronous readback; route runs in each readback mode."""
@@ -380,12 +397,12 @@ source = """docs/ANDROID_PORT_BACKLOG.md"""
 
 [[finding]]
 group = """Shadows"""
-name = """sun shadow map"""
-what = """The race's 1280-wide 1x depth-only pass at EDRAM base 0 is the sun shadow map: skipping it removes every shadow. It holds about 18 % of race draws, all cheap depth-only draws, interleaved with its own resolves. The 1040-pitch `D24S8` depth pass (EDRAM tile 720, resolved to 1024x1024) holds another 11 %. One shadow epoch of 80 draws was 64 draws of one dominant family, then four repeats of three secondary draws and one tertiary draw."""
-how = """Skipping each pass in turn; per-target draw counts; ordered-draw census of a shadow epoch."""
-note = """R03 (2026-10-24): enabled alpha-test or alpha-to-mask register bits alone are not a foliage selector. A target-filtered prototype also removed the player car's self-shadowing in stock/skip/stock daytime captures. Most raw alpha-flagged candidates had no effective pixel shader. Requiring a pixel shader whose coverage depends on alpha selected about 38/47 draws per race frame on the two targets and 30/45 in free roam; it saved only 0.12/0.08 ms GPU on an RTX 4080 at 3x, below the 0.5 ms gate. Both filters were removed. The Odin was unreachable, so no mobile result is claimed. See the R03 experiment in the performance backlog."""
+name = """shadow-related depth passes"""
+what = """The 1040-pitch D24S8 pass at EDRAM tile 720 produces 1024x1024 shadow atlas inputs. The 1280-wide 1x float-depth pass at base 0 produces camera-view depth used with those atlases to build the 1280x720 screen-space shadow mask before main-scene shading. The latter was historically labelled the sun shadow map because skipping it removes every shadow; that experiment proved a dependency, not a light-space projection. In base race frame 8991 its 1,168 full-size draws precede the mask's consumers and the three-band main scene; the early depth and later scene-depth dumps show the same camera-view geometry, with additional foliage in the latter. Earlier race counts assigned about 18 % of draws to the 1280-wide pass and 11 % to the atlas pass. One shadow epoch of 80 draws was 64 draws of one dominant family, then four repeats of three secondary draws and one tertiary draw."""
+how = """Skipping each pass in turn; ordered target and resolve/texture traces; untiled depth-output comparisons from base frame 8991; MR-0 daylight shader-discovery trace on Mali."""
+note = """R03 (2026-10-24): enabled alpha-test or alpha-to-mask register bits alone are not a foliage selector. A target-filtered prototype also removed the player car's self-shadowing in stock/skip/stock daytime captures. Most raw alpha-flagged candidates had no effective pixel shader. Requiring a pixel shader whose coverage depends on alpha selected about 38/47 draws per race frame on the two targets and 30/45 in free roam; it saved only 0.12/0.08 ms GPU on an RTX 4080 at 3x, below the 0.5 ms gate. Both filters were removed. The Odin was unreachable, so no mobile result is claimed. See the R03 experiment in the performance backlog. MR-0 (2026-11-02): the Galaxy Tab S10 Ultra's daylight v4 free-roam trace contains 1,503 emitted draws and neither depth-only shadow target. Android defaults pinyon_shift_fh1_shadows to false, which removes these passes while the lights are off; its reflection rate also defaults to 0.25. Their absence is an existing preset trade, not a new shadow optimization or a night-time cost bound."""
 confidence = """confirmed"""
-source = """docs/PERFORMANCE_BACKLOG.md Fidelity trades, PB-1.10, R03 alpha-tested shadow casters; docs/native-renderer/RESEARCH.md Vehicles and shadow epochs"""
+source = """docs/PERFORMANCE_BACKLOG.md Fidelity trades, PB-1.10, R03 alpha-tested shadow casters; docs/native-renderer/RESEARCH.md Vehicles and shadow epochs; docs/MODERN_RENDERING_RESEARCH.md Depth before the shadow mask; Mali daylight profile"""
 
 [[finding]]
 group = """Shadows"""
@@ -464,9 +481,29 @@ name = """final post pass"""
 what = """The heaviest single post shader runs twice a frame: six bilinear taps of the 64-bit scene along the velocity (camera motion blur, visible as a horizontal smear in turns) and a 3D colour grade. It is bound by texture bandwidth. Turning motion blur and depth of field off changed GPU time by less than noise on a Snapdragon 8 Elite."""
 how = """Per-shader GPU profile; in-run A/B of the motion blur and depth-of-field switches."""
 confidence = """confirmed"""
-note = """The shader key is our translator's hash."""
+note = """The shader key is our translator's hash. MR-0 ordered capture (2026-11-02, base moving-race frame 8991): its two draws bind scene color at slot 0, processed 320x192 at slot 2, a 640x360 RGBA8 input at slot 5, the 16x16x16 LUT at slot 7, and the current 32x32 float exposure result at slot 17. The same full-size color attachment also receives a scene-preparation draw and 170 later HUD draws in this frame; its whole target cost is not the cost of the two final-composite draws."""
 issue = """#413"""
-source = """docs/ANDROID_ODIN_BACKLOG.md Coarse shading, Render scenario settings toward 60 fps; docs/ANDROID_60FPS_BACKLOG.md A60-10"""
+source = """docs/ANDROID_ODIN_BACKLOG.md Coarse shading, Render scenario settings toward 60 fps; docs/ANDROID_60FPS_BACKLOG.md A60-10; docs/MODERN_RENDERING_RESEARCH.md Ordered post-chain inputs and outputs"""
+
+[[finding]]
+group = """Post effects"""
+base = """pixel shaders ED74D20BC7DFB0F7, 4D3934F366930540"""
+name = """two post-chain history bindings"""
+what = """The 32x32 float producer ED74D20BC7DFB0F7 reads the current reduced scene at slot 0 and its previous 32x32 float result at slot 1 before resolving the new float result into the same allocation. The following 4D3934F366930540 draw reads a prior 320x192 image at slot 0, this frame's first 320x192 scene reduction at slot 1, and the new float result at slot 17 before resolving into that 320x192 allocation. A fused implementation needs both old values and must publish the updated exposure result for its later GPU and CPU readers."""
+how = """Ordered draw/texture/resolve metadata from base moving-race frame 8991 replayed five times, with memory-export counters zero; both inputs are read before the first overlapping resolve of their allocation, then overwritten later in the same frame. Trace-enabled and control front buffers are byte-identical."""
+confidence = """probable"""
+note = """The within-frame read-before-write bindings and output order are confirmed; interpreting the old values as cross-frame history is an inference, since a single GPU frame does not exclude CPU resets. Observed allocations were 0x1FCA6000 (32x32 float) and 0x1DE5D000 (320x192); they are allocation examples, not stable symbols. Used-texture masks identify possible shader reads, not per-fragment branch decisions or exact sampled coordinates. The precise filtering/adaptation maths are not established by this dependency trace."""
+source = """docs/MODERN_RENDERING_RESEARCH.md Ordered post-chain inputs and outputs; thirdparty/shiftglue-sdk/src/graphics/vulkan/fh1_native_executor.cpp shader discovery"""
+
+[[finding]]
+group = """Post effects"""
+base = """pixel shaders E17BECBE8BE65806, AE59F518D522BDD1, E68FE55ECD482EC5, ECE830AC0333767F, 64AEAE9314A0118B"""
+name = """ordered reductions and final-composite preparation"""
+what = """In base moving-race frame 8991, E17BECBE8BE65806 reduces scene color to 320x192 then 64x32; AE59F518D522BDD1 produces the following 32x32 reduction. Later E68FE55ECD482EC5 binds scene depth and writes a 640x360 RGBA8 intermediate, followed by ECE830AC0333767F reading that intermediate and resolving into the same allocation. Final composition binds the resulting image at slot 5. 64AEAE9314A0118B binds three views of scene color and resolves full-size color back into the scene allocation before final composition."""
+how = """Ordered shader identities, texture bindings and completed resolves from the same five-iteration replay used for the history bindings; padded guest ranges include all three scene-band writers."""
+confidence = """confirmed"""
+note = """These identify bindings, output dimensions and ordering, not exact filter mathematics or the semantic purpose of the scene-color rewrite. The 640x360 image is a distinct input from the earlier 1280x720 shadow mask. Draw numbers and allocation addresses are capture-specific. The scene-color rewrite (64AEAE9314A0118B) is required and independent of the bloom, motion-blur and depth-of-field switches: it draws with each of them on or off (2,255-2,337 draws over each live run), and suppressing it drops the replayed frame to 11.8 dB PSNR against the control (MR-5)."""
+source = """docs/MODERN_RENDERING_RESEARCH.md Ordered post-chain inputs and outputs"""
 
 [[finding]]
 group = """Post effects"""
@@ -475,7 +512,7 @@ name = """temporal post surface"""
 what = """One post-chain destination is temporal: a padded 1280x736 surface updated 256 rows per frame, fully republished every other frame and read back the next frame, alternating between history destinations `0x1BDB1000` and `0x1C149000`, with several guest formats per address. Treating it as a plain single-frame output fails."""
 how = """Race-pilot resolve census; a rejected simple post-chain handoff (PERF-10)."""
 confidence = """confirmed"""
-note = """Addresses from one seed."""
+note = """Addresses from one seed. MR-0's newer base frame 8991 resolves its final front buffer to 0x1C149000 with no shader texture binding reading that address in the captured frame. Alternating allocations or a partial resolve alone do not prove a temporal post input. The newer ordered trace establishes history separately at 32x32 float and 320x192 allocations; preserve the observed reads, not an address-only classification."""
 source = """docs/native-renderer/XENOS_RETIREMENT_BACKLOG.md FH1 frame facts; docs/native-renderer/RESEARCH.md Rayman and scene-native era"""
 
 [[finding]]
@@ -810,10 +847,10 @@ source = """docs/native-renderer/NATIVE_FRAME_CONTRACT.md Textures; docs/native-
 [[finding]]
 group = """Shaders, textures and models"""
 name = """reflection cube"""
-what = """The car reflection map is a persistent six-face, nine-level 256x256 cube in `2_10_10_10` (R10G10B10A2), fetched as `2_10_10_10_AS_16_16_16_16`. The game renders one face and that face's mips each frame; each face's mips take 8 draws and 8 resolves (48 of each per cube) from six cached lists of 2,352 packets per cube. Car paint fetches it trilinearly (mips 0 to 8) with the coarse derivatives of the cube direction passed as explicit gradients, which the Xenos resolves as implicit LOD plus bias."""
-how = """Command-stream contract for a mip-chain replacement (since removed) checked against captures; register captures of the paint shader on two backends; layer-level reload tracking on Android."""
+what = """The car reflection map is a persistent six-face, nine-level 256x256 cube in `2_10_10_10` (R10G10B10A2), fetched as `2_10_10_10_AS_16_16_16_16`. Face rendering and mip generation have distinct schedules: base race frame 8991 updates one base face but executes all six eight-draw mip chains, 48 draws and 48 resolves in total. The mip shader is 21937679208E59A5, drawing into EDRAM base 0, pitch 2, single-sample color format 3; the six cached lists contain 2,352 packets per cube. Car paint fetches it trilinearly (mips 0 to 8) with the coarse derivatives of the cube direction passed as explicit gradients, which the Xenos resolves as implicit LOD plus bias."""
+how = """Command-stream contract for a mip-chain replacement (since removed); ordered texture and resolve trace of base race frame 8991 (mip draws 1540-1587); register captures of the paint shader on two backends; layer-level reload tracking on Android. A v4 daytime Galaxy Tab S10 Ultra frame-3000 comparison with full-rate reflections, normal recorder and untile enabled finds no mip-shader draws among 1,644 draws with shadows off, and 48 among 2,326 with only shadows enabled. Per-draw shader/selector/toggle/suppression metadata and a frozen off/on/off replay validate selection. This is a route-specific coupling; its guest-code cause and cube resolve contents with shadows off remain untraced."""
 confidence = """confirmed"""
-source = """docs/native-renderer/archive/REFLECTION_MIPMAP_REPLACEMENT.md Runtime behavior, Validation; docs/NATIVE_PORT_BACKLOG.md NP-12.4; docs/ANDROID_ODIN_BACKLOG.md Cube faces and vertex multiplies"""
+source = """docs/native-renderer/archive/REFLECTION_MIPMAP_REPLACEMENT.md Runtime behavior, Validation; docs/NATIVE_PORT_BACKLOG.md NP-12.4; docs/ANDROID_ODIN_BACKLOG.md Cube faces and vertex multiplies; docs/MODERN_RENDERING_RESEARCH.md Reflection mip work"""
 
 [[finding]]
 group = """Shaders, textures and models"""
@@ -892,9 +929,9 @@ source = """docs/NEXT_LEVEL_RESEARCH.md NL-5"""
 group = """Light glows"""
 name = """light glow sprites"""
 what = """Street lamps, outpost lights and car headlights are camera-facing sprites drawn into the 4x main scene, in each predicated tile, after the opaque world: pixel shaders E6A37477D3491A43 (lamps; vertex shaders FB9E8663EA73E066 and F1663100A698025F) and 36ADB4C3E44F265F (headlights), blending `SRC_ALPHA`/`ONE` (`RB_BLENDCONTROL0` 0x01060106). The vertex shader moves each sprite a little toward the camera and takes its brightness from the vertex data; the pixel shader multiplies a sprite texture by a 1D colour ramp. Occlusion is the per-pixel depth test alone: `GREATER_EQUAL` without depth writes against the scene's reversed depth (viewport z scale -1, offset 1)."""
-how = """A night frame's draw log with every draw's textures and depth and stencil state; hiding one blended pixel shader at a time in a live drive; the vertex shaders' translated microcode."""
+how = """A night frame's draw log with every draw's textures and depth and stencil state; hiding one blended pixel shader at a time in a live drive; the vertex shaders' translated microcode. The MR-0 base parked trace at time 23 with shadows enabled independently finds seven lamp-shader and 76 headlight-shader draws. Five-block live suppression on five Vulkan devices establishes only small or unresolved marginal costs in this view, not a budget for smoke; the tyre-smoke record covers that."""
 confidence = """confirmed"""
-source = """docs/native-renderer/HEADLIGHT_FLICKER.md Lights through the car and terrain"""
+source = """docs/native-renderer/HEADLIGHT_FLICKER.md Lights through the car and terrain; docs/MODERN_RENDERING_RESEARCH.md Night lights and missing particle scope"""
 
 [[finding]]
 group = """Light glows"""
@@ -903,6 +940,14 @@ what = """After the player's car (drawn with stencil reference 0x15, `REPLACE` o
 how = """Draw log of the stencil and viewport registers; making the stamp ignore the stencil hid every later depth-tested draw on the whole screen."""
 confidence = """confirmed"""
 source = """docs/native-renderer/HEADLIGHT_FLICKER.md Lights through the car and terrain"""
+
+[[finding]]
+group = """Light glows"""
+name = """tyre smoke sprites"""
+what = """Tyre smoke is pixel shader 8A911DCC4060CAE4 with vertex shader D0B4ADE58BA22B62, drawn inside the main-scene rendering (depth at EDRAM base 1024, colour at base 0, pitch 32). A handbrake-turn frame draws it 6 times. Its bound textures are a DXT5 sprite sheet (128x128 or 256x256 with mips), the 1280x720 float camera depth and the 1024x1024 shadow atlas, which points to depth-faded smoke that receives shadows; bound slots alone do not prove each is sampled. Suppressing these draws removes all visible smoke and nothing else."""
+how = """MR-0 base drive-and-handbrake dump with untile on: suppressing one blended pixel shader at a time in frozen replays and comparing the images (ABDF3BCFB8325621 and E393573DD4D9A589, 1 and 2 draws, are not the smoke); ordered shader-discovery trace for bindings."""
+confidence = """confirmed"""
+source = """docs/MODERN_RENDERING_RESEARCH.md Tyre smoke"""
 
 [[finding]]
 group = """Light glows"""

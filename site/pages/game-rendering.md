@@ -9,9 +9,9 @@ description: How Forza Horizon draws a frame on the Xbox 360: its passes and dra
 
 The game renders through the Xbox 360's Direct3D 9 runtime, which is linked into `default.xex`, so the D3D code is part of the guest and shows up in these records with addresses. Most of what the game draws comes from command buffers (display lists) that the engine builds ahead of time, rewrites while the game runs, and chains into the ring once per EDRAM tile. Everything on this page was measured on the recompiled game, whose GPU stream is the one the console would have received.
 
-A race frame is 2,900 to 7,400 draws. In order, the GPU fills two depth-only targets (the sun shadow map and a second depth pass), a few 2x MSAA targets, then the 4x MSAA main scene in three horizontal tiles, then a post chain of about 43 small renderings, and finally the HUD and the swap:
+A race frame is 2,900 to 7,400 draws. In order, the GPU fills shadow atlases and camera depth for a screen-space shadow mask, a few 2x MSAA targets, then the 4x MSAA main scene in three horizontal tiles, then a post chain of about 43 small renderings, and finally the HUD and the swap:
 
-{{diagram:game-race-frame|Order of work in a race frame, from a race-start capture. Draw counts move with the scene; the shares hold: main scene about 61 %, sun shadow map 18 %, second depth pass 11 %.}}
+{{diagram:game-race-frame|Order of work in a race frame. Draw counts move with the scene; an earlier race sample assigned about 61 % to the main scene, 18 % to camera depth and 11 % to shadow atlases.}}
 
 The renderer this project replaced the Xenos emulator with is described under [Internals](renderer.md); this page is about what the game itself asks for.
 
@@ -44,7 +44,14 @@ A resolve copies EDRAM to a texture in main memory. The game does about 60 to 92
 
 ## Shadows
 
-The sun's shadow map is the 1280-wide depth-only pass at the start of the frame; skipping it removes every shadow. Shadow atlases are refreshed only in part each frame.
+The 1040-pitch depth target supplies the shadow atlases, refreshed only in
+part each frame. The 1280-wide float-depth pass supplies camera depth for
+the screen-space shadow mask. Skipping it removes shadows too, which led
+to its older "sun shadow map" label. Ordered texture/resolve traces and
+depth-output comparisons distinguish their roles: the mask samples both
+depth inputs before main-scene shading reads the mask. Same-frame main
+depth therefore arrives too late to replace the prepass directly. See the
+[dependency study](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/MODERN_RENDERING_RESEARCH.md#depth-before-the-shadow-mask).
 
 {{findings:rendering/Shadows}}
 

@@ -97,6 +97,8 @@ STATE_DIRECTORIES = ("cache", "config", "crashes", "logs", "reports", "update", 
 # only the low 8 bits of an exit status.
 GAME_EXITS = {1306: "config-unavailable", 1307: "saved-content-unavailable",
               1308: "graphics-unavailable"}
+# Windows ends a process whose window stopped answering with this code.
+HUNG_WINDOW_EXIT = 0xCFFFFFFF - (1 << 32)
 
 
 class LaunchError(RuntimeError):
@@ -334,9 +336,16 @@ def launch(args: argparse.Namespace) -> dict:
         result["result"] = special
         if special == "config-unavailable":
             result["config"] = str(state / "config" / "pinyon_shift.toml")
+    elif WINDOWS and exit_code == HUNG_WINDOW_EXIT and \
+            pinyon_crash.closed_cleanly(state, process.pid, started):
+        # The player closed the game and its saves finished, then the window
+        # stopped answering until Windows ended it (#946): not a crash.
+        result["result"] = "normal-exit"
+        result["closed_unresponsive"] = True
     elif exit_code:
         report = crash_report(state, executable, started, process.pid, exit_code)
-        for key in ("crash_id", "bundle", "issue_url", "graphics_driver", "graphics_memory"):
+        for key in ("crash_id", "bundle", "issue_url", "graphics_driver", "graphics_memory",
+                    "disc_read_error", "missing_file"):
             if key in report:
                 result[key] = report[key]
     return result

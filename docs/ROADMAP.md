@@ -122,7 +122,7 @@ Mid term, in priority order:
 - [ ] Nintendo Switch support, starting with hardware feasibility and
   performance validation
 - [ ] Racing wheel, pedal and force feedback support
-- [ ] Install, enable and order any mod from the launcher
+- [x] Install, enable and order any mod from the launcher
 - [x] Compatibility guidance for existing FH1 mods, and a tool that imports
   mods made of changed game files
 - [ ] Verify DualSense and variable refresh rate displays

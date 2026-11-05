@@ -164,7 +164,7 @@
         "CMAKE_C_COMPILER": "clang",
         "CMAKE_CXX_COMPILER": "clang++",
         "CMAKE_OSX_ARCHITECTURES": "arm64",
-        "CMAKE_OSX_DEPLOYMENT_TARGET": "13.0",
+        "CMAKE_OSX_DEPLOYMENT_TARGET": "13.3",
         "PINYON_SHIFT_CPU_BASELINE": "armv8-a",
         "REXSDK_DIR": "${sourceDir}/thirdparty/shiftglue-sdk",
         "REXGLUE_USE_VULKAN": "ON",
@@ -205,6 +205,54 @@
       "name": "macos-arm64-v4",
       "displayName": "macOS Apple silicon Release, FH1 v4 title update",
       "inherits": "macos-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "PINYON_SHIFT_TITLE_UPDATE_V4": "ON",
+        "PINYON_SHIFT_MANIFEST": "${sourceDir}/config/rexglue/pinyon_shift_v4_manifest.toml",
+        "PINYON_SHIFT_GENERATED_ROOT": "${sourceDir}/.local/generated-v4",
+        "PINYON_SHIFT_GENERATED_DIR": "${sourceDir}/.local/generated-v4/default"
+      }
+    },
+    {
+      "name": "macos-amd64-base",
+      "hidden": true,
+      "inherits": "macos-base",
+      "cacheVariables": {
+        "CMAKE_OSX_ARCHITECTURES": "x86_64",
+        "CMAKE_OSX_DEPLOYMENT_TARGET": "13.3",
+        "PINYON_SHIFT_CPU_BASELINE": "sse4.1",
+        "CMAKE_C_FLAGS": "-msse4.1",
+        "CMAKE_CXX_FLAGS": "-msse4.1"
+      }
+    },
+    {
+      "name": "macos-amd64-debug",
+      "displayName": "macOS Intel Debug",
+      "inherits": "macos-amd64-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "macos-amd64-relwithdebinfo",
+      "displayName": "macOS Intel RelWithDebInfo",
+      "inherits": "macos-amd64-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo"
+      }
+    },
+    {
+      "name": "macos-amd64-release",
+      "displayName": "macOS Intel Release",
+      "inherits": "macos-amd64-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "macos-amd64-v4",
+      "displayName": "macOS Intel Release, FH1 v4 title update",
+      "inherits": "macos-amd64-base",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "PINYON_SHIFT_TITLE_UPDATE_V4": "ON",
@@ -328,6 +376,22 @@
     {
       "name": "macos-arm64-v4",
       "configurePreset": "macos-arm64-v4"
+    },
+    {
+      "name": "macos-amd64-debug",
+      "configurePreset": "macos-amd64-debug"
+    },
+    {
+      "name": "macos-amd64-relwithdebinfo",
+      "configurePreset": "macos-amd64-relwithdebinfo"
+    },
+    {
+      "name": "macos-amd64-release",
+      "configurePreset": "macos-amd64-release"
+    },
+    {
+      "name": "macos-amd64-v4",
+      "configurePreset": "macos-amd64-v4"
     },
     {
       "name": "android-arm64-debug",

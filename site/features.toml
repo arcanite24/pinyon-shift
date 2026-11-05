@@ -85,6 +85,12 @@ xbox = "Console storage"
 pinyon = "Automatic save backups, PNG photos, saves imported from Xenia"
 
 [[original]]
+feature = "Achievements"
+link = "playing.md#achievements"
+xbox = "The dashboard's list"
+pinyon = "A screen in the game's own style: wristband tiers, categories, progress bars where the save counts them, the closest ones to unlock, one tracked on the HUD, and an unlock toast with the game's reward sound"
+
+[[original]]
 feature = "Cheats"
 link = "playing.md#trainer"
 xbox = "None"
@@ -150,14 +156,14 @@ link = "playing.md#graphics-presets"
 cells = [
   "yes: up to 120 fps",
   "yes: up to 120 fps; 60 on the Steam Deck",
-  "partly: 60 fps at 1x on the M4 Pro; QUALITY 60 measured about 40 fps ([qualification](platforms.md#macos-on-apple-silicon))",
+  "yes: 120 fps at 1x and 60 with QUALITY 60 on the M4 Pro ([measurements](platforms.md#macos-on-apple-silicon))",
   "partly: SMOOTH 60 or QUALITY 30",
 ]
 
 [[platform]]
 feature = "Graphics presets"
 link = "playing.md#graphics-presets"
-cells = ["yes", "yes", "partly: presets available; QUALITY 60 misses 60 fps on the tested M4 Pro", "partly: three presets of their own"]
+cells = ["yes", "yes", "yes: QUALITY 60 uses 2x MSAA on a Mac", "partly: three presets of their own"]
 
 [[platform]]
 feature = "HDR"
@@ -267,6 +273,16 @@ cells = [
   "partly: steering and pedals with saturation, deadzones and a curve; no force feedback yet ([#337](https://github.com/arcanite24/pinyon-shift/issues/337))",
   "partly: steering and pedals with saturation, deadzones and a curve; no force feedback yet ([#337](https://github.com/arcanite24/pinyon-shift/issues/337))",
   "partly: steering and pedals with saturation, deadzones and a curve; no force feedback yet ([#337](https://github.com/arcanite24/pinyon-shift/issues/337))",
+]
+
+[[platform]]
+feature = "Head tracking"
+link = "playing.md#head-tracking"
+cells = [
+  "partly: cockpit and hood cameras from OpenTrack (TrackIR, webcams, VR headsets); checked on the base game with fixed poses, not yet with a tracker or on v4 ([#489](https://github.com/arcanite24/pinyon-shift/issues/489))",
+  "partly: as on Windows, untested on this platform ([#489](https://github.com/arcanite24/pinyon-shift/issues/489))",
+  "partly: as on Windows, untested on this platform ([#489](https://github.com/arcanite24/pinyon-shift/issues/489))",
+  "n/a",
 ]
 
 [[platform]]

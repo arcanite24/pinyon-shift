@@ -1,0 +1,22 @@
+pinyon-shift-fh1-render-test-v1
+# clock-hz 60
+# MR-0 free-roam census from a pinned seed. Wait for the title screen before
+# sending menu input; measure the capture-free drive after vehicle-moved.
+# Collect the pass profile separately from knock-outs (timestamps perturb it).
+input 0 0000 0 0 0 0 0 0
+wait 1 30000 file pressstart.wmv
+input 360 1000 0 0 0 0 0 0
+input 366 0000 0 0 0 0 0 0
+input 480 1000 0 0 0 0 0 0
+input 486 0000 0 0 0 0 0 0
+input 600 1000 0 0 0 0 0 0
+input 606 0000 0 0 0 0 0 0
+input 720 1000 0 0 0 0 0 0
+input 726 0000 0 0 0 0 0 0
+wait 960 3600 freeroam
+capture 1200 parked
+input 1400 0000 0 255 0 0 0 0
+wait 1410 2400 vehicle-moved 30
+input 3610 0000 0 0 0 0 0 0
+capture 3620 drive-end
+stop 3630

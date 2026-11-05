@@ -364,6 +364,10 @@ public partial class MainWindow
         _xeInstalled = Bool(status.Json, "installed");
         _xeEnabled = _xeInstalled && Bool(status.Json, "enabled");
         var version = _xeInstalled ? status.String("version") : null;
+        // A 1.0-only install from an earlier release (#901); status omits
+        // "hotfix" before then, so only an explicit false counts.
+        var hotfixMissing = _xeInstalled && status.Json is { } json &&
+            json.TryGetProperty("hotfix", out var hotfix) && hotfix.ValueKind == System.Text.Json.JsonValueKind.False;
         XeToggleButton.IsEnabled = _xeInstalled;
         XeToggleButton.Content = _xeEnabled ? "Turn off" : "Use XE";
         XeInstallButton.Content = _xeInstalled ? "Reinstall" : "Install XE";
@@ -371,7 +375,8 @@ public partial class MainWindow
             ? "Not installed. Download from ModDB opens both downloads in your browser and installs them when they finish; Install XE takes archives you already have."
             : _xeEnabled
                 ? $"XE {version} is on. It plays its own new save and hides Horizon Rally; your base save is kept."
-                : $"XE {version} is installed and off. The game runs as on the disc.");
+                : $"XE {version} is installed and off. The game runs as on the disc.")
+            + (message is null && hotfixMissing ? " The 1.01 hotfix is missing: choose Reinstall with both downloads. Until then UDLC is hidden while XE is on (#901)." : "");
     }
 
     private async Task ChangeXeAsync(string[] arguments, string working, string success, CancellationTokenSource? wait = null)

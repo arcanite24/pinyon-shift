@@ -15,7 +15,7 @@ Most settings live in the game, on <kbd>F6</kbd>, and apply at once. MSAA and th
 | --- | --- |
 | <kbd>F6</kbd> | Settings. Also **SETTINGS** in the pause menu |
 | <kbd>F3</kbd> | Performance panel, with the build line (version, commits, build time) to quote in a bug report |
-| <kbd>F7</kbd> | Achievements |
+| <kbd>F7</kbd> | [Achievements](#achievements) |
 | <kbd>F2</kbd> | Hide or show the HUD (minimap, speedometer, banners), for screenshots. Menus and photo mode still draw |
 | <kbd>F8</kbd> | Save the current frame as a PNG photo |
 | <kbd>F10</kbd> | [Trainer](#trainer): credits, game speed, time of day and day length, free camera, any car in any event. Needs cheats on |
@@ -49,6 +49,23 @@ On a controller, hold **Back + Start** together (View + Menu on a Steam Deck) to
 
 Keys can be rebound in **F6 > CONTROLS**, and **RESET KEYS** returns to this layout. An install from before this layout keeps the keys it had until then.
 
+## Achievements
+
+<kbd>F7</kbd> (or **ACHIEVEMENTS** in <kbd>F6</kbd>) opens the achievements screen. The header shows your gamerscore and the festival wristband it has reached: the bands go from Yellow at 5 % of the gamerscore you can earn offline to Gold at 90 %. The first tab, **ALL**, shows everything; the others split the achievements into Career, Racing, Fame, Explore, Festival and Online, with Rally and 1000 Club when those packages are installed.
+
+Each tile shows the icon (grey while locked), the gamerscore and, where the save counts it, a progress bar: wristbands, discount signs and Festival Racers beaten. On **ALL**, the **ALMOST THERE** row lists the three locked ones nearest to unlocking. Online and Rivals achievements need Xbox Live, which is gone, so they are marked and left out of the tiers.
+
+| Pad | Keyboard | Action |
+| --- | --- | --- |
+| LB / RB | <kbd>Q</kbd> / <kbd>E</kbd>, <kbd>Tab</kbd> | Previous / next tab |
+| X | <kbd>R</kbd> | Change the sort: title order, nearest, locked first, recent, value |
+| Y | <kbd>T</kbd> | Track the focused achievement, or stop tracking it |
+| A / B | <kbd>Enter</kbd> / <kbd>Esc</kbd> | Details / back |
+
+The mouse wheel and a swipe scroll, and a click opens a tile. A tracked achievement shows its name and progress on the free-roam HUD until it unlocks; the choice is kept in `achievements/pinyon-shift-ui.toml` beside the unlock records.
+
+An unlock slides in with the icon, a count-up of the gamerscore and the game's own HUD reward sound (`pinyon_shift_achievement_sound`); 50 G achievements get a larger card, and finishing a category or reaching a new wristband adds a banner. `pinyon_shift_achievement_milestones` (off by default) also notifies at a quarter, half and three quarters of a counted achievement, at most once a minute; the tracked one always notifies.
+
 ## Graphics presets
 
 | Preset | Resolution | MSAA | Output | Rate | Notes |
@@ -57,16 +74,18 @@ Keys can be rebound in **F6 > CONTROLS**, and **RESET KEYS** returns to this lay
 | Low-spec 60 | 1x | Off | Bilinear | 60 | The default for a new install. The game's own texture filtering, no FXAA. Needs 4 CPU cores and about 1.1 GB of graphics memory |
 | Balanced 40 | 1x | Off | Bilinear | 40 | As Low-spec 60 at a third of the CPU work of 120. Paces evenly on 120 Hz and 40 Hz displays. Recommended below 4 CPU cores |
 | Performance 120 | 1x | Off | FSR 1 | 120 | The default on a discrete GPU with 6 GB or more, 6 or more CPU threads and a 120 Hz display |
-| Quality 60 | 2x | 4x | Bilinear | 60 | |
+| Quality 60 | 2x | 4x (2x on a Mac) | Bilinear | 60 | On a Mac the game's 4x surfaces keep two samples each: 4x held 51 fps on an M4 Pro, 2x 60 |
 
-On the M4 Pro Mac mini, the current free-roam qualification averages about
-60 fps at 1x, but 40 fps with QUALITY 60. Start with LOW-SPEC 60 and raise
+The lowest hardware tried so far, a 2017 laptop with an Intel i5-8250U and either an Intel UHD 620 or a GeForce 930MX, reached 20 fps on Ultra Low 30 and 10 fps or less with the 930MX ([numbers](performance.md#an-old-laptop)). Ultra Low 30 is a target there, not a promise.
+
+On the M4 Pro Mac mini, full screen, a free-roam drive holds 120 fps at 1x
+and 60 fps with QUALITY 60. Start with LOW-SPEC 60 and raise
 scale or MSAA separately; [the measured matrix](platforms.md#macos-on-apple-silicon) gives
 the limits of that test.
 
 Where the sun's shadows are off (**SHADOWS > OFF BY DAY**, Ultra Low 30, and the Android presets that turn them off), the game still draws them from 18:50 to 08:02 game time: the same passes light the road in front of the headlights.
 
-1x is the console's 1280 × 720; up to 4x is available (whole multiples only; the console's render targets are scaled in whole steps, so there is no 1.5x). On a 1080p screen that leaves two choices: 1x (720p) scaled up with FSR or DLSS, or 2x (1440p) scaled down, which costs more GPU time. Output scaling is bilinear, CAS or FSR 1, plus FSR 2 and FSR 3 (they use the game's depth, motion and a jittered scene; [Renderer](renderer.md)), and NVIDIA DLSS on Windows with an RTX GPU. When the internal resolution equals the display's (for example 2x on a 1440p display or 3x on a 2160p one), DLSS runs as DLAA and FSR 2 or 3 as native anti-aliasing instead of scaling. Setup provides them all: it downloads AMD's FidelityFX runtime and NVIDIA's DLSS runtime on Windows into `upscalers/` beside the game, and builds the FidelityFX library on Linux, macOS and Android. A newer `nvngx_dlss.dll` in its own `upscalers/dlss/<version>/` folder is used first. An upscaler that is set but cannot run (DLSS without an RTX GPU, or on Linux and macOS) shows "(UNAVAILABLE)" and the game uses FSR 1, as the resolution line under the settings says. **SHARPENING** sets how much FSR sharpens. Ultrawide displays get a wider field of view with the HUD kept at 16:9. Bloom, motion blur and depth of field are optional. **TEXTURE GAMMA > FAST** makes terrain and foliage a little darker and saves about 8 % of the GPU's frame on a Mac; it makes no difference on a desktop GPU. On Linux, **SCENE SHADING > COARSE** shades the scene once per 2 × 2 pixels: a little softer, and about 8 % of the GPU's frame saved on a Steam Deck.
+1x is the console's 1280 × 720; up to 4x is available (whole multiples only; the console's render targets are scaled in whole steps, so there is no 1.5x). On a 1080p screen that leaves two choices: 1x (720p) scaled up with FSR or DLSS, or 2x (1440p) scaled down, which costs more GPU time. Output scaling is bilinear, CAS or FSR 1, plus FSR 2 and FSR 3 (they use the game's depth, motion and a jittered scene; [Renderer](renderer.md)), and NVIDIA DLSS on Windows with an RTX GPU. When the internal resolution equals the display's (for example 2x on a 1440p display or 3x on a 2160p one), DLSS runs as DLAA and FSR 2 or 3 as native anti-aliasing instead of scaling. Setup provides them all: it downloads AMD's FidelityFX runtime and NVIDIA's DLSS runtime on Windows into `upscalers/` beside the game, and builds the FidelityFX library on Linux, macOS and Android. A newer `nvngx_dlss.dll` in its own `upscalers/dlss/<version>/` folder is used first. An upscaler that is set but cannot run (DLSS without an RTX GPU, or on Linux and macOS) shows "(UNAVAILABLE)" and the game uses FSR 1, as the resolution line under the settings says. **SHARPENING** sets how much FSR sharpens. Ultrawide displays get a wider field of view with the HUD kept at 16:9. Bloom, motion blur and depth of field are optional. **TEXTURE GAMMA > FAST** makes terrain and foliage a little darker and saves about 8 % of the GPU's frame on a Mac; it makes no difference on a desktop GPU. On Linux and Android, **SCENE SHADING > COARSE** shades the scene once per 2 × 2 pixels: a little softer, and about 8 % of the GPU's frame saved on a Steam Deck and 10 % on a Galaxy Tab S10 Ultra (Mali). A new setup on a Mali GPU starts at COARSE.
 
 **POST-PROCESS AA** (FXAA) smooths the game world only, so HUD text stays sharp; **AA ON THE HUD** smooths everything, as before. **ANISOTROPIC FILTERING** and **TEXTURE DETAIL** apply to the world's textures. **TEXTURE SIZE** (1024, 512 or 256) loads large textures from a smaller level for graphics cards with little memory: the world is softer up close. It applies at the next start; the sun's shadows and the HUD keep the game's own filtering. **COLOUR LUT** gives the world a different look from a `.cube` colour table (17 or 33 points, as photo and video editors export) put in a `luts` folder you create in the state folder (`%LOCALAPPDATA%\PinyonShift\source\<version>\.local\preview\luts`); **LUT STRENGTH** blends it with the game's colours. The HUD keeps its colours, though translucent HUD panels show the game's colours behind them. These apply at once on the Vulkan renderer.
 
@@ -134,6 +153,20 @@ Connect the controller before starting the game. XInput controllers work as they
 A wheel drives through the same controller path: steering on the left stick, throttle on the right trigger and brake on the left trigger. Wheels that SDL knows are detected; for another, open **F6 > CONTROLS > MAP CONTROLLER**, map it, and set **RACING WHEEL** to **YES** on its page. **F6 > CONTROLS > RACING WHEEL** then shapes its input, since the game expects a thumbstick: **STEERING SATURATION** (full lock at that share of the wheel's rotation, so 50% on a 900-degree wheel locks at 225 degrees each way), **STEERING DEADZONE** (skips the game's stick deadzone), **STEERING CURVE** and **PEDAL DEADZONE**. Gamepads are not affected. This path has no force feedback, and the shaping has been tested with simulated input, not yet on a physical wheel.
 
 **SEPARATE DEVICES** (experimental, [#337](https://github.com/arcanite24/pinyon-shift/issues/337)) is a second way in, tested on a Fanatec CSL DD with SimJack pedals on their own USB. The wheel base, the pedals and each button may come from different USB devices, so a separate pedal set, shifter, handbrake or button box needs no virtual joystick. The game sees an Xbox 360 force feedback wheel reporting 900 degrees, so it uses its own linear 900-degree steering (set the base to 900 degrees), and it drives the wheel with the force feedback it gave the Microsoft wheel: inertia, friction, damper, a spring that stiffens with speed and a steering force updated every frame, plus rumble. Bind it in the launcher: **Wheel** on its main screen (or **Settings > Configure Wheel**): it asks you to turn the wheel and press each pedal and button in the game's wheel layout (right paddle shifts up, left paddle down), then an H-shifter's gears (**Skip** at 1st gear without one; with one the game reads the gear from the shifter, and the paddles still shift), shows live what the game will read, and writes the `wheel_*` settings into `pinyon_shift.toml`, including each pedal's bottom and top dead zone and the force feedback device, strength and per-effect strengths, and the engine and road shares of the rumble (the game's engine rumble grows towards the limiter; road rumble is bumps, kerbs and impacts). Its force feedback **Test** pulls the wheel left, then right; if it pulls right first, tick **Reverse force direction**. Its Telemetry card turns telemetry out on and sets its format and target, saved as you change them. The Wheel screen is Windows only. **F6 > CONTROLS > RACING WHEEL** then turns force feedback on, to rumble only or off, sets its strength and direction (keep it low on a direct-drive base), and **RECORD FFB TRACE** writes every force feedback call the game makes, with your steering and pedals, to `ffb-trace-<time>.csv` beside the runtime log.
+
+### Head tracking
+
+**F6 > CONTROLS > HEAD TRACKING** turns and moves the cockpit and hood cameras with your head, from [OpenTrack](https://github.com/opentrack/opentrack)'s "UDP over network" output. OpenTrack takes input from TrackIR, webcams (its face trackers), phones and VR headsets.
+
+To set it up:
+
+1. In OpenTrack, choose **UDP over network** as the output, with address 127.0.0.1 and port 4242. If you change the port, pick the same one on the HEAD TRACKING page.
+2. Turn **HEAD TRACKING** on.
+3. Use OpenTrack's curves to set how far the view turns for a given head movement.
+
+Pinyon Shift applies the pose one to one: yaw, pitch and roll in degrees, and movement in centimetres. The view can turn a full 90 degrees to the side. **REVERSE** flips yaw, pitch or roll for a tracker that reports them the other way. Large upward or sideways head movement can take the view through the roof or the door, so keep OpenTrack's position limits small.
+
+If OpenTrack stops sending, the view holds for a second, then eases back to centre. It works through the built-in immersive camera mod, whose camera files for the base game and the v4 title update both carry the head layers. It was checked with fixed poses on the cockpit camera of the base game, not yet with a tracker or on v4.
 
 ### DualSense
 

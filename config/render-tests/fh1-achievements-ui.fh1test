@@ -1,0 +1,30 @@
+pinyon-shift-fh1-render-test-v1
+# clock-hz 60
+# AC-2..AC-4: the achievements screen (tabs, sort, track), an unlock
+# notification and the tracked achievement's free-roam chip. Host UI is not
+# in captures; check the hostui and achievements events, or grab the screen.
+# Run with --game-argument=--pad_remap=B=A: B presses advance the title menus.
+input 0 0000 0 0 0 0 0 0
+input 360 2000 0 0 0 0 0 0
+input 366 0000 0 0 0 0 0 0
+input 480 2000 0 0 0 0 0 0
+input 486 0000 0 0 0 0 0 0
+input 600 2000 0 0 0 0 0 0
+input 606 0000 0 0 0 0 0 0
+input 720 2000 0 0 0 0 0 0
+input 726 0000 0 0 0 0 0 0
+capture 1200 free-roam
+xamdialog 1300 toast
+hostkey 1700 f7
+hostkey 1800 t
+hostkey 1900 e
+hostkey 2000 r
+hostkey 2100 q
+hostkey 2200 escape
+input 2350 0010 0 0 0 0 0 0
+input 2356 0000 0 0 0 0 0 0
+capture 2700 tracked
+hostkey 3000 f7
+hostkey 3100 t
+hostkey 3200 escape
+stop 3300

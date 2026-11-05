@@ -23,6 +23,7 @@ public static class AndroidShareContent
     public const string RadioMod = "custom_radio";  // tools/pinyon_radio.py
     public const string XeMod = "xe";               // tools/pinyon_xe.py
     public const string ModSet = "mods";
+    public const string AotPipelines = "4D5309C9.fbo.aot.xpso";
 
     public static ShareContent Build(string repositoryRoot, string stateRoot, bool titleUpdateV4,
         bool includeMods = true)
@@ -46,6 +47,11 @@ public static class AndroidShareContent
         if (dlc.Count > 0) groups.Add(new ShareGroup("dlc", "DLC", true, dlc));
         var rally = Tree(Path.Combine(state, "cache", "rally_adapter"), "state/cache/rally_adapter");
         if (rally.Count > 0) groups.Add(new ShareGroup("rally", "Rally", true, rally));
+        // Free roam's Vulkan pipelines, which setup rebuilt from this disc and
+        // DLC (AOT-4); the device builds them behind the title.
+        var pipelines = Tree(Path.Combine(state, "cache", "shaders", "shareable"), "state/cache/shaders/shareable",
+            name => name == AotPipelines);
+        if (pipelines.Count > 0) groups.Add(new ShareGroup("pipelines", "free-roam pipelines", true, pipelines));
         var enabled = new List<string>();
         if (includeMods) enabled = AddModGroups(groups, state, titleUpdateV4);
         // The PC plays from user-modded while cheats or mods are on: offer the
@@ -191,7 +197,9 @@ public static class AndroidShareContent
             }
             else
             {
-                var platform = OperatingSystem.IsMacOS() ? "macos-arm64" : "linux-x86_64";
+                var platform = !OperatingSystem.IsMacOS() ? "linux-x86_64"
+                    : System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture
+                        == System.Runtime.InteropServices.Architecture.X64 ? "macos-x86_64" : "macos-arm64";
                 if (!root.TryGetProperty("posix", out var platforms) ||
                     !platforms.TryGetProperty(platform, out var entry) || !entry.TryGetProperty("python", out python))
                     return null;

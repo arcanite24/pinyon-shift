@@ -45,3 +45,7 @@ void PinyonShiftSetViewportAspectScale(float scale);
 void PinyonShiftSetMapViewCallback(std::function<void(bool open)> callback);
 
 void PinyonShiftSetPauseSettingsHandler(std::function<void()> handler);
+
+// AC-3.3: plays the title's own HUD reward cue at the next audio update
+// (any thread). The first call installs the audio update hook.
+void PinyonShiftPlayNotificationSound();
