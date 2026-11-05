@@ -932,7 +932,7 @@ class Fh1RenderTestRunnerTests(unittest.TestCase):
             script.write_text(header + "hostkey 5 f6\nhostclick 6 left 300 277\n" + tail,
                               encoding="utf-8")
             self.assertEqual([(20, "shot")], MODULE.parse_scenario(script)[0])
-            for keys in ("hostkey 5 f6\nhostkey 5 enter\n", "hostkey 5 tab\n", "hostkey 5\n",
+            for keys in ("hostkey 5 f6\nhostkey 5 enter\n", "hostkey 5 f12\n", "hostkey 5\n",
                          "hostclick 5 middle 1 1\n", "hostclick 5 left 1280 1\n"):
                 script.write_text(header + keys + tail, encoding="utf-8")
                 with self.assertRaises(ValueError):

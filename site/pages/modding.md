@@ -30,7 +30,7 @@ Mods live in the state folder, never in the game files. They can replace files, 
 
 ## Enabling
 
-The launcher's **Mods** button lists the installed mods with each one's description and images; **Details** under the description shows what it changes, the builds it is made for, whether it keeps your own save and the mods it needs. When a switch moves the next start to another save, it says so: switching on the first mod that changes your save moves you to a separate copy of it, and switching off the last one sends you back to your own save, while the copy keeps what you played with mods until you switch one on again. **Install ZIP** and **Install folder** add a mod (it starts switched off); **Switch on** and **Remove** act on the selected one. A mod that offers options shows a list for each under its description: the built-in **Festival pacing** has **Prices** (what cars, upgrades and rims cost, 0.25x to 3x) and **Rewards** (credits, wristband points and XP toward driver levels, 0.5x to 5x). A mod the game would refuse, such as one made for the other build or missing a mod it needs, is marked with the reason. The Linux and macOS launcher also takes a dropped ZIP or folder. Changes apply at the next start. The in-game **SETTINGS > MODS** screen switches mods too.
+The launcher's **Mods** button lists the installed mods with each one's description and images; **Details** under the description shows what it changes, the builds it is made for, whether it keeps your own save and the mods it needs. When a switch moves the next start to another save, it says so: switching on the first mod that changes your save moves you to a separate copy of it, and switching off the last one sends you back to your own save, while the copy keeps what you played with mods until you switch one on again. **Install ZIP** and **Install folder** add a mod (it starts switched off); **Switch on** and **Remove** act on the selected one. A mod that offers options, such as how strong its change is, shows a list for each under its description: the built-in **Festival pacing** has **Prices** (what cars, upgrades and rims cost, 0.25x to 3x) and **Rewards** (credits, wristband points and XP toward driver levels, 0.5x to 5x). A mod the game would refuse, such as one made for the other build or missing a mod it needs, is marked with the reason. The Linux and macOS launcher also takes a dropped ZIP or folder. Changes apply at the next start. A mod with native code (`code/` or a `library`) runs inside the game with your account's permissions once switched on, so install those only from authors you trust; the mod's **Details** list native code among what it changes. The in-game **SETTINGS > MODS** screen switches mods too.
 
 The built-in `hidden_cars` mod lists four hidden player-model variants.
 Traffic entries such as the tour bus are excluded because driving support
@@ -132,6 +132,9 @@ Capture one GPU frame with `vulkan_shader_discovery_dir` and
 draws, the HUD boundary and bound color/depth surfaces without disassembly.
 `--check-mod <mod>/shaders` compares a mod against that frame. Surfaces do
 not identify materials or objects. Keep capture files in `.local/`.
+The capture also includes used texture bindings with padded guest ranges
+and ordered completed resolves. Allocation overlaps locate possible writers;
+partial copies and conditional sampling still need analysis.
 
 Overrides can change existing inputs' use; preserve the renderer's bindings
 and stage interface. They cannot add game inputs. Rebuild and test after
@@ -197,7 +200,7 @@ python tools/pinyon.py xe install --find --open-pages --wait 14400
 
 Pinyon Shift never downloads XE itself: ModDB doesn't allow automated downloads, so your browser does it.
 
-The archives are checked against ModDB's sizes and MD5s, and only the files that differ from your game are kept (2.4 GB; 7 GB free is needed while installing). XE runs on the base disc build, hides Horizon Rally and plays its own new save in `<state>/user-xe`, as its readme asks. Your own save isn't touched. `xe disable` turns it off and `xe remove` deletes its files but keeps its save.
+Both downloads are needed: XE 1.0 without the 1.01 hotfix, together with the UDLC pack, stops the game right after the opening intro on a new save. If you installed XE 1.0 alone with an earlier release, the launcher says the hotfix is missing and hides UDLC while XE is on; choose **Reinstall** with both downloads to get it back. The archives are checked against ModDB's sizes and MD5s, and only the files that differ from your game are kept (2.4 GB; 7 GB free is needed while installing). XE runs on the base disc build, hides Horizon Rally and plays its own new save in `<state>/user-xe`, as its readme asks. Your own save isn't touched. `xe disable` turns it off and `xe remove` deletes its files but keeps its save.
 
 The archives are extracted with [7-Zip](https://www.7-zip.org) when it is installed, otherwise with the system `tar`. Some Windows `tar.exe` builds can't read XE's LZMA archives; the install then stops before extracting and asks you to install 7-Zip and choose **Install XE** again.
 

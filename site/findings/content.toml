@@ -442,6 +442,17 @@ source = """docs/DLC_BACKLOG.md Native Rally car database and entitlement check;
 
 [[finding]]
 group = """Downloadable content"""
+base = """UDLC 4D5309C900000729 with the XE mod 1.0"""
+name = """XE 1.0 with UDLC stops the new-player opening"""
+what = """With XE 1.0 installed without its 1.01 hotfix and UDLC v1.2 enabled, the new-player opening stops right after the intro, as the drive loads. The game opens `media\\Audio\\Cars\\Engines\\Soundbanks\\Burbles\\` with an empty burble file name, which fails with `0xC00000BA`, and it then stops on its dirty-disc error. XE 1.0 alone, XE with the hotfix, and XE with the hotfix plus UDLC all reach the opening drive. The hotfix's readme lists wrongly assigned engines (the 2013 Viper among them, the opening's car), so a car whose 1.0 engine data, merged with UDLC's rows, names no burble is the likely cause. Which car and table supply the empty name was not traced."""
+how = """Experiment: `fh1-opening-sync` from four pinned fresh-profile seeds on the 0.7.1 code (XE 1.0, 1.0 + UDLC, 1.0 + 1.01, 1.0 + 1.01 + UDLC). Only 1.0 + UDLC stopped, with the same log lines and exit as about 25 player reports."""
+confidence = """confirmed"""
+note = """The cause behind the empty name is a guess. Pinyon Shift hides UDLC for a 1.0-only install, and the installer requires the hotfix."""
+source = """docs/MODDING.md The Forza Horizon XE mod; tools/pinyon_xe.py mod_toml"""
+issue = """#901"""
+
+[[finding]]
+group = """Downloadable content"""
 v4 = """same"""
 name = """car-pack rosters"""
 what = """The 21 packages' merge databases hold 84 car rows; the October database has eleven, including the LCE variants. DLC-only makes appear in the Autoshow make grid with NEW badges (AMC, Bowler, Cadillac, Devon, GMC, Gumpert, HUMMER, Joss, Koenigsegg, Pagani, RUF, plus Honda additions). The five single-car promotional packages carry only wheels and strings for the Pre-Order bundle's cars, so they overlap without duplicates."""
@@ -658,3 +669,31 @@ what = """The 1000 Club package ships 218 loose `carchallenges/carchallenges_<ca
 how = """Package listing; the eligible-car list showed the MX-5's challenges from the local XML once the server check was answered."""
 confidence = """confirmed"""
 source = """docs/TITLE_UPDATE_V4_BACKLOG.md TU-7"""
+
+# --- Achievements ---------------------------------------------------------
+
+[[finding]]
+group = """Achievements"""
+base = """XDBF achievement flags"""
+v4 = """same"""
+name = """no secret achievements"""
+what = """All 60 achievements in v4's XDBF carry flags `0x9`, which includes the show-unachieved bit `0x8`: none is secret, so every locked achievement can show its name and how to earn it. The base XEX's 50 are the same entries."""
+how = """Reading the XDBF achievement table (`XACH`) and its strings."""
+confidence = """confirmed"""
+source = """docs/ACHIEVEMENTS_UI_BACKLOG.md AC-0.1"""
+
+[[finding]]
+group = """Achievements"""
+name = """1000 Club icons come from its spa.bin"""
+what = """The icons of the 1000 Club achievements (216-225) are only in the package's own `spa.bin` image section; the XEX's XDBF has none, so an icon cache built from the XEX alone shows them blank. The achievements screen loads them from the installed package."""
+how = """Listing the image IDs of the XEX's XDBF and of each package's `spa.bin`."""
+confidence = """confirmed"""
+source = """src/ui/achievement_icons.cpp; docs/ACHIEVEMENTS_UI_BACKLOG.md AC-0.3"""
+
+[[finding]]
+group = """Achievements"""
+name = """wristband order and art"""
+what = """The festival's wristbands, numbered 1 to 7 on the bands themselves, are Yellow, Green, Blue, Pink, Orange, Purple and Gold, the order achievements 175-181 award them; `Platinum` has no achievement. Each colour has a small, a large and an XL texture in `Horizon.zip` (`Wristbands/<Colour>Xl.xds` is 512x256 with the band in the middle 72 % by 63 %). The achievements screen uses them as its completion tiers."""
+how = """Decoding the textures; the achievement descriptions name the colours in order."""
+confidence = """confirmed"""
+source = """src/achievements/fh1_achievements.cpp; docs/ACHIEVEMENTS_UI_BACKLOG.md AC-0.3"""

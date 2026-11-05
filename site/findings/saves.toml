@@ -101,9 +101,10 @@ group = """Profile values"""
 v4 = """same"""
 name = """ForzaProfile body layout"""
 what = """The decrypted `ForzaProfile` body opens with a self-describing section: a big-endian field count, then per field `[u32 name length][name][u32 0x20][u32 0][u8 type][value]`. Types are 0x00 bool, 0x01 u8, 0x03 u32, 0x04 u64, 0x07 i32, 0x09 float and 0x0F struct (its own count and fields). Player values are under `Main`: `Main/Credits` (u32), `Main/XP`, `Main/Level`, `Main/WristbandLevel` and `Main/TotalWinnings`. Class-serialised states and 0xBB padding follow."""
+note = """The archived 20,419-byte achievement-survey loaded profile also contains Main/TractionControl and Main/StabilityControl, both type 0x01 (u8) with value 1. MR-0 private-state Windows runs set both to 1 versus both to 0 through the after-decrypt hook, with per-field applied-value logs. Neither stationary five-second brake/throttle run produces visible tyre smoke. This establishes their encoding and the failed particle recipe, not each field's driving effect or why smoke is absent."""
 how = """Decoding decrypted bodies at the save hooks; `tools/fh1-profile.py` decodes, edits and round-trips every captured profile byte for byte, and field edits survive the title's later saves."""
 confidence = """confirmed"""
-source = """src/save/profile_body.h; docs/NATIVE_PORT_BACKLOG.md NP-8.3; docs/MODDING.md The profile body"""
+source = """src/save/profile_body.h; docs/NATIVE_PORT_BACKLOG.md NP-8.3; docs/MODDING.md The profile body; docs/MODERN_RENDERING_RESEARCH.md Night lights and missing particle scope"""
 
 [[finding]]
 group = """Profile values"""
@@ -178,8 +179,25 @@ name = """upgrade discount on the reference save"""
 what = """Upgrade prices on the reference save show an 85% discount: a 10,000-credit Rally tyre costs 1,500, and the Rally suspension and transmission cost 930 each. Race winnings are recorded per car as well as added to credits."""
 how = """Purchases and save audits on the reference save."""
 confidence = """confirmed"""
-note = """Confirmed for the observed prices; attributing the 85% to the save's discount-sign progress is a guess, not traced in code."""
+note = """Confirmed for the observed prices. `Main/UpgradeDiscount` holds the percentage (see "achievement progress fields"); whether it stops at 85 once every sign is found is not established."""
 source = """docs/DLC_BACKLOG.md Rally upgrade definitions and tyre purchase; Base-disc Rally tyre conversions; Rally audio update ownership"""
+
+[[finding]]
+group = """Profile values"""
+name = """achievement progress fields"""
+what = """Three `Main` fields count toward achievements. `WristbandLevel` is zero-based: a save holding the Yellow and Green bands (achievements 175 and 176) reads 1, so bands received are the value plus one. `UpgradeDiscount` is the upgrade discount in percent; on a save with 85 of the 100 discount signs found it read 85, matching the live count. `NumRaceEncountersWon` (beside an unrelated `NumEncountersWon`) is the count for Beat 10 Festival Racers. The achievements screen uses the first two and the live sign count; the encounter field read 0 on every save tried, so its meaning is probable, not confirmed."""
+how = """Decoded profile bodies at the save hooks (`achievements.profile` events) compared with each save's unlocked achievements and with the free-roam collectible census (`achievements.census`, 85 of 100 signs) on a render route."""
+confidence = """probable"""
+source = """src/achievements/achievement_progress.cpp; docs/ACHIEVEMENTS_UI_BACKLOG.md AC-0.2"""
+
+[[finding]]
+group = """Profile values"""
+name = """no fields for popularity rank, roads or speed traps"""
+what = """The profile's self-describing section has no field for the popularity rank, roads driven or speed-trap results, the counts behind the Fame and Explore achievements that are not signs (there is a `PopularitySkills` option, not a rank). Those achievements show no progress bar until the counts are found elsewhere, such as the class-serialised tail."""
+how = """Listing every field of decoded profile bodies from two saves."""
+confidence = """confirmed"""
+negative = true
+source = """docs/ACHIEVEMENTS_UI_BACKLOG.md AC-0.2"""
 
 # --- Career progress ------------------------------------------------------
 

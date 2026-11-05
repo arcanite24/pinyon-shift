@@ -2,7 +2,7 @@
 title: macOS
 section: Start
 order: 4
-description: Build and play Pinyon Shift natively on an Apple silicon Mac.
+description: Build and play Pinyon Shift natively on an Apple silicon Mac, or try the experimental Intel Mac build.
 ---
 
 # macOS
@@ -11,7 +11,7 @@ A native build for Apple silicon. The game's Vulkan renderer runs on Metal throu
 
 ## Requirements
 
-- An Apple silicon Mac (M1 or newer) with macOS 13 or newer.
+- An Apple silicon Mac (M1 or newer) with macOS 13.3 or newer. Intel Macs have an [experimental build](#intel-macs-experimental).
 - Your ISO of the USA retail disc (`MS-2505`) and about 20 GB free.
 - Apple's Command Line Tools. The launcher offers to install them.
 
@@ -23,12 +23,19 @@ A native build for Apple silicon. The game's Vulkan renderer runs on Metal throu
 4. Choose your disc image, confirm ownership and choose **Verify and build**.
 5. Choose **Play**. Press **F6** in game for settings.
 
-On the M4 Pro Mac mini, the 2026-10-18 free-roam qualification averaged
-about 60 fps at 1x with a 60 fps limit, but about 40 fps with QUALITY 60
-(2x, 4x MSAA). Start with LOW-SPEC 60, then raise scale or MSAA separately;
-the [platform measurements](platforms.md#macos-on-apple-silicon) explain
-the tested workload and its limits. The older 120 Hz result used a different
-optimization route.
+On the M4 Pro Mac mini, full screen on a 120 Hz 4K TV with the frame-rate
+limits off, a 40 s free-roam drive (2026-11-01) held 120 fps at 1x, with
+MSAA off or 4x. At 2x it averaged about 82 fps with MSAA off and 51 fps
+with 4x MSAA. On a Mac QUALITY 60 therefore uses 2x MSAA, which holds its
+60 fps limit on the M4 Pro.
+Raise scale and MSAA separately; the
+[platform measurements](platforms.md#macos-on-apple-silicon) explain the
+workload and its limits.
+
+On a 5K or 6K display, or a 4K one in a scaled mode, the game draws at most
+3840 × 2160 pixels and macOS scales them to the screen; drawing all 6016 ×
+3384 backing pixels halved the frame rate. `window_max_pixel_density = 4`
+in the config restores full density, and `1` draws one pixel per point.
 
 Fullscreen uses a borderless window on the current desktop. The presenter
 keeps the Metal drawable at the swapchain size through fullscreen changes;
@@ -49,3 +56,7 @@ and `rexglue-configure.log` from `.local/logs`, and keep the failed build
 directory. The [macOS troubleshooting guide](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/MACOS.md#troubleshooting)
 explains the missing `std::bit_cast` / `std::byteswap` report that still
 needs the affected Mac's compiler and header evidence.
+
+## Intel Macs (experimental)
+
+From 0.8.1, releases also include `PinyonShift-Launcher-macos-x86_64.zip` for Intel Macs on macOS 13.3 or newer. Install and play the same way. The build has only run under Rosetta on an Apple silicon Mac, where it reached free roam and drew it correctly; it has not run on an Intel or AMD Mac GPU yet. Expect rendering bugs and lower frame rates, and please report what you see. A Radeon Pro 5500M or newer is the realistic target; Intel UHD 630 and Iris graphics are in the class of the UHD 620, which drew about 20 fps at ULTRA LOW 30 on Windows. Details in [docs/MACOS.md](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/MACOS.md#intel-macs-experimental).

@@ -2,6 +2,7 @@
 #include "fh1_guest_address.h"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <bit>
 #include <chrono>
@@ -129,6 +130,36 @@ constexpr uint32_t kMarkerRemove = FH1_ADDR(0x828E4F58u);
 // off, and its collected marker once found.
 constexpr uint32_t kBarnFindShowLocation = FH1_ADDR(0x828A5BF8u);
 
+// Host pages found readable during the current pass over the activities
+// (PassPageCache). IsHostReadable is a host page query: about 100 µs each
+// against the guest's mapping on Windows (Ryzen 7 5800X), so the ~450 checks
+// of one collectible count took 17-40 ms of the title thread, a frame spike
+// every two seconds while an achievement was tracked. The pointers share a
+// few pages. Outside a pass every check queries.
+thread_local bool g_pass_active = false;
+thread_local std::array<uintptr_t, 16> g_readable_pages{};
+
+struct PassPageCache {
+  PassPageCache() {
+    g_readable_pages.fill(0);
+    g_pass_active = true;
+  }
+  ~PassPageCache() {
+    g_pass_active = false;
+    g_readable_pages.fill(0);
+  }
+};
+
+bool HostPageReadable(const void* host, size_t page_size) {
+  if (!g_pass_active) return rex::memory::IsHostReadable(host);
+  const uintptr_t page = reinterpret_cast<uintptr_t>(host) / page_size + 1;
+  uintptr_t& slot = g_readable_pages[page % g_readable_pages.size()];
+  if (slot == page) return true;
+  if (!rex::memory::IsHostReadable(host)) return false;
+  slot = page;
+  return true;
+}
+
 bool Readable(uint32_t address, uint32_t size) {
   if (address == 0 || size == 0 || address + size - 1u < address) return false;
   auto* memory = rex::system::kernel_state()->memory();
@@ -142,7 +173,7 @@ bool Readable(uint32_t address, uint32_t size) {
   uint64_t cursor = address;
   while (cursor <= end) {
     auto* host = memory->TranslateVirtual(static_cast<uint32_t>(cursor));
-    if (!rex::memory::IsHostReadable(host)) {
+    if (!HostPageReadable(host, page_size)) {
       return false;
     }
     const size_t page_left = page_size - (reinterpret_cast<uintptr_t>(host) % page_size);
@@ -276,6 +307,7 @@ void LogCollectible(uint32_t activity, const Collectible& item) {
 // `log` is set or the totals changed since the last log (a load, a find).
 void SyncMarkers(bool show, bool log) {
   static Census logged;
+  const PassPageCache pages;
   const uint32_t manager = ActivityManager();
   if (manager == 0) return;
   const uint32_t begin = Load32(manager + kManagerBegin);
@@ -498,8 +530,10 @@ bool RequestTeleportDestination(const Destination& point) {
 }
 
 void UpdateDestinations() {
+  // Asked only until the first free roam, and only with cheats on: FreeRoam()
+  // checks eight pointers with host page queries, too dear for every frame.
   static bool reached_free_roam = false;
-  reached_free_roam |= FreeRoam();
+  if (!reached_free_roam && Enabled()) reached_free_roam = FreeRoam();
   {
     std::lock_guard lock(g_travel_mutex);
     if (g_map_travel.road && (!Enabled() || !FreeRoam() ||
@@ -595,6 +629,30 @@ bool UseMapRoadFallback(uint32_t map, bool admitted) {
 }
 
 bool ShowCollectibles() { return Enabled() && REXCVAR_GET(cheat_show_collectibles); }
+
+std::optional<CollectibleCount> CountCollectibles() {
+  const PassPageCache pages;
+  const uint32_t manager = ActivityManager();
+  if (manager == 0) return std::nullopt;
+  const uint32_t begin = Load32(manager + kManagerBegin);
+  const uint32_t end = Load32(manager + kManagerEnd);
+  if (end < begin || (end - begin) % 4 != 0 || end - begin > 4 * 4096 ||
+      !Readable(begin, end - begin)) {
+    return std::nullopt;
+  }
+  CollectibleCount count;
+  for (uint32_t slot = begin; slot < end; slot += 4) {
+    const uint32_t activity = LoadPointer(slot, kBarnFindCollected + 1);
+    if (activity == 0) continue;
+    const auto item = Inspect(activity);
+    if (!item) continue;
+    (item->flyer ? count.discount_signs : count.barn_finds) += 1;
+    (item->flyer ? count.discount_signs_found : count.barn_finds_found) += item->found ? 1 : 0;
+  }
+  if (count.discount_signs + count.barn_finds == 0) return std::nullopt;
+  count.free_roam = FreeRoam();
+  return count;
+}
 
 void UpdateCollectibleMarkers() {
   // Activities come and go with free roam (loads, events), so while the cheat

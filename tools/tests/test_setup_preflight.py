@@ -195,11 +195,28 @@ class PreflightTests(unittest.TestCase):
         # is extracted and checked file by file instead of refused by hash.
         setup = (ROOT / "tools/setup-preview.ps1").read_text(encoding="utf-8")
         self.assertIn("$contentCheck = -not $folderInput -and -not $verification.recognized", setup)
-        extract = setup[setup.index("& $extractExe -q -s -x -d $gameRoot $resolvedIso"):]
+        # TP-7: extracted in the background and checked after the build.
+        extract = setup[setup.index("$extraction.WaitForExit()"):]
         self.assertLess(extract.index("verify-extracted-game.ps1"),
                         extract.index("if ($contentCheck -and -not $check.recognized)"))
         refused = extract[extract.index("if ($contentCheck -and -not $check.recognized)"):]
-        self.assertLess(refused.index("Remove-Item -LiteralPath $checkedGameRoot"), refused.index("throw"))
+        self.assertLess(refused.index("Remove-Item -LiteralPath $stagingRoot"), refused.index("throw"))
+        self.assertLess(refused.index("Remove-Item -LiteralPath $gameRoot"), refused.index("throw"))
+
+    def test_the_game_is_extracted_while_it_builds(self):
+        # TP-7: the executables first, the rest beside the build, and an
+        # unfinished extraction is never taken for a complete game.
+        setup = (ROOT / "tools/setup-preview.ps1").read_text(encoding="utf-8")
+        started = setup.index("$extraction = Start-Process")
+        self.assertLess(started, setup.index("copy-disc-executables.py"))
+        self.assertLess(setup.index("copy-disc-executables.py"),
+                        setup.index("& (Join-Path $PSScriptRoot 'build-preview.ps1')"))
+        self.assertLess(setup.index("& (Join-Path $PSScriptRoot 'build-preview.ps1')"),
+                        setup.index("$extraction.WaitForExit()"))
+        self.assertLess(setup.index("Move-Item -LiteralPath $stagingRoot -Destination $gameRoot"),
+                        setup.index("prepare-fh1-shaders.ps1"))
+        self.assertIn("-not (Test-Path -LiteralPath $stagingRoot)", setup)
+        self.assertIn("$extraction.Kill()", setup)
 
     def test_the_launcher_restarts_and_resumes_setup(self):
         window = (ROOT / "launcher/PinyonShift.Launcher/MainWindow.xaml.cs").read_text(encoding="utf-8")

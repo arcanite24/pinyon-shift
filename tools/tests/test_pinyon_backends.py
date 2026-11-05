@@ -296,6 +296,41 @@ class CrashReportTests(unittest.TestCase):
             "[error] [gpu] XELOG_GPU PRESENT: swap_texture_view=NULL",
             "[warning] [krnl] attmpted allocation to devkit memory area"]))
 
+    def test_disc_read_error_names_the_last_failed_open_before_it(self):
+        # #901: the XE mod with UDLC; the burble with no name is a directory.
+        self.assertEqual((True, "game:\\Media\\Audio\\Cars\\Engines\\Soundbanks\\Burbles\\"),
+                         pinyon_crash.disc_read_error([
+            "[warning] [krnl] [NtCreateFile] FAILED: path='DLCRoot4:\\media\\x\\' -> 0xc000000f",
+            "[warning] [krnl] [NtCreateFile] FAILED: "
+            "path='game:\\Media\\Audio\\Cars\\Engines\\Soundbanks\\Burbles\\' -> 0xc00000ba",
+            "[error] [krnl] XamShowDirtyDiscErrorUI called! user_index=0",
+            "[warning] [krnl] [NtCreateFile] FAILED: path='game:\\later.zip' -> 0xc000000f"]))
+        self.assertEqual((True, ""), pinyon_crash.disc_read_error([
+            "[error] [krnl] XamShowDirtyDiscErrorUI called! user_index=0"]))
+        self.assertEqual((False, ""), pinyon_crash.disc_read_error([
+            "[warning] [krnl] [NtCreateFile] FAILED: path='game:\\a.zip' -> 0xc000000f"]))
+
+    def test_a_close_that_finished_its_saves_is_recognized(self):
+        # #946: Windows ended the hung window after process.shutdown.
+        started = datetime(2026, 10, 30, 17, 58, 1, tzinfo=timezone.utc)
+
+        def events(*names):
+            return "".join(json.dumps({"utc": "2026-10-30T17:58:02Z", "session": "s",
+                                       "event": name, "pid": "33164"}) + "\n"
+                           for name in names)
+
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory)
+            (state / "logs").mkdir()
+            log = state / "logs" / "s.jsonl"
+            log.write_text(events("process.start", "logging.ready", "process.shutdown.stalled"),
+                           encoding="utf-8")
+            self.assertFalse(pinyon_crash.closed_cleanly(state, 33164, started))
+            log.write_text(events("process.start", "logging.ready", "process.shutdown"),
+                           encoding="utf-8")
+            self.assertTrue(pinyon_crash.closed_cleanly(state, 33164, started))
+            self.assertFalse(pinyon_crash.closed_cleanly(state, 4242, started))
+
     def test_no_pending_report(self):
         with tempfile.TemporaryDirectory() as directory:
             code, result = run_json(["crash-report", "pending", "--state-root", directory,
@@ -516,6 +551,33 @@ class ShaderPreparationTests(unittest.TestCase):
                 mock.patch.object(subprocess, "run", side_effect=route):
             pinyon_shaders.prepare(self.state, self.root, self.build, True)
         self.assertEqual(seen, [b"patch"])
+
+    def test_ahead_of_time_pipelines_are_written_once_per_catalog_and_content(self):
+        (self.build / common.EXTRACTOR).write_bytes(b"extractor")
+        catalog = self.root / "catalog.json"
+        catalog.write_text("{}", encoding="utf-8")
+        package = self.state / pinyon_shaders.CONTENT / "RALLY"
+        package.mkdir(parents=True)
+        calls = []
+
+        def generate(corpus, catalog_path, output):
+            calls.append(output)
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_bytes(b"XEAO")
+            return {"pipelines": 2, "shaders": 3}
+
+        extracted = subprocess.CompletedProcess([], 0, stdout="", stderr="")
+        with mock.patch.object(pinyon_shaders, "CATALOG", catalog),                 mock.patch.object(common, "ROOT", self.root),                 mock.patch.object(pinyon_shaders.aot, "generate", side_effect=generate),                 mock.patch.object(subprocess, "run", return_value=extracted) as run:
+            first = pinyon_shaders.prepare_aot(self.state, self.root, self.build, True)
+            second = pinyon_shaders.prepare_aot(self.state, self.root, self.build, True)
+            self.assertIn(f"--content-root={package}", run.call_args_list[0].args[0])
+            # New DLC rebuilds the list.
+            (package.parent / "OTHER").mkdir()
+            pinyon_shaders.prepare_aot(self.state, self.root, self.build, True)
+        self.assertEqual(first, "2 pipelines from 3 shaders")
+        self.assertEqual(second, "ready")
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[0].name, pinyon_shaders.AOT_FILE)
 
 
 if __name__ == "__main__":

@@ -18,6 +18,33 @@
     ]
   },
   "jdk_major": 17,
+  "direct": {
+    "license_url": "https://developer.android.com/studio/terms",
+    "ndk": {
+      "windows": {
+        "url": "https://dl.google.com/android/repository/android-ndk-r29-windows.zip",
+        "sha256": "4F83A1A87EA0D33AE2B43812CE27B768BE949BC78ACF90B955134D19E3068F1C",
+        "bytes": 833850862
+      },
+      "linux": {
+        "url": "https://dl.google.com/android/repository/android-ndk-r29-linux.zip",
+        "sha256": "4ABBBCDC842F3D4879206E9695D52709603E52DD68D3C1FFF04B3B5E7A308ECF",
+        "bytes": 783549481
+      }
+    },
+    "platform_tools": {
+      "windows": {
+        "url": "https://dl.google.com/android/repository/platform-tools_r37.0.1-win.zip",
+        "sha256": "45F4D63113E895EBDE0C90F194099A4676B6AC653BD28D54314A9E022BBC1A99",
+        "bytes": 8044989
+      },
+      "linux": {
+        "url": "https://dl.google.com/android/repository/platform-tools_r37.0.1-linux.zip",
+        "sha256": "D230F13842F60F782A8645F9C813F8F845BF36089EA7289F28C48F17979313F1",
+        "bytes": 9054187
+      }
+    }
+  },
   "bootstrap": {
     "android_sdk_path": ".local/toolchain/android-sdk",
     "cmdline_tools": {

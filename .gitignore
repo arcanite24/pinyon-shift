@@ -44,6 +44,7 @@ private/
 !/docs/NEXT_LEVEL_RESEARCH.md
 !/docs/NEAR_NATIVE_RESEARCH.md
 !/docs/D3D_RENDERER_RESEARCH.md
+!/docs/MODERN_RENDERING_RESEARCH.md
 !/docs/CLEAN_SLATE_RESEARCH.md
 !/docs/ROADMAP_FEEDBACK.md
 !/docs/ANDROID_PORT_BACKLOG.md
@@ -53,6 +54,9 @@ private/
 !/docs/DESKTOP_RENDERER_BACKLOG.md
 !/docs/DEPTH_ALIAS_RESEARCH.md
 !/docs/LOW_SPEC_BACKLOG.md
+!/docs/RENDER_SCALE_BACKLOG.md
+!/docs/AOT_PIPELINE_BACKLOG.md
+!/docs/ACHIEVEMENTS_UI_BACKLOG.md
 !/docs/RECORDER_REPLAY_BACKLOG.md
 !/docs/RECORDER_PER_DRAW_BACKLOG.md
 !/docs/FEATURE_BACKLOG.md
@@ -70,6 +74,8 @@ private/
 !/docs/releases/*.md
 !/docs/native-renderer/
 !/docs/native-renderer/**
+!/docs/TIME_TO_PLAY_BACKLOG.md
+!/docs/MALI_BACKLOG.md
 
 # Build output and tooling state.
 build/
