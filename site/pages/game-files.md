@@ -85,6 +85,14 @@ def read_str_table(data: bytes) -> dict[int, str]:
 
 ## Textures and models
 
+A car's models are `.carbin` files in its archive: one for LOD1-5, one for LOD0, the cockpit, and a caliper and a rotor per wheel. Each is a list of named parts (body, hood, bumpers, glass, lights). A part has a box, a pool of 28-byte vertices and one index buffer per material and LOD. Positions are 16-bit values scaled by the box, so a part's vertices always span its box:
+
+```text
+position = value / 32767 * half_extent + offset     (per axis)
+```
+
+`tools/fh1_carbin.py` reads every base car's models and writes them back byte for byte (`roundtrip`), and `dump` lists the parts. It is the first step of the car importer ([#496](https://github.com/arcanite24/pinyon-shift/issues/496)). In game, vertices can move anywhere inside a part's box, and the box can move with them. So far a box cannot grow: a changed half-extent is not honoured, so the game takes the part's size from somewhere not found yet.
+
 {{findings:files/Textures and models}}
 
 ## Game database

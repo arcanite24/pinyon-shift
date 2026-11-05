@@ -728,6 +728,16 @@ has not been tested. Clones are upgraded, painted (the Autoshow's colour
 choice) and changed like any car: five were bought, driven, Auto
 Upgraded at Dak's Garage and kept after a reload.
 
+A clone can also have a model of its own (the first step of the car
+importer, [#496](https://github.com/arcanite24/pinyon-shift/issues/496)):
+a `db/` script sets its `Data_Car.MediaName` to a new name, and the mod
+ships `game/media/cars/<MediaName>.zip`, built from the source car's
+archive with every member renamed from the source's media name to the
+new one. Members may be stored uncompressed. `tools/fh1_carbin.py` reads
+and rewrites the `.carbin` models in it; a part's vertices can move
+anywhere inside its box (the box's offset follows them), but the game
+keeps each box's size, so a part cannot yet grow beyond it.
+
 ## The Forza Horizon XE mod
 
 [Forza Horizon XE](https://www.moddb.com/mods/forza-horizon-xe-mod) by

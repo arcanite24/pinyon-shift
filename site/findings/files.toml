@@ -172,6 +172,83 @@ how = """`tools/inspect-fh1-ui.py --decode-assets` with read-back and byte-exact
 confidence = """confirmed"""
 source = """docs/NATIVE_PORT_BACKLOG.md NP-1.2, NP-1.3; docs/UI_ASSETS.md"""
 
+[[finding]]
+group = """Textures and models"""
+base = """.carbin (media/cars/<MediaName>.zip)"""
+v4 = """same"""
+name = """carbin layout"""
+what = """A car model is a header (not decoded), a big-endian part count that is not always 4-byte aligned, the parts, and a 24-byte footer. A part is: u32 `5`; 9 floats (offset, then the half-extents as minimum and maximum, minimum = -maximum); 28 bytes (mass, centre of mass and damage fields, not decoded); a u32 count of 16-byte records (glass parts); 4 bytes; a u32 count of shorts; 12 bytes; the name (u8 length); u32 version `3`; the LOD vertex pool; 4 bytes; the sub-sections; 4 bytes; the LOD0 vertex pool; the damage tail. A pool is u32 count, u32 stride (28), u32 bone-weight count, a u32 part id when that count is not zero, then the vertices. `<car>.carbin` parts fill only the LOD pool (LOD1-5); `_lod0`, `_cockpit`, caliper and rotor carbins fill only the LOD0 pool."""
+how = """`tools/fh1_carbin.py` parses and rewrites all 1,883 carbins of the 176 base cars (every LOD, cockpit, caliper and rotor) byte for byte from the decoded parts, pools and index buffers; every index of the 118,629 sub-sections falls inside its pool (2026-11-05)."""
+confidence = """confirmed"""
+issue = """#496"""
+source = """tools/fh1_carbin.py"""
+
+[[finding]]
+group = """Textures and models"""
+base = """.carbin vertex"""
+v4 = """same"""
+name = """carbin vertex (28 bytes)"""
+what = """Big-endian: three int16 position values, each over 32767 times the part's half-extent plus its offset; a fourth int16 that is not part of the position (it varies; meaning unknown); UV0 and UV1 as two uint16 over 65535 each, before the sub-section's UV offset and scale; a tangent frame as a unit quaternion of four int16 over 32767; four bytes of baked lighting (not decoded)."""
+how = """The quaternion has unit norm on every vertex of the base cars. Positions decoded this way give the XKR-S body 0.25 to 1.19 m in height, 1.89 m in width and 4.47 m in length. In game (phase 0c of #496), scaling every part's x values and x offset by 0.85 in the LOD, LOD0 and cockpit models gave a clean, narrower XKR-S in the Autoshow; scaling the x values alone narrowed each part about its own offset."""
+confidence = """confirmed"""
+issue = """#496"""
+source = """tools/fh1_carbin.py positions, set_positions"""
+
+[[finding]]
+group = """Textures and models"""
+base = """.carbin part bounds"""
+v4 = """same"""
+name = """carbin part box in game"""
+what = """The game places a part by its offset from the file: moving the offset moves the part, and moving it with the vertex values re-quantized to match leaves the part where it was. It does not honour a changed half-extent. Parts whose extents were refitted (made tight, or 1.5 times larger) and re-quantized rendered scaled and displaced, so the size is taken from somewhere else; copying the new boxes into the `stripped_` twins changed nothing. The boxes are not tight: the XKR-S body's spans 0 to 1.19 m in height, and its geometry starts at 0.25 m. The boxes also change how the Autoshow camera frames the car. `tools/fh1_carbin.py set_positions` therefore keeps each part's extents and refuses geometry that does not fit inside them."""
+how = """Buy-car route from a pinned seed with the XKR-S's LOD0 model rewritten (2026-11-05): a front bumper with only its offset moved 0.5 m sank into the body; the same bumper with its offset moved and values compensated looked unchanged; with its extents 1.5 times larger and values compensated it moved down and forward."""
+confidence = """probable"""
+note = """Where the game reads the part size from is not known; finding it is the first step of phase 1."""
+issue = """#496"""
+source = """tools/fh1_carbin.py set_positions"""
+
+[[finding]]
+group = """Textures and models"""
+base = """.carbin sub-section"""
+v4 = """same"""
+name = """carbin sub-sections and index buffers"""
+what = """One per material and LOD: 5 bytes; 8 floats (UV0 and UV1 offset and scale); 36 bytes; the material name (u32 length); an i32 LOD (0 indexes the LOD0 pool, 1-5 the LOD pool); a u32 index type; 56 bytes; two words `4, 0`; u32 index count; u32 index size (2 or 4); the indices; 4 bytes. Type 6 (all but 11 of 118,629) is a triangle strip restarted by `0xFFFF`, or `0x00FFFFFF` with 32-bit indices; type 4 is a triangle list. The material name is a car shader technique."""
+how = """Corpus walk of the base cars with `tools/fh1_carbin.py`."""
+confidence = """confirmed"""
+issue = """#496"""
+source = """tools/fh1_carbin.py Subsection"""
+
+[[finding]]
+group = """Textures and models"""
+base = """.carbin damage tail"""
+v4 = """same"""
+name = """carbin damage tail"""
+what = """After a part's pools: u32 `1`, a u8 flag (1 when the part deforms), then one block per pool (LOD, then LOD0): u32 `3`, u32 vertex count, u32 stride (4), u32 extra word count, a 4-byte word per vertex and the extra words. Parts that do not deform (glass, seats, interior, the steering wheel, cockpit parts, wheels) have empty blocks. The per-vertex word is reported by public tools as a packed outward deformation vector; its encoding is not checked here."""
+how = """The layout accounts for every byte between parts in all base carbins; the per-vertex meaning is a guess."""
+confidence = """probable"""
+issue = """#496"""
+source = """tools/fh1_carbin.py Section.damage"""
+
+[[finding]]
+group = """Textures and models"""
+base = """FIA_595_68 roof1, FOR_F350SuperDuty_08_lod0.carbin"""
+v4 = """same"""
+name = """empty car parts"""
+what = """A part can be empty: the Fiat 595's `roof1` has no vertices and bounds of +/-FLT_MAX (an empty box). The F-350 Super Duty's `_lod0.carbin` is a 1,232-byte header with no parts at all, so that truck has no LOD0 model."""
+how = """Corpus walk with `tools/fh1_carbin.py`."""
+confidence = """confirmed"""
+issue = """#496"""
+
+[[finding]]
+group = """Textures and models"""
+base = """stripped_*.carbin"""
+v4 = """same"""
+name = """stripped carbin twins"""
+what = """Every carbin has a `stripped_` twin (lower-case name) with the same parts and empty vertex pools but its index buffers kept. Its sub-sections' second version word is `2` instead of `0` and is followed by a block that is not decoded, so `tools/fh1_carbin.py` does not read them yet. Which code reads them is not known. A car whose models were rewritten with the same vertex counts loads and renders with its original twins, and putting the rewritten models' bounds into the twins changed nothing visible."""
+how = """Byte comparison of the XKR-S lod0 twin with its model; buy-car routes with rewritten models, with and without updated twins (phase 0c of #496)."""
+confidence = """probable"""
+negative = true
+issue = """#496"""
+
 # --- Game database ----------------------------------------------------------
 
 [[finding]]
