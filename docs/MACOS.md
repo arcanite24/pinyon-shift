@@ -8,7 +8,7 @@ verifies it, builds the game on your Mac and starts it.
 ## Requirements
 
 - An Apple silicon Mac (M1 or newer) with macOS 13 Ventura or newer. Intel
-  Macs are not supported.
+  Macs have an experimental build; see [Intel Macs](#intel-macs-experimental).
 - Your ISO of the USA retail disc (`MS-2505`).
 - About 20 GB free.
 - Apple's Command Line Tools, which provide the compiler. The launcher
@@ -395,3 +395,30 @@ native Space transitions and HDR remain **unqualified visually**. No privacy
 permissions or normal install settings were changed. Before closing #548,
 check these transitions interactively and retest the original M1 Max scene
 and save; QUALITY 60 still fails its performance budget on this M4 Pro.
+
+## Intel Macs (experimental)
+
+From 0.8.1, releases also attach `PinyonShift-Launcher-macos-x86_64.zip`, a
+launcher for Intel Macs on macOS 13.3 or newer. Setup builds the game for
+x86_64 there (`macos-x86_64` in `tools/pinyon_setup.py`, the `macos-amd64-*`
+CMake presets) with the CPU baseline it finds through `sysctl`: x86-64-v3,
+which every Intel Mac that runs macOS 13 has, or SSE4.1. The translator and
+the prebuilt kit use SSE4.1. The release builds the Intel kit and host
+objects on GitHub's `macos-15-intel` runners.
+
+What has been tested, on 2026-11-04 on the M4 Pro Mac mini under Rosetta:
+the x86_64 game, MoltenVK and every library beside it built (CMake, Ninja
+and clang run under `arch -x86_64`, so the build sees an Intel host), and
+`fh1-free-roam` from a pinned seed reached free roam and drew it correctly,
+about 73 fps hidden while the Mac was busy. Under Rosetta the first start
+translates the executable, so the opening load takes longer than the
+1,830-frame route; a 9,030-frame variant reached free roam.
+
+That run used the Apple GPU. No Intel or AMD Mac GPU has run the game: they
+have their own memory, where Apple silicon shares it with the CPU, and the
+renderer reads many results back, so expect bugs and lower frame rates there.
+An Intel UHD 630 or Iris GPU is in the class of the UHD 620, which drew
+about 20 fps at ULTRA LOW 30 on Windows (`fh1-race-sync`, 2026-10-29); a Radeon Pro 5500M or newer is the
+realistic target. Reports from Intel Mac players are welcome.
+
+macOS 26 is the last macOS for Intel Macs, so this build has a limited life.

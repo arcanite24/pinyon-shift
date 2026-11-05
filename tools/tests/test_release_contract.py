@@ -123,7 +123,7 @@ if ((Get-PinyonVisualStudioRoot) -ne 'compatible-vs2022') { throw 'Supported too
         workflow = (ROOT / ".github/workflows/release.yml").read_text()
         updater = (ROOT / "launcher/Shared/LauncherUpdate.cs").read_text(encoding="utf-8")
         assets = dict(re.findall(r'public const string (\w+Asset) = "([^"]+)";', updater))
-        self.assertEqual(set(assets), {"WindowsAsset", "LinuxAsset", "MacAsset"})
+        self.assertEqual(set(assets), {"WindowsAsset", "LinuxAsset", "MacAsset", "MacIntelAsset"})
         for asset in assets.values():
             self.assertIn(f".artifacts/{asset}", workflow)
         release = json.loads((ROOT / "config/release.json").read_text(encoding="utf-8"))
@@ -144,11 +144,12 @@ if ((Get-PinyonVisualStudioRoot) -ne 'compatible-vs2022') { throw 'Supported too
         # blocking the release, every packager pins what was built (on tags
         # only, where the release URL exists), and the sidecars stay out.
         workflow = (ROOT / ".github/workflows/release.yml").read_text()
-        for platform in ("windows", "linux", "macos", "android"):
+        for platform in ("windows", "linux", "macos", "macos-intel", "android"):
             job = workflow.split(f"  prebuilt-{platform}:\n", 1)[1].split("\n\n", 1)[0]
             self.assertIn("continue-on-error: true", job)
             self.assertIn(f"name: prebuilt-{platform}", job)
-        self.assertEqual(workflow.count("needs: [prebuilt-windows, prebuilt-linux, prebuilt-macos, prebuilt-android]"), 3)
+        self.assertEqual(workflow.count("needs: [prebuilt-windows, prebuilt-linux, prebuilt-macos, "
+                                        "prebuilt-macos-intel, prebuilt-android]"), 3)
         self.assertIn("-PrebuiltAssets .artifacts/prebuilt", workflow)
         self.assertEqual(workflow.count("--prebuilt-assets .artifacts/prebuilt --release-base-url"), 2)
         self.assertIn("releases/download/{1}', github.repository, github.ref_name)", workflow)

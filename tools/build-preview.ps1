@@ -61,7 +61,11 @@ $memoryBytes = Get-PinyonTotalMemoryBytes
 $memoryText = if ($memoryBytes -gt 0) { ", $([Math]::Round($memoryBytes / 1GB)) GB memory" } else { '' }
 Write-PinyonEvent build 62 "Compiling with $Parallel parallel jobs ($([Environment]::ProcessorCount) logical processors$memoryText)." -JsonEvents:$JsonEvents
 # A folder moved since the last build (a portable install) is configured afresh.
-foreach ($buildTree in @($(if (-not $kitRoot) { Join-Path $sdkRoot 'out/build/win-amd64' }), (Join-Path $root "out/build/$previewPreset"))) {
+# A kit build has no SDK tree; leave it out of the list rather than passing
+# a $null element to the mandatory -BuildDirectory.
+$buildTrees = @(Join-Path $root "out/build/$previewPreset")
+if (-not $kitRoot) { $buildTrees = @(Join-Path $sdkRoot 'out/build/win-amd64') + $buildTrees }
+foreach ($buildTree in $buildTrees) {
     if (Reset-PinyonRelocatedCMakeCache -BuildDirectory $buildTree) {
         Write-PinyonEvent build 62 "The build folder moved; configuring $buildTree again." -JsonEvents:$JsonEvents
     }

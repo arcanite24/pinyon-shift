@@ -24,7 +24,7 @@ import json
 import sys
 from pathlib import Path
 
-PLATFORMS = ("windows-x64", "linux-x86_64", "macos-arm64", "android-arm64")
+PLATFORMS = ("windows-x64", "linux-x86_64", "macos-arm64", "macos-x86_64", "android-arm64")
 
 
 def sha256(path: Path) -> str:
