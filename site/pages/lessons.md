@@ -250,7 +250,11 @@ it was most of the time (TP-1 to TP-7 in
   the source tree as the developer path. Under a cross toolchain (a
   sysroot, the NDK), find the package with `NO_CMAKE_FIND_ROOT_PATH` and
   `CMAKE_FIND_ROOT_PATH_MODE_PACKAGE BOTH`, or CMake re-roots the search,
-  and the package's own dependencies, inside the sysroot.
+  and the package's own dependencies, inside the sysroot. `BOTH` still
+  searches the sysroot first, so also set `<Package>_DIR` for every
+  package the kit ships: the Steam Runtime sysroot has its own SDL3,
+  whose static library is not position-independent, and 0.8.0 and 0.8.1
+  Linux builds linked it and failed with "recompile with -fPIC" (#1001).
 - **Trim the compiler.** The build called 13 of LLVM's tools; one clang
   binary with its other names as links took Windows LLVM from 4.0 GB to
   264 MB.

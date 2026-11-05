@@ -232,6 +232,8 @@ else()
     # The kit is on the build host: a cross toolchain's sysroot (sniper, the
     # NDK) would otherwise re-root the search under itself, for the kit and
     # for the dependencies its package finds through its own prefix.
+    include("${CMAKE_CURRENT_LIST_DIR}/PinyonShiftKitPackages.cmake")
+    pinyon_shift_use_kit_packages("${PINYON_SHIFT_SHIFTGLUE_KIT}")
     set(_pinyon_find_root_mode "${CMAKE_FIND_ROOT_PATH_MODE_PACKAGE}")
     set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE BOTH)
     find_package(rexglue CONFIG REQUIRED NO_DEFAULT_PATH NO_CMAKE_FIND_ROOT_PATH
