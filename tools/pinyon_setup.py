@@ -99,9 +99,9 @@ def host_platform() -> str:
 
 
 MACOS_PLATFORMS = ("macos-arm64", "macos-x86_64")
-# The x86_64 libc++ in the macOS 15 SDKs (Xcode 16) marks floating-point
-# std::to_chars, which std::format uses, as new in macOS 13.3.
-MACOS_DEPLOYMENT_TARGET = {"macos-arm64": "13.0", "macos-x86_64": "13.3"}
+# The libc++ in the macOS 15 SDKs (Xcode 16) marks floating-point
+# std::to_chars, which std::format uses, as new in macOS 13.3 (#918).
+MACOS_DEPLOYMENT_TARGET = {"macos-arm64": "13.3", "macos-x86_64": "13.3"}
 
 
 def toolchain_config() -> dict:
@@ -1156,7 +1156,7 @@ KIT_FLAGS = {
 KIT_LDFLAGS = {"linux-x86_64": "-Wl,-Bsymbolic-functions"}
 KIT_CACHE = {
     "linux-x86_64": ["-DREXGLUE_X86_64_CODE_MODEL=small"],
-    "macos-arm64": ["-DCMAKE_OSX_ARCHITECTURES=arm64", "-DCMAKE_OSX_DEPLOYMENT_TARGET=13.0"],
+    "macos-arm64": ["-DCMAKE_OSX_ARCHITECTURES=arm64", "-DCMAKE_OSX_DEPLOYMENT_TARGET=13.3"],
     "macos-x86_64": ["-DCMAKE_OSX_ARCHITECTURES=x86_64", "-DCMAKE_OSX_DEPLOYMENT_TARGET=13.3"],
 }
 # SDK files the host compiles or includes itself, at their source-tree paths

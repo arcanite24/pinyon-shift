@@ -7,7 +7,7 @@ verifies it, builds the game on your Mac and starts it.
 
 ## Requirements
 
-- An Apple silicon Mac (M1 or newer) with macOS 13 Ventura or newer. Intel
+- An Apple silicon Mac (M1 or newer) with macOS 13.3 Ventura or newer. Intel
   Macs have an experimental build; see [Intel Macs](#intel-macs-experimental).
 - Your ISO of the USA retail disc (`MS-2505`).
 - About 20 GB free.
@@ -402,7 +402,7 @@ From 0.8.1, releases also attach `PinyonShift-Launcher-macos-x86_64.zip`, a
 launcher for Intel Macs on macOS 13.3 or newer. Setup builds the game for
 x86_64 there (`macos-x86_64` in `tools/pinyon_setup.py`, the `macos-amd64-*`
 CMake presets) with the CPU baseline it finds through `sysctl`: x86-64-v3,
-which every Intel Mac that runs macOS 13 has, or SSE4.1. The translator and
+which every Intel Mac that runs macOS 13.3 has, or SSE4.1. The translator and
 the prebuilt kit use SSE4.1. The release builds the Intel kit and host
 objects on GitHub's `macos-15-intel` runners.
 

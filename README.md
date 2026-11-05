@@ -116,7 +116,7 @@ If something goes wrong, see [Troubleshooting](docs/TROUBLESHOOTING.md).
 
 - The USA retail disc, serial `MS-2505`, title ID `4D5309C9`.
 - Windows 10 or 11, x64; x86-64 Linux, including SteamOS on the Steam
-  Deck; or macOS 13 or newer on Apple silicon (Intel Macs experimental).
+  Deck; or macOS 13.3 or newer on Apple silicon (Intel Macs experimental).
 - A GPU with Vulkan 1.3. NVIDIA is tested; AMD and Intel are not yet
   qualified.
 - A CPU with 4 cores for Low-spec 60. The Steam Deck holds 60 fps at 1x; other

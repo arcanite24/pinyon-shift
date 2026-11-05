@@ -11,7 +11,7 @@ A native build for Apple silicon. The game's Vulkan renderer runs on Metal throu
 
 ## Requirements
 
-- An Apple silicon Mac (M1 or newer) with macOS 13 or newer. Intel Macs have an [experimental build](#intel-macs-experimental).
+- An Apple silicon Mac (M1 or newer) with macOS 13.3 or newer. Intel Macs have an [experimental build](#intel-macs-experimental).
 - Your ISO of the USA retail disc (`MS-2505`) and about 20 GB free.
 - Apple's Command Line Tools. The launcher offers to install them.
 

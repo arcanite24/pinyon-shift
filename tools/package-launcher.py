@@ -146,7 +146,7 @@ INFO_PLIST = """<?xml version="1.0" encoding="UTF-8"?>
 
 # The .NET runtime identifier, the release asset's suffix and Info.plist's
 # architecture and minimum macOS version for each macOS launcher.
-MAC_RUNTIMES = {"osx-arm64": ("macos-arm64", "arm64", "13.0"),
+MAC_RUNTIMES = {"osx-arm64": ("macos-arm64", "arm64", "13.3"),
                 "osx-x64": ("macos-x86_64", "x86_64", "13.3")}
 
 
