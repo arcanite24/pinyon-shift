@@ -12,7 +12,8 @@ namespace PinyonShift.Launcher.Desktop;
 public partial class MainWindow
 {
     private sealed record CrashReport(string CrashId, string Bundle, string IssueUrl, long ExitCode,
-        string GraphicsDriver = "", bool GraphicsMemory = false);
+        string GraphicsDriver = "", bool GraphicsMemory = false, bool DiscReadError = false,
+        string MissingFile = "");
 
     private CrashReport? _pendingReport;
 
@@ -156,7 +157,8 @@ public partial class MainWindow
                              launch.String("bundle") is { Length: > 0 } bundle &&
                              launch.String("issue_url") is { Length: > 0 } issue
                     ? new CrashReport(id, bundle, issue, exitCode, launch.String("graphics_driver"),
-                        Bool(launch.Json, "graphics_memory")) : null;
+                        Bool(launch.Json, "graphics_memory"), Bool(launch.Json, "disc_read_error"),
+                        launch.String("missing_file")) : null;
                 if (report is not null && ValidReport(report) is { } valid)
                 {
                     ShowCrash(valid);
@@ -242,7 +244,8 @@ public partial class MainWindow
             long.TryParse(hex[2..], System.Globalization.NumberStyles.HexNumber, null, out exitCode);
         if (ValidReport(new CrashReport(pending.String("crash_id"), pending.String("bundle"),
                 pending.String("issue_url"), exitCode, pending.String("graphics_driver"),
-                Bool(pending.Json, "graphics_memory"))) is { } report)
+                Bool(pending.Json, "graphics_memory"), Bool(pending.Json, "disc_read_error"),
+                pending.String("missing_file"))) is { } report)
             ShowCrash(report);
     }
 
@@ -252,9 +255,21 @@ public partial class MainWindow
         ShowMode(Mode.Crashed);
         Headline.Text = "The game crashed";
         Subhead.Text = "";
+        // The game stopped itself on its "dirty disc" error: a file it needs
+        // could not be opened, almost always one a mod or DLC pack changed
+        // (#901: the XE mod with UDLC).
+        if (report.DiscReadError)
+        {
+            Headline.Text = "The game could not read one of its files";
+            Subhead.Text = "It stopped on a disc read error" +
+                (report.MissingFile.Length > 0 ? $" after it failed to open {report.MissingFile}" : "") +
+                ". This usually comes from a mod or a DLC pack that changes the game's files. " +
+                "Turn off the mod or DLC you added last, then play again. Report the crash if it " +
+                "happens without mods.";
+        }
         // Usually a driver reset on weak graphics, which the player can act on;
         // the report still helps when it is not.
-        if (IsGpuLoss(report.ExitCode))
+        else if (IsGpuLoss(report.ExitCode))
         {
             Headline.Text = "The graphics driver stopped responding";
             Subhead.Text = (Installation.IsMac ? "Update macOS, which brings the graphics driver. "

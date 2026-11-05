@@ -96,6 +96,8 @@ public static class LauncherUpdate
     public const string WindowsAsset = "PinyonShift-Launcher.zip";
     public const string LinuxAsset = "PinyonShift-Launcher-linux-x86_64.tar.gz";
     public const string MacAsset = "PinyonShift-Launcher-macos-arm64.zip";
+    /// <summary>The experimental Intel Mac launcher; an Intel launcher keeps updating to it.</summary>
+    public const string MacIntelAsset = "PinyonShift-Launcher-macos-x86_64.zip";
     public const string PayloadName = "pinyon-shift-source.zip";
     public const string StagingFolder = ".pinyon-update";
     public const string LeftoverSuffix = ".pinyon-old";
@@ -106,7 +108,9 @@ public static class LauncherUpdate
     private static bool IsLinux => RuntimeInformation.IsOSPlatform(OSPlatform.Linux);
     private static string LauncherFile => OperatingSystem.IsWindows() ? "PinyonShiftLauncher.exe" : "PinyonShiftLauncher";
 
-    public static string AssetName => OperatingSystem.IsWindows() ? WindowsAsset : IsMac ? MacAsset : LinuxAsset;
+    public static string AssetName => OperatingSystem.IsWindows() ? WindowsAsset
+        : IsMac ? (RuntimeInformation.ProcessArchitecture == Architecture.X64 ? MacIntelAsset : MacAsset)
+        : LinuxAsset;
 
     /// <summary>False when PINYON_SHIFT_UPDATE_CHECK is 0, false or off.</summary>
     public static bool CheckEnabled =>

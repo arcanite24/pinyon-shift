@@ -157,6 +157,10 @@ rex::ui::VirtualKey ParseHostKey(const std::string& name) {
       {"escape", VirtualKey::kEscape}, {"up", VirtualKey::kUp},
       {"down", VirtualKey::kDown},   {"left", VirtualKey::kLeft},
       {"right", VirtualKey::kRight}, {"space", VirtualKey::kSpace},
+      // The achievements screen's tabs, sort and track (AC-1.2).
+      {"q", VirtualKey::kQ},         {"e", VirtualKey::kE},
+      {"r", VirtualKey::kR},         {"t", VirtualKey::kT},
+      {"tab", VirtualKey::kTab},
   };
   std::string lower = name;
   std::transform(lower.begin(), lower.end(), lower.begin(),

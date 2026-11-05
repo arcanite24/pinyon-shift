@@ -101,6 +101,57 @@ class DiscImageTests(unittest.TestCase):
         self.assertEqual(pinyon_setup.check_paths([("DEFAULT.XEX", 0, 1), ("media/A.zip", 0, 1)],
                                                   expected), [])
 
+    def catalog(self, files: dict) -> tuple[dict, dict]:
+        """A dump whose executables are default.xex and the two facades."""
+        entries = {name.lower(): {"guest_path": name, "size_bytes": len(content),
+                                  "sha256": hashlib.sha256(content).hexdigest().upper()}
+                   for name, content in files.items()}
+        entries["media/a.bin"] = {"guest_path": "media/a.bin", "size_bytes": 10,
+                                  "sha256": hashlib.sha256(b"inner file").hexdigest().upper()}
+        executables = [entries[name.lower()] for name in
+                       ("default.xex", "SpeechFacade_default.xex", "XMediaFacade_default.xex")]
+        return {"id": "test", "executables": executables}, entries
+
+    def test_executables_come_out_first_and_the_rest_waits_for_the_swap(self):
+        # TP-7: the build starts on the executables while extraction runs.
+        files = {"default.xex": b"xex" * 1000, "SpeechFacade_default.xex": b"speech",
+                 "XMediaFacade_default.xex": b"xmedia", "readme.txt": b"hello"}
+        with tempfile.TemporaryDirectory() as directory:
+            image = Path(directory) / "disc.iso"
+            make_image(image, files)
+            game = Path(directory) / "game" / "base"
+            with patch.object(pinyon_setup, "load_catalog", return_value=self.catalog(files)), \
+                    patch.object(pinyon_setup, "GAME", game):
+                pinyon_setup.copy_executables(image, game)
+                self.assertEqual(sorted(path.name for path in game.iterdir()),
+                                 ["SpeechFacade_default.xex", "XMediaFacade_default.xex",
+                                  "default.xex"])
+                dump, staging = pinyon_setup.Extraction(image).result()
+                self.assertEqual(dump["id"], "test")
+                self.assertEqual((staging / "media" / "a.bin").read_bytes(), b"inner file")
+                # The executables alone are not a game until the swap.
+                self.assertFalse(pinyon_setup.game_ready())
+                pinyon_setup.replace_game(staging)
+                self.assertFalse(staging.exists())
+                self.assertTrue((game / "readme.txt").is_file())
+                self.assertTrue(pinyon_setup.game_ready())
+
+    def test_another_disc_fails_before_anything_is_built(self):
+        files = {"default.xex": b"xex" * 1000, "SpeechFacade_default.xex": b"speech",
+                 "XMediaFacade_default.xex": b"xmedia", "readme.txt": b"hello"}
+        dump, expected = self.catalog(files)
+        dump["executables"][0] = dict(dump["executables"][0], sha256="0" * 64)
+        with tempfile.TemporaryDirectory() as directory:
+            image = Path(directory) / "disc.iso"
+            make_image(image, files)
+            with patch.object(pinyon_setup, "load_catalog", return_value=(dump, expected)):
+                with self.assertRaises(pinyon_setup.SetupError):
+                    pinyon_setup.copy_executables(image, Path(directory) / "out")
+            make_image(image, dict(files, **{"extra.bin": b"x"}))
+            with patch.object(pinyon_setup, "load_catalog", return_value=self.catalog(files)):
+                with self.assertRaises(pinyon_setup.SetupError):
+                    pinyon_setup.copy_executables(image, Path(directory) / "out2")
+
     def test_the_supported_catalog_matches_the_dump_manifest(self):
         dump, expected = pinyon_setup.load_catalog()
         self.assertEqual(len(expected), dump["extraction"]["file_count"])
@@ -110,7 +161,7 @@ class DiscImageTests(unittest.TestCase):
 class ToolchainPinTests(unittest.TestCase):
     def test_posix_downloads_are_https_and_sha256_pinned(self):
         config = json.loads((ROOT / "config/release-toolchain.json").read_text(encoding="utf-8"))
-        for name in ("linux-x86_64", "macos-arm64"):
+        for name in ("linux-x86_64", "macos-arm64", "macos-x86_64"):
             tools = config["posix"][name]
             self.assertGreater(tools["disk_space_gb"]["first_build"], 0)
             for key, item in tools.items():
@@ -236,6 +287,52 @@ class ToolchainPinTests(unittest.TestCase):
                 if saved is not None:
                     pinyon_setup.os.environ["PINYON_SHIFT_CPU_BASELINE"] = saved
         self.assertEqual(pinyon_setup.cpu_baseline("macos-arm64"), "native")
+
+    def test_an_intel_mac_picks_its_baseline_from_sysctl(self):
+        # Experimental Intel Mac port: sysctl's feature names map to
+        # /proc/cpuinfo's, and Rosetta keeps SSE4.1.
+        def fake(features, translated="0"):
+            def run(command, **_):
+                keys = command[2:]
+                out = translated if keys == ["sysctl.proc_translated"] else features
+                return pinyon_setup.subprocess.CompletedProcess(command, 0, out + "\n", "")
+            return run
+        kaby_lake = ("FPU SSE SSE2 SSE3 SSSE3 SSE4.1 SSE4.2 FMA MOVBE POPCNT AVX F16C "
+                     "AVX2 BMI1 BMI2 SYSCALL LZCNT")
+        flags = pinyon_setup.macos_cpu_flags(fake(kaby_lake))
+        self.assertTrue(set(pinyon_setup.V3_CPU_FLAGS) <= flags)
+        self.assertEqual(pinyon_setup.macos_cpu_flags(fake(kaby_lake, translated="1")), set())
+        saved = pinyon_setup.macos_cpu_flags
+        try:
+            pinyon_setup.macos_cpu_flags = lambda: flags
+            self.assertEqual(pinyon_setup.cpu_baseline("macos-x86_64"), "v3")
+            pinyon_setup.macos_cpu_flags = lambda: set()
+            self.assertEqual(pinyon_setup.cpu_baseline("macos-x86_64"), "sse4.1")
+        finally:
+            pinyon_setup.macos_cpu_flags = saved
+
+    def test_intel_mac_presets_exist_for_setup(self):
+        presets = json.loads((ROOT / "CMakePresets.json").read_text(encoding="utf-8"))
+        configure = {item["name"]: item for item in presets["configurePresets"]}
+        build = {item["name"] for item in presets["buildPresets"]}
+        game = pinyon_setup.PRESETS["macos-x86_64"]["game"]
+        for suffix in ("release", "v4"):
+            self.assertIn(f"{game}-{suffix}", configure)
+            self.assertIn(f"{game}-{suffix}", build)
+        base = configure["macos-amd64-base"]["cacheVariables"]
+        self.assertEqual(base["CMAKE_OSX_ARCHITECTURES"], "x86_64")
+        self.assertIn("-msse4.1", base["CMAKE_CXX_FLAGS"])
+        # The kit, the translator and the game share one deployment target.
+        target = pinyon_setup.MACOS_DEPLOYMENT_TARGET["macos-x86_64"]
+        self.assertEqual(base["CMAKE_OSX_DEPLOYMENT_TARGET"], target)
+        self.assertIn(f"-DCMAKE_OSX_DEPLOYMENT_TARGET={target}",
+                      pinyon_setup.KIT_CACHE["macos-x86_64"])
+        sdk_presets = ROOT / "thirdparty/shiftglue-sdk/CMakePresets.json"
+        if not sdk_presets.is_file():
+            return  # a checkout without the submodule
+        sdk = json.loads(sdk_presets.read_text(encoding="utf-8"))
+        self.assertIn(pinyon_setup.PRESETS["macos-x86_64"]["sdk"],
+                      {item["name"] for item in sdk["configurePresets"]})
 
     def test_the_payload_ships_the_posix_setup(self):
         script = (ROOT / "tools/package-launcher.ps1").read_text(encoding="utf-8")

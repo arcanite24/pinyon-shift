@@ -64,6 +64,7 @@ set(PINYON_SHIFT_HOST_SOURCES
     src/ui/fh1_ui_api.cpp
     src/ui/ui_strings.cpp
     src/ui/host_style.cpp
+    src/ui/hostui/bitmap_font.cpp
     src/ui/hostui/fh1_archive.cpp
     src/ui/hostui/glyph_atlas.cpp
     src/ui/hostui/host_ui.cpp
@@ -77,12 +78,16 @@ set(PINYON_SHIFT_HOST_SOURCES
     src/ui/png_writer.cpp
     src/ui/xam_dialogs.cpp
     src/ui/achievements_menu.cpp
+    src/ui/achievement_icons.cpp
+    src/achievements/fh1_achievements.cpp
+    src/achievements/achievement_progress.cpp
+    src/achievements/achievement_strings.cpp
     src/ui/touch_pad.cpp
     src/config/host_config.cpp
     src/platform/display_hdr.cpp
     src/platform/host_platform.cpp
     src/platform/sha256.cpp
-    ${REXSDK_DIR}/thirdparty/crypto/sha256.cpp
+    ${PINYON_SHIFT_SDK_SOURCE_DIR}/thirdparty/crypto/sha256.cpp
     src/native_renderer/d3d_census.cpp
     src/native_renderer/d3d_draw.cpp
     src/native_renderer/d3d_program.cpp
@@ -94,22 +99,38 @@ set(PINYON_SHIFT_HOST_SOURCES
 if(NOT ANDROID)
     list(APPEND PINYON_SHIFT_HOST_SOURCES src/ui/frame_inspector.cpp)
 endif()
+if(WIN32)
+    list(APPEND PINYON_SHIFT_HOST_SOURCES src/crash_reporter_win.cpp src/hitch_sampler_win.cpp)
+else()
+    list(APPEND PINYON_SHIFT_HOST_SOURCES src/crash_reporter_posix.cpp)
+endif()
 
-if(PINYON_SHIFT_HOST_TESTS_ONLY)
+# TP-3 host split (docs/TIME_TO_PLAY_BACKLOG.md): the files that include
+# generated headers or depend on the CPU baseline compile with the game; the
+# rest are pinyon_shift_host, which a release ships prebuilt for each
+# platform and variant (pinyon_shift_add_host_objects).
+set(PINYON_SHIFT_HOST_LOCAL_SOURCES
+    src/main.cpp
+    src/pinyon_shift_app.cpp
+    src/cpu_baseline_guard.cpp
+    src/pinyon_shift_diagnostics.cpp
+    src/guest_native/reference_verify.cpp
+    src/guest_native/region_oracle.cpp
+)
+set(PINYON_SHIFT_HOST_SHARED_SOURCES ${PINYON_SHIFT_HOST_SOURCES})
+list(REMOVE_ITEM PINYON_SHIFT_HOST_SHARED_SOURCES ${PINYON_SHIFT_HOST_LOCAL_SOURCES})
+
+if(PINYON_SHIFT_HOST_OBJECTS_ONLY)
+    # The release's prebuilt host objects only: no game, no generated code.
+    pinyon_shift_add_host_objects("")
+elseif(PINYON_SHIFT_HOST_TESTS_ONLY)
     # No game target; the tests and tools below still build.
 elseif(WIN32)
-    add_executable(pinyon_shift WIN32
-        ${PINYON_SHIFT_HOST_SOURCES}
-        src/crash_reporter_win.cpp
-        src/hitch_sampler_win.cpp
-    )
+    add_executable(pinyon_shift WIN32 ${PINYON_SHIFT_HOST_LOCAL_SOURCES})
 elseif(ANDROID)
     # SDL's activity loads the game as libmain.so and calls its SDL_main; the
     # runtime, the GPU plugin and the facades are libraries beside it.
-    add_library(pinyon_shift SHARED
-        ${PINYON_SHIFT_HOST_SOURCES}
-        src/crash_reporter_posix.cpp
-    )
+    add_library(pinyon_shift SHARED ${PINYON_SHIFT_HOST_LOCAL_SOURCES})
     set_target_properties(pinyon_shift PROPERTIES OUTPUT_NAME main)
     # Every generated function is a default-visibility weak symbol, so in a
     # shared library each call between them went through the PLT (4-6 % of
@@ -155,12 +176,13 @@ elseif(ANDROID)
             "${PINYON_SHIFT_SYMBOL_ORDER_FILE}")
     endif()
 else()
-    add_executable(pinyon_shift
-        ${PINYON_SHIFT_HOST_SOURCES}
-        src/crash_reporter_posix.cpp
-    )
+    add_executable(pinyon_shift ${PINYON_SHIFT_HOST_LOCAL_SOURCES})
 endif()
 
+# The host tests and developer tools compile SDK sources and private headers,
+# so they need the source tree; a build from the prebuilt kit (TP-3) has only
+# the game.
+if(REXSDK_DIR)
 add_executable(pinyon_shift_fh1_ui_api_tests EXCLUDE_FROM_ALL
     tests/ui/fh1_ui_api_test.cpp
     src/ui/fh1_ui_api.cpp
@@ -200,6 +222,7 @@ endif()
 
 add_executable(pinyon_shift_hostui_tests EXCLUDE_FROM_ALL
     tests/ui/hostui_test.cpp
+    src/ui/hostui/bitmap_font.cpp
     src/ui/hostui/fh1_archive.cpp
     src/ui/hostui/glyph_atlas.cpp
     src/ui/hostui/menu.cpp
@@ -208,7 +231,7 @@ add_executable(pinyon_shift_hostui_tests EXCLUDE_FROM_ALL
     src/ui/hostui/xds_texture.cpp
 )
 target_include_directories(pinyon_shift_hostui_tests PRIVATE src ${REXSDK_DIR}/include)
-target_link_libraries(pinyon_shift_hostui_tests PRIVATE rex::runtime)
+target_link_libraries(pinyon_shift_hostui_tests PRIVATE rex::ui rex::runtime)
 
 add_executable(pinyon_shift_host_config_tests EXCLUDE_FROM_ALL
     tests/config/host_config_test.cpp
@@ -322,20 +345,14 @@ foreach(pinyon_host_check IN LISTS pinyon_host_checks)
             $<IF:$<CXX_COMPILER_ID:MSVC>,/UNDEBUG,-UNDEBUG>)
     endif()
 endforeach()
+endif()  # REXSDK_DIR
 
 add_executable(pinyon_shift_fh1_archive_extract EXCLUDE_FROM_ALL
     tools/fh1_archive_extract.cpp
     src/ui/hostui/fh1_archive.cpp
 )
 
-add_executable(pinyon_shift_fh1_texture_import EXCLUDE_FROM_ALL
-    tools/fh1_texture_import.cpp
-    ${REXSDK_DIR}/src/graphics/pipeline/texture/util.cpp
-    ${REXSDK_DIR}/src/graphics/pipeline/texture/info_formats.cpp)
-target_include_directories(pinyon_shift_fh1_texture_import PRIVATE
-    ${REXSDK_DIR}/include)
-target_include_directories(pinyon_shift_fh1_archive_extract PRIVATE
-    src ${REXSDK_DIR}/include)
+target_include_directories(pinyon_shift_fh1_archive_extract PRIVATE src)
 target_link_libraries(pinyon_shift_fh1_archive_extract PRIVATE rex::runtime)
 if(UNIX AND NOT APPLE)
     # As the game: find librexruntime.so beside the extractor (or in the
@@ -345,6 +362,14 @@ if(UNIX AND NOT APPLE)
         INSTALL_RPATH "$ORIGIN:$ORIGIN/rexglue-artifacts"
         BUILD_WITH_INSTALL_RPATH ON)
 endif()
+
+if(REXSDK_DIR)
+add_executable(pinyon_shift_fh1_texture_import EXCLUDE_FROM_ALL
+    tools/fh1_texture_import.cpp
+    ${REXSDK_DIR}/src/graphics/pipeline/texture/util.cpp
+    ${REXSDK_DIR}/src/graphics/pipeline/texture/info_formats.cpp)
+target_include_directories(pinyon_shift_fh1_texture_import PRIVATE
+    ${REXSDK_DIR}/include)
 
 # FSB4 banks to WAV for the asset export (#446), with the SDK's FFmpeg (MP3
 # and the XMA frame decoder the game's audio runs on).
@@ -363,9 +388,11 @@ if(WIN32)
     target_include_directories(pinyon_shift_vram_balloon PRIVATE
         ${REXSDK_DIR}/thirdparty/vulkan-headers/include)
 endif()
+endif()  # REXSDK_DIR
 
 if(NOT PINYON_SHIFT_HOST_TESTS_ONLY)
 pinyon_shift_attach_rexglue(pinyon_shift)
+pinyon_shift_add_host_objects(pinyon_shift)
 add_dependencies(pinyon_shift pinyon_shift_fh1_archive_extract)
 
 # ReXGlue's SDL backend loads project overrides from the executable directory.
@@ -388,9 +415,30 @@ if(WIN32 AND DEFINED ENV{VCToolsRedistDir})
     set(PINYON_SHIFT_VC_REDIST_DIR "$ENV{VCToolsRedistDir}" CACHE PATH
         "Visual C++ redistributable folder of the build toolset")
 endif()
-if(WIN32 AND PINYON_SHIFT_VC_REDIST_DIR)
-    file(GLOB PINYON_SHIFT_VC_RUNTIME_DLLS
-        "${PINYON_SHIFT_VC_REDIST_DIR}/x64/Microsoft.VC*.CRT/*.dll")
+if(WIN32 AND (PINYON_SHIFT_VC_REDIST_DIR OR PINYON_SHIFT_SHIFTGLUE_KIT))
+    set(PINYON_SHIFT_VC_RUNTIME_DLLS)
+    if(PINYON_SHIFT_VC_REDIST_DIR)
+        file(GLOB PINYON_SHIFT_VC_RUNTIME_DLLS
+            "${PINYON_SHIFT_VC_REDIST_DIR}/x64/Microsoft.VC*.CRT/*.dll")
+    endif()
+    # A prebuilt kit carries the runtime its DLLs were built against; the
+    # newer of the two toolsets' runtimes serves both (Microsoft keeps it
+    # backward compatible). The fetched sysroot (TP-4) has no runtime, so the
+    # kit's is the only one; it must be at least as new as the sysroot's
+    # C++ library.
+    if(PINYON_SHIFT_SHIFTGLUE_KIT AND EXISTS "${PINYON_SHIFT_SHIFTGLUE_KIT}/redist")
+        string(JSON _pinyon_kit_toolset GET "${_pinyon_kit}" msvc_toolset)
+        if(NOT PINYON_SHIFT_VC_RUNTIME_DLLS OR _pinyon_kit_toolset VERSION_GREATER "$ENV{VCToolsVersion}")
+            file(GLOB PINYON_SHIFT_VC_RUNTIME_DLLS "${PINYON_SHIFT_SHIFTGLUE_KIT}/redist/*.dll")
+        endif()
+        string(REGEX MATCH "^[0-9]+\\.[0-9]+" _pinyon_kit_runtime "${_pinyon_kit_toolset}")
+        string(REGEX MATCH "^[0-9]+\\.[0-9]+" _pinyon_headers "$ENV{VCToolsVersion}")
+        if(NOT PINYON_SHIFT_VC_REDIST_DIR AND _pinyon_headers AND
+           _pinyon_kit_runtime VERSION_LESS _pinyon_headers)
+            message(WARNING "The kit's C++ runtime (${_pinyon_kit_toolset}) is older than "
+                "the C++ library this build compiles against ($ENV{VCToolsVersion}).")
+        endif()
+    endif()
     if(PINYON_SHIFT_VC_RUNTIME_DLLS)
         add_custom_target(pinyon_shift_stage_vc_runtime ALL
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -411,9 +459,9 @@ endif()
 # The mod ABI header (NP-7) and the TOML parser mod.toml is read with.
 target_include_directories(pinyon_shift PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${REXSDK_DIR}/thirdparty/tomlplusplus/include
-    ${REXSDK_DIR}/thirdparty/renderdoc
-    ${REXSDK_DIR})
+    ${PINYON_SHIFT_SDK_SOURCE_DIR}/thirdparty/tomlplusplus/include
+    ${PINYON_SHIFT_SDK_SOURCE_DIR}/thirdparty/renderdoc
+    ${PINYON_SHIFT_SDK_SOURCE_DIR})
 endif()  # NOT PINYON_SHIFT_HOST_TESTS_ONLY
 
 # Sample mods (NP-7.6): plain C libraries against include/pinyon_mod.h. Not

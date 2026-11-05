@@ -424,7 +424,7 @@ std::unique_ptr<MenuScreen> SettingsPages::Display() {
   // Every camera's vertical field of view, applied at once (NP-4.4).
   {
     std::vector<Choice> fov;
-    for (const char* value : {"0.9", "1.0", "1.1", "1.2", "1.3"}) {
+    for (const char* value : {"0.9", "1.0", "1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8", "1.9", "2.0"}) {
       const int percent = int(std::lround(std::stod(value) * 100));
       fov.push_back({std::to_string(percent) + "%", {{"pinyon_shift_fov_scale", value}}});
     }
@@ -883,7 +883,14 @@ std::unique_ptr<MenuScreen> SettingsPages::Graphics() {
        // The reference desktop (Ryzen 7 5800X, RTX 4080) holds the 120 limit
        // in the race at 1x (8.3 ms median) and runs it at 9.5 ms at 3x.
        {"PERFORMANCE 120", preset("1", "\"fsr\"", "true", "120")},
+#if defined(__APPLE__)
+       // 2x with 4X MSAA averaged 51 fps on an M4 Pro (19.5 ms of GPU a
+       // frame), so a Mac stores the game's 4x surfaces with two samples:
+       // 59.6-60.0 fps at the 60 limit, 16.7 ms of GPU.
+       {"QUALITY 60", preset("2", "\"bilinear\"", "false", "60", {{"fh1_msaa_2x", "true"}})}}));
+#else
        {"QUALITY 60", preset("2", "\"bilinear\"", "false", "60")}}));
+#endif
   // The game's 4x MSAA, apart from the post-process FXAA row below: off,
   // edges are harder and targets take a quarter of the memory.
   // 2X stores the game's 4x surfaces with two samples each (Vulkan): on the
