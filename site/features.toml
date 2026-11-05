@@ -64,7 +64,7 @@ pinyon = "Engine, other cars, tyres, wind, ambience and music levels, and the co
 feature = "Mods"
 link = "modding.md"
 xbox = "No"
-pinyon = "Asset, database, texture, Vulkan shader and native mods; the Forza Horizon XE mod installs from the launcher"
+pinyon = "Asset, database, texture, Vulkan shader and native mods, installed, switched on and ordered from the launcher; the Forza Horizon XE mod installs from the launcher too"
 
 [[original]]
 feature = "DLC and title update"

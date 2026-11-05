@@ -26,11 +26,13 @@
   </PropertyGroup>
   <ItemGroup>
     <!-- Code both launchers share: the updater (FB-10.7) and the Android
-         share with its QR code (each launcher draws the QR bitmap itself). -->
+         share with its QR code (each launcher draws the QR bitmap itself), and
+         the mod manager's data (FB-9.1). -->
     <Compile Include="..\Shared\LauncherUpdate.cs" Link="Shared\LauncherUpdate.cs" />
     <Compile Include="..\Shared\AndroidShare.cs" Link="Shared\AndroidShare.cs" />
     <Compile Include="..\Shared\AndroidShareContent.cs" Link="Shared\AndroidShareContent.cs" />
     <Compile Include="..\Shared\QrCode.cs" Link="Shared\QrCode.cs" />
+    <Compile Include="..\Shared\ModCatalog.cs" Link="Shared\ModCatalog.cs" />
   </ItemGroup>
   <ItemGroup>
     <!-- The wheel screen reads joysticks and plays force feedback through SDL3, built from the

@@ -2,6 +2,8 @@
 # in code/hello_telemetry.dll. Enable it with enabled_mods = "hello_telemetry".
 name = "hello_telemetry"
 version = "1.0.0"
+title = "Hello telemetry (sample)"
+description = "A sample native mod: a HUD label shows the frame count and the car's position, and F9 shows what it saw."
 abi = 1
 # The supported default.xex (config/supported-dumps.json); a prefix is enough.
 # The base disc and the FH1 v4 title update (see docs/MODDING.md).

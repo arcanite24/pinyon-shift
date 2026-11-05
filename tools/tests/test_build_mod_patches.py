@@ -61,6 +61,47 @@ class BuildModPatchesTests(unittest.TestCase):
             self.assertIn(f'enabled_mods = "{MODULE.GENERATED},cheap,plain"',
                           (state / "config" / "pinyon_shift.toml").read_text(encoding="utf-8"))
 
+    def test_options_fill_only_the_scripts_of_mods_that_declare_them(self):
+        with tempfile.TemporaryDirectory() as directory:
+            game, state = self.make(Path(directory))
+            (state / "mods" / "cheap" / "mod.toml").write_text(
+                'name = "cheap"\nabi = 1\n\n[[option]]\nkey = "divide"\ndefault = "2"\n'
+                'choices = ["2", { value = "4", label = "Quarter" }]\n', encoding="utf-8")
+            (state / "mods" / "cheap" / "db" / "10-price.sql").write_text(
+                "update Data_Car set BaseCost = BaseCost / {{divide}} where Id = 1496;", encoding="utf-8")
+            # A mod without options keeps a literal {{...}} and an unrelated `option` key, as before.
+            (state / "mods" / "plain" / "mod.toml").write_text(
+                'name = "plain"\nabi = 1\noption = "not a table"\n', encoding="utf-8")
+            (state / "mods" / "plain" / "db").mkdir()
+            (state / "mods" / "plain" / "db" / "20-note.sql").write_text(
+                "create table Notes (Text text); insert into Notes values ('{{left alone}}');",
+                encoding="utf-8")
+            patched = state / "mods" / MODULE.GENERATED / "game" / "media" / "db" / "gamedb.slt"
+
+            def price():
+                with closing(sqlite3.connect(patched)) as connection:
+                    return connection.execute("select BaseCost from Data_Car where Id = 1496").fetchone()[0]
+
+            result = MODULE.build(state, game)
+            self.assertEqual(60000, price())
+            self.assertEqual([{"divide": "2"}, None], [s.get("options") for s in result["scripts"]])
+            with closing(sqlite3.connect(patched)) as connection:
+                self.assertEqual("{{left alone}}", connection.execute("select Text from Notes").fetchone()[0])
+            options = MODULE._mod_options()
+            options.choose(state, "cheap", options.read_declared(state / "mods" / "cheap"), "divide", "4")
+            MODULE.build(state, game)
+            self.assertEqual(30000, price())
+            # A value edited by hand to one the mod does not offer falls back to the default.
+            (state / "config" / "mod_options.json").write_text('{"cheap": {"divide": "1; drop table Data_Car"}}',
+                                                               encoding="utf-8")
+            MODULE.build(state, game)
+            self.assertEqual(60000, price())
+            # A placeholder the mod does not declare is refused rather than reaching the database.
+            (state / "mods" / "cheap" / "db" / "20-typo.sql").write_text(
+                "update Data_Car set BaseCost = {{devide}};", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "devide"):
+                MODULE.build(state, game)
+
     def test_patches_the_database_of_a_mod_that_replaces_it(self):
         # A total conversion (the XE mod) ships its own gamedb.slt; scripts
         # of smaller mods must apply to it, not to the disc's.
@@ -91,6 +132,39 @@ class BuildModPatchesTests(unittest.TestCase):
                 'name = "off"\nhide_dlc = ["ABC"]\n', encoding="utf-8")
             self.assertEqual({"6F6992766050D818245ADD408031E280FB5F4E634D": "plain"},
                              MODULE.hidden_dlc(state))
+
+    def test_reads_game_version_as_the_mod_host_does(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory)
+            cases = {"absent": ("", True, True),
+                     "empty": ('game_version = ""', True, True),
+                     "base": ('game_version = "DB40DF605ADE49A6"', True, False),
+                     "short": ('game_version = "DB40"', True, False),
+                     "long": ('game_version = "74B033805AB1BCAA0011"', False, True),
+                     "both": ('game_version = ["DB40DF605ADE49A6", "74B033805AB1BCAA"]', True, True),
+                     "none": ("game_version = []", False, False),
+                     "bad": ('game_version = ["DB40DF605ADE49A6", 4]', False, False),
+                     "unreadable": ("game_version = [", True, True)}
+            for mod, (line, _, _) in cases.items():
+                (state / "mods" / mod).mkdir(parents=True)
+                (state / "mods" / mod / "mod.toml").write_text(
+                    f'name = "{mod}"\nabi = 1\n{line}\n', encoding="utf-8")
+            (state / "mods" / "no_manifest").mkdir()
+            cases["no_manifest"] = ("", True, True)
+            for mod, (_, base, v4) in cases.items():
+                with self.subTest(mod=mod):
+                    self.assertEqual(base, MODULE.made_for(state, mod, MODULE.BASE_EXECUTABLE))
+                    self.assertEqual(v4, MODULE.made_for(state, mod, MODULE.V4_EXECUTABLE))
+
+    def test_leaves_out_the_scripts_of_mods_made_only_for_v4(self):
+        # The game: copy is the base disc's database, where the mod host
+        # rejects a v4-only mod; build-mod-archives.py patches v4's own.
+        with tempfile.TemporaryDirectory() as directory:
+            game, state = self.make(Path(directory))
+            (state / "mods" / "cheap" / "mod.toml").write_text(
+                'name = "cheap"\nabi = 1\ngame_version = "74B033805AB1BCAA"\n', encoding="utf-8")
+            self.assertFalse(MODULE.build(state, game)["patched"])
+            self.assertFalse((state / "mods" / MODULE.GENERATED).exists())
 
     def test_removes_the_generated_mod_without_scripts(self):
         with tempfile.TemporaryDirectory() as directory:
