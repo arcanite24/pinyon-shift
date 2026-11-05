@@ -85,13 +85,13 @@ def read_str_table(data: bytes) -> dict[int, str]:
 
 ## Textures and models
 
-A car's models are `.carbin` files in its archive: one for LOD1-5, one for LOD0, the cockpit, and a caliper and a rotor per wheel. Each is a list of named parts (body, hood, bumpers, glass, lights). A part has a box, a pool of 28-byte vertices and one index buffer per material and LOD. Positions are 16-bit values scaled by the box, so a part's vertices always span its box:
+A car's models are `.carbin` files in its archive: one for LOD1-5, one for LOD0, the cockpit, and a caliper and a rotor per wheel. Each is a list of named parts (body, hood, bumpers, glass, lights). A part has a box, a pool of 28-byte vertices and one index buffer per material and LOD. A vertex stores its position relative to the box's offset as a direction and a length: a unit vector in three 16-bit values, and a fourth value giving the length as a fraction of the length of the box's half-extent vector. The game passes the offset and that length to its vertex shader as one constant per part, so the boxes are tight:
 
 ```text
-position = value / 32767 * half_extent + offset     (per axis)
+position = (x, y, z) / 32767 * w / 32767 * |half_extent| + offset
 ```
 
-`tools/fh1_carbin.py` reads every base car's models and writes them back byte for byte (`roundtrip`), and `dump` lists the parts. It is the first step of the car importer ([#496](https://github.com/arcanite24/pinyon-shift/issues/496)). In game, vertices can move anywhere inside a part's box, and the box can move with them. So far a box cannot grow: a changed half-extent is not honoured, so the game takes the part's size from somewhere not found yet.
+`tools/fh1_carbin.py` reads every base car's models and writes them back byte for byte (`roundtrip`), and `dump` lists the parts. It is the first step of the car importer ([#496](https://github.com/arcanite24/pinyon-shift/issues/496)). `set_positions` refits a part's box to new positions and re-encodes them; an XKR-S rewritten 1.2 times wider this way is clean in game. Decoding each axis with its own half-extent looks right for an unchanged model but breaks as soon as a box changes, which is what an Autoshow frame dump sorted out.
 
 {{findings:files/Textures and models}}
 

@@ -1,4 +1,5 @@
 import importlib.util
+import math
 import struct
 import sys
 import unittest
@@ -31,15 +32,15 @@ def section(name: str, vertices: list[tuple], bounds=None, damage_flag=1) -> "fc
                       1, damage_flag, damage)
 
 
-def vertex(x: int, y: int, z: int) -> tuple:
-    # position, scale word, UV0, UV1, a unit quaternion and the lighting bytes
-    return (x, y, z, 16000, 100, 200, 0, 0, -16384, 16384, 16384, 16384, 1, 2, 3, 4)
+def vertex(x: int, y: int, z: int, length: int = 32767) -> tuple:
+    # unit direction and length, UV0, UV1, a unit quaternion and the lighting bytes
+    return (x, y, z, length, 100, 200, 0, 0, -16384, 16384, 16384, 16384, 1, 2, 3, 4)
 
 
 def model() -> "fc.Carbin":
     head = struct.pack(">I", 5) + b"\x00" * 60 + b"\x05abcde"  # unaligned count
-    body = section("body", [vertex(-32767, -32767, -32767), vertex(32767, 0, 0),
-                            vertex(0, 32767, 32767)])
+    body = section("body", [vertex(-32767, 0, 0, 16384), vertex(32767, 0, 0),
+                            vertex(0, 0, 32767, 8192)])
     glass = section("glassF", [vertex(0, 0, 0), vertex(100, 200, 300), vertex(-5, -6, -7)],
                     damage_flag=0)
     empty = section("roof1", [], bounds=(0.0, 0.0, 0.0) + (fc.FLT_MAX,) * 3 + (-fc.FLT_MAX,) * 3,
@@ -61,34 +62,33 @@ class CarbinTests(unittest.TestCase):
         self.assertEqual(0, carbin.sections[2].damage_flag)
         self.assertEqual(data, carbin.encode())
 
-    def test_positions_use_the_section_box(self):
+    def test_positions_are_a_direction_and_a_length(self):
         carbin = fc.parse(model().encode())
         body = carbin.sections[1]
+        scale = math.sqrt(1.0 + 0.25 + 4.0)   # length of the half-extent vector
         points = fc.positions(body, body.lod_pool)
-        self.assertAlmostEqual(-1.0, points[0][0], places=4)
-        self.assertAlmostEqual(0.0, points[0][1], places=4)   # offset 0.5, half-extent 0.5
-        self.assertAlmostEqual(2.0, points[2][2], places=4)
+        self.assertAlmostEqual(-0.5 * scale, points[0][0], places=3)
+        self.assertAlmostEqual(0.5, points[0][1], places=4)    # the offset
+        self.assertAlmostEqual(scale, points[1][0], places=4)
+        self.assertAlmostEqual(0.25 * scale, points[2][2], places=3)
 
-    def test_moved_positions_move_the_box_offset(self):
+    def test_moved_positions_refit_the_box(self):
         carbin = fc.parse(model().encode())
         body = carbin.sections[1]
-        moved = [(x * 0.8 + 0.3, y, z - 0.5) for x, y, z in fc.positions(body, body.lod_pool)]
+        moved = [(x * 1.5 + 0.3, y, z - 0.5) for x, y, z in fc.positions(body, body.lod_pool)]
         fc.set_positions(body, {"lod": moved})
-        self.assertAlmostEqual(0.3, body.bounds[0], places=5)
-        self.assertAlmostEqual(1.0, body.bounds[6], places=5)   # half-extent kept
+        low = min(p[0] for p in moved); high = max(p[0] for p in moved)
+        self.assertAlmostEqual((low + high) / 2, body.bounds[0], places=5)
+        self.assertAlmostEqual((high - low) / 2, body.bounds[6], places=5)
         for want, got in zip(moved, fc.positions(body, body.lod_pool)):
             for a, b in zip(want, got):
-                self.assertAlmostEqual(a, b, delta=1e-4)
+                self.assertAlmostEqual(a, b, delta=2e-4)
+        for v in body.lod_pool.vertices:   # unit directions
+            self.assertAlmostEqual(1.0, math.sqrt(sum(x * x for x in v[:3])) / 32767, places=3)
         again = fc.parse(carbin.encode())
         self.assertEqual(carbin.encode(), again.encode())
-        # Everything but the position shorts is kept.
-        self.assertEqual(vertex(0, 0, 0)[3:], body.lod_pool.vertices[0][3:])
-
-    def test_positions_wider_than_the_box_are_refused(self):
-        carbin = fc.parse(model().encode())
-        body = carbin.sections[1]
-        moved = [(x * 1.25, y, z) for x, y, z in fc.positions(body, body.lod_pool)]
-        self.assertRaises(fc.CarbinError, fc.set_positions, body, {"lod": moved})
+        # Everything after the position is kept.
+        self.assertEqual(vertex(0, 0, 0)[4:], body.lod_pool.vertices[0][4:])
 
     def test_a_model_without_parts_is_kept_whole(self):
         data = struct.pack(">I", 5) + b"\x00" * 1200 + struct.pack(">6I", 1, 0, 1, 0, 1, 0)

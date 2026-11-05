@@ -19,6 +19,7 @@ Nothing here contains game data; it works on the player's extracted files.
 from __future__ import annotations
 
 import argparse
+import math
 import struct
 import sys
 from dataclasses import dataclass, field
@@ -27,7 +28,7 @@ from pathlib import Path
 SECTION_MARKER = 5
 FLT_MAX = struct.unpack(">f", bytes.fromhex("7f7fffff"))[0]
 # Bytes per vertex of the pools whose layout is decoded: 4 x int16 position
-# (x, y, z and a scale), UV0 and UV1 as 2 x uint16 each, a 4 x int16
+# (a unit direction and a length; see positions), UV0 and UV1 as 2 x uint16 each, a 4 x int16
 # quaternion tangent frame and 4 bytes of baked lighting.
 VERTEX28 = struct.Struct(">4h4H4h4B")
 
@@ -299,22 +300,22 @@ def parse(data: bytes) -> Carbin:
 
 
 def positions(section: Section, pool: Pool) -> list[tuple[float, float, float]]:
-    """The pool's vertex positions in car space: each of the first three
-    shorts, over 32767, times the section's half-extent plus its offset.
-    The fourth short is not part of the position."""
-    offset, extent = section.bounds[0:3], section.bounds[6:9]
-    return [tuple(v[axis] / 32767 * extent[axis] + offset[axis] for axis in range(3))
+    """The pool's vertex positions in car space. A vertex stores its
+    position relative to the section's offset as a direction and a length:
+    the first three shorts are a unit vector (over 32767) and the fourth is
+    the length as a fraction (over 32767) of the length of the section's
+    half-extent vector. The game's vertex shader receives the offset and
+    that length as one constant (#496 phase 1)."""
+    offset = section.bounds[0:3]
+    scale = math.sqrt(sum(e * e for e in section.bounds[6:9]))
+    return [tuple(v[axis] / 32767 * (v[3] / 32767) * scale + offset[axis] for axis in range(3))
             for v in pool.vertices]
 
 
 def set_positions(section: Section, moved: dict[str, list[tuple[float, float, float]]]) -> None:
-    """Replace the positions of the section's pools ("lod", "lod0").
-
-    The section's offset moves to the centre of every position it keeps;
-    its half-extents are kept. The game honours a moved offset but not a
-    changed half-extent (#496 phase 0c: parts whose extents were refitted
-    rendered scaled and displaced), so a part whose new positions do not
-    fit inside its half-extents raises CarbinError."""
+    """Replace the positions of the section's pools ("lod", "lod0"),
+    refitting the section's box (offset and half-extents) to every
+    position it keeps and re-encoding each as a direction and a length."""
     pools = {"lod": section.lod_pool, "lod0": section.lod0_pool}
     every = []
     for name, pool in pools.items():
@@ -324,18 +325,21 @@ def set_positions(section: Section, moved: dict[str, list[tuple[float, float, fl
     low = [min(p[axis] for p in every) for axis in range(3)]
     high = [max(p[axis] for p in every) for axis in range(3)]
     offset = [(low[axis] + high[axis]) / 2 for axis in range(3)]
-    extent = list(section.bounds[6:9])
-    for axis in range(3):
-        if (high[axis] - low[axis]) / 2 > extent[axis] * (1 + 1e-6):
-            raise CarbinError(
-                f"part {section.name!r} is {(high[axis] - low[axis]):.4f} long on axis {axis}, "
-                f"wider than its box ({2 * extent[axis]:.4f}); the game keeps the box size")
+    extent = [(high[axis] - low[axis]) / 2 for axis in range(3)]
+    scale = math.sqrt(sum(e * e for e in extent))
     for name, pool in pools.items():
         points = moved[name] if name in moved else positions(section, pool)
-        pool.vertices = [
-            tuple(max(-32767, min(32767, round((p[axis] - offset[axis]) / extent[axis] * 32767)))
-                  for axis in range(3)) + tuple(v[3:])
-            for v, p in zip(pool.vertices, points)]
+        encoded = []
+        for v, p in zip(pool.vertices, points):
+            d = [p[axis] - offset[axis] for axis in range(3)]
+            length = math.sqrt(sum(x * x for x in d))
+            if length == 0 or scale == 0:
+                direction, size = (32767, 0, 0), 0
+            else:
+                direction = tuple(round(x / length * 32767) for x in d)
+                size = min(32767, round(length / scale * 32767))
+            encoded.append(direction + (size,) + tuple(v[4:]))
+        pool.vertices = encoded
     section.bounds = tuple(offset) + tuple(-e for e in extent) + tuple(extent)
 
 

@@ -734,9 +734,8 @@ a `db/` script sets its `Data_Car.MediaName` to a new name, and the mod
 ships `game/media/cars/<MediaName>.zip`, built from the source car's
 archive with every member renamed from the source's media name to the
 new one. Members may be stored uncompressed. `tools/fh1_carbin.py` reads
-and rewrites the `.carbin` models in it; a part's vertices can move
-anywhere inside its box (the box's offset follows them), but the game
-keeps each box's size, so a part cannot yet grow beyond it.
+and rewrites the `.carbin` models in it, refitting each part's box to
+its new vertices.
 
 ## The Forza Horizon XE mod
 
