@@ -63,6 +63,13 @@ PRESENTATION_COLUMNS = (
     "duplicate_present_count",
     "dropped_present_count",
 )
+# Frame generation counters; optional, older captures and builds without
+# generation lack them.
+FRAME_GENERATION_COLUMNS = (
+    "generated_present_count",
+    "frame_generation_gpu_time_ns",
+    "frame_generation_skipped",
+)
 SIMULATION_TIME_COLUMNS = (
     "simulation_time_ns",
     "simulation_delta_invalid",
@@ -136,6 +143,13 @@ def summarize(path: pathlib.Path) -> dict[str, Any]:
                 "capture has an incomplete presentation counter set: "
                 + ", ".join(missing_presentation)
             )
+        available_frame_generation = columns.intersection(FRAME_GENERATION_COLUMNS)
+        if available_frame_generation and available_frame_generation != set(FRAME_GENERATION_COLUMNS):
+            missing_frame_generation = sorted(set(FRAME_GENERATION_COLUMNS) - available_frame_generation)
+            raise CaptureError(
+                "capture has an incomplete frame generation counter set: "
+                + ", ".join(missing_frame_generation)
+            )
         available_simulation_time = columns.intersection(SIMULATION_TIME_COLUMNS)
         if (
             available_simulation_time
@@ -177,6 +191,11 @@ def summarize(path: pathlib.Path) -> dict[str, Any]:
             if available_simulation_time
             else None
         )
+        frame_generation_totals = (
+            {name: 0.0 for name in FRAME_GENERATION_COLUMNS}
+            if available_frame_generation and presentation_totals is not None
+            else None
+        )
         simulation_active_frame_time_us = 0.0
         native_gpu_timing_totals = (
             {name: 0.0 for name in NATIVE_GPU_TIMING_COLUMNS}
@@ -214,6 +233,10 @@ def summarize(path: pathlib.Path) -> dict[str, Any]:
                 name: finite_number(row[name], column=name, row_number=row_number)
                 for name in SIMULATION_TIME_COLUMNS
             } if simulation_time_totals is not None else {})
+            row_frame_generation = ({
+                name: finite_number(row[name], column=name, row_number=row_number)
+                for name in FRAME_GENERATION_COLUMNS
+            } if frame_generation_totals is not None else {})
             row_native_gpu_timing = ({
                 name: finite_number(row[name], column=name, row_number=row_number)
                 for name in NATIVE_GPU_TIMING_COLUMNS
@@ -237,6 +260,8 @@ def summarize(path: pathlib.Path) -> dict[str, Any]:
                     presentation_delta_samples[name] += 1
             for name, value in row_simulation_time.items():
                 simulation_time_totals[name] += value
+            for name, value in row_frame_generation.items():
+                frame_generation_totals[name] += value
             if row_simulation_time.get("simulation_time_ns", 0) > 0:
                 simulation_active_frame_time_us += frame_time
             for name, value in row_native_gpu_timing.items():
@@ -318,6 +343,36 @@ def summarize(path: pathlib.Path) -> dict[str, Any]:
                 ),
             },
         }
+        if frame_generation_totals is not None:
+            generation_counters = {
+                name: int(value) if value.is_integer() else value
+                for name, value in frame_generation_totals.items()
+            }
+            generated = generation_counters["generated_present_count"]
+            # Generated presents are presents of no new title frame; distinct
+            # presents are the real frames shown once.
+            distinct = max(
+                0,
+                counters["present_count"]
+                - counters["duplicate_present_count"]
+                - generated,
+            )
+            result["presentation"]["counters"].update(generation_counters)
+            result["presentation"]["cadence_hz"]["generated_present"] = round(
+                generated / duration_seconds, 3
+            )
+            result["presentation"]["cadence_hz"]["distinct_present"] = round(
+                distinct / duration_seconds, 3
+            )
+            result["presentation"]["frame_generation"] = {
+                "mean_gpu_ms": round(
+                    generation_counters["frame_generation_gpu_time_ns"]
+                    / max(1, generated)
+                    / 1_000_000.0,
+                    3,
+                ),
+                "skipped": generation_counters["frame_generation_skipped"],
+            }
         if simulation_time_totals is not None:
             simulation_time_ns = int(simulation_time_totals["simulation_time_ns"])
             active_wall_seconds = simulation_active_frame_time_us / 1_000_000.0

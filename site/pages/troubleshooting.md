@@ -9,7 +9,7 @@ description: Fixes for rejected disc images, failed builds, startup problems, co
 
 ## The ISO is rejected
 
-Only the USA retail base disc (`MS-2505`) is supported. A bad dump, another region, a title update or a modified image won't match. The launcher doesn't accept near matches and can't download or repair an image.
+Only the USA retail base disc (`MS-2505`) is supported. A bad dump, another region, a title update or a modified image won't match. The launcher doesn't accept near matches and can't download or repair an image. On Linux and macOS, setup from a terminal also accepts the Games on Demand release of the same build, whose re-signed executables are listed in `config/supported-dumps.json`.
 
 ## Defender reports a Trojan or quarantines a file
 
@@ -69,6 +69,26 @@ quotes the value.
 The backup keeps the original bytes, including a UTF-8 BOM or Windows line endings.
 Invalid TOML is left for you to correct before retrying. A configuration from a
 newer build is accepted without changing its schema or dropping unknown settings.
+
+## The game starts but shows nothing (macOS)
+
+The first start after an install or an update builds every pipeline the game saved from earlier sessions before it shows a frame, and macOS compiles each one from scratch the first time (the next start finds them in the system's Metal shader cache). On an M1 that is about 20 seconds for 600 pipelines; a line at the bottom of the window counts them, "LOADING SHADERS 86 / 611", and the same progress goes to `.local/preview/logs/runtime.log` as "Shader status". Wait for it; the second start of the same build takes under a second. The line also appears during play as "COMPILING SHADERS n LEFT" when a scene needs shaders the cache has not seen.
+
+If the line never appears and the log ends after "Initializing shader storage", the machine is short of memory (swap in use after a long session of other work, or a second copy of the game still running). Quit it, make sure no other `pinyon_shift` process is running (Activity Monitor), and start again. Deleting `.local/preview/cache/shaders` only costs one slower first drive while shaders are compiled again.
+
+## Fullscreen is black, windowed is blue (macOS, builds before 2026-10-18)
+
+Going fullscreen with the green button or <kbd>Ctrl</kbd>+<kbd>Cmd</kbd>+<kbd>F</kbd> showed black, and coming back showed a blue window, while the sound and the controller kept working. macOS animates the window into its fullscreen Space, and the game rebuilt its swapchain while the animation was still running, against a layer state the end of the transition replaces; the frames kept presenting and nothing reached the screen until something else rebuilt the connection (opening a menu that changed a display setting did). Fixed: the window now rebuilds the connection when SDL reports the transition finished. Apple's performance HUD grows when the window goes fullscreen on a Retina panel, since it scales with the layer's pixel size, and keeps that size when the window comes back. Apple exposes no setting for the size (only on, off and logging); pick a smaller size from the HUD's own menu-bar item.
+
+Current builds default to a borderless window on the current desktop;
+`SDL_VIDEO_MAC_FULLSCREEN_SPACES=1` restores separate Spaces for diagnosis.
+The transition-finished reconnect remains. The automatic drawable-density
+cap now targets 3840 x 2160 pixels of area on high-density displays; the
+HUD's size with that cap has not been rechecked.
+
+## The picture pulses brighter every second or so (macOS, builds before 2026-10-15)
+
+In free roam the whole image brightened by a few percent for two to four frames, every 0.3 to 1.5 seconds, with bloom on or off. The game's exposure read its scene-luminance texture from a stale copy for one frame, because on Apple silicon that 4 KB texture shares a 16 KB memory page with data the game writes every frame, and the page was refreshed whole. Fixed in ShiftGlue 6e3f434 (2026-10-15), which tracks that memory in 4 KB pages; the [lessons](lessons.md) page has the detail.
 
 ## The game runs on the wrong GPU
 

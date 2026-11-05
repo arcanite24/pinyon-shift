@@ -75,7 +75,7 @@ but are platform work, tracked in FB-11 by pointer.
 
 ## Verification rules
 
-- **Seeds only.** Never the AppData save (AGENTS.md, CLAUDE.md). Feature
+- **Seeds only.** Never the AppData save (AGENTS.md). Feature
   tests run through `tools/run-fh1-render-test.py` on a pinned seed from
   `tools/create-render-seed.py`.
 - **Off by default until qualified.** A new feature that changes gameplay,
@@ -481,7 +481,7 @@ FB-14.6 to FB-14.9 are planned in detail in
 | FB-14.3 | **HUD scale and safe-zone setting** ([#520](https://github.com/arcanite24/pinyon-shift/issues/520)) | S-M | Done: F6 > DISPLAY > HUD, HUD draws scaled through the viewport (`fh1_hud_scale`, `fh1_hud_safe_zone`) |
 | FB-14.4 | **Colour grading mods: grading maps and a host LUT** ([#521](https://github.com/arcanite24/pinyon-shift/issues/521)) | S | Done: grading maps by mod (MODDING.md), `.cube` LUT on the scene (F6 > GRAPHICS > COLOUR LUT) |
 | FB-14.5 | **Shader replacement as a mod folder** ([#522](https://github.com/arcanite24/pinyon-shift/issues/522)) | S-M | Confirmed hook |
-| FB-14.6 | **Temporal upscaling and frame generation inputs, FSR 3.1 first (DR-5.4)** ([#523](https://github.com/arcanite24/pinyon-shift/issues/523)) | L | Probable |
+| FB-14.6 | **Temporal upscaling and frame generation inputs, FSR 3.1 first (DR-5.4)** ([#523](https://github.com/arcanite24/pinyon-shift/issues/523)); MetalFX frame generation works on the M1, colour only, opt-in and off by default (docs/FRAME_GENERATION.md); FSR 3.1 stubbed | L | Probable |
 | FB-14.7 | **FSR 4 upscaling and frame generation** ([#524](https://github.com/arcanite24/pinyon-shift/issues/524)) | M after FB-14.6 | Probable |
 | FB-14.8 | **DLSS upscaling and frame generation from a player-supplied DLL** ([#525](https://github.com/arcanite24/pinyon-shift/issues/525)) | M after FB-14.6 | Probable |
 | FB-14.9 | **Lossless Scaling frame generation from the player's own `Lossless.dll`** ([#526](https://github.com/arcanite24/pinyon-shift/issues/526)) | M | Probable |

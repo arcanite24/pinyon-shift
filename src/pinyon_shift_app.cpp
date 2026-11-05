@@ -99,6 +99,14 @@ REXCVAR_DEFINE_INT32(fh1_frame_inspector_view, 0, "GPU",
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 #endif
 
+// The Metal performance HUD (frame rate, frame time, GPU time and memory,
+// drawn by the system over the window). Metal reads MTL_HUD_ENABLED when the
+// first layer is created, so this is applied at startup and needs a restart.
+REXCVAR_DEFINE_BOOL(pinyon_shift_metal_hud, false, "Pinyon Shift",
+                    "macOS: show Apple's Metal performance HUD (frame rate, frame time, GPU "
+                    "time) over the game window")
+    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+
 REXCVAR_DEFINE_BOOL(pinyon_shift_touch_controls, REX_PLATFORM_ANDROID, "Pinyon Shift",
                     "On-screen controls for touch screens: a steering stick, throttle, brake "
                     "and buttons, shown on a touch and hidden after a while without one")
@@ -215,6 +223,8 @@ std::string DefaultConfigText() {
             "pinyon_shift_fh1_source_presentation = true\n"
             "anisotropic_override = -1\n"
             "present_effect = \"bilinear\"\n"
+            // Frame generation is opt-in (docs/FRAME_GENERATION.md).
+            "present_frame_generation = \"off\"\n"
             "swap_post_effect = \"none\"\n"
             "disable_bloom = true\n"
             "disable_motion_blur = true\n"
@@ -785,6 +795,14 @@ void PinyonShiftApp::OnConfigurePaths(rex::PathConfig& paths) {
                 rex::path_to_utf8(paths.config_path.parent_path() / "controller_mappings.txt"));
   }
 
+#if defined(__APPLE__)
+  // Before any Metal layer exists: the HUD setting is read once, at creation.
+  // An MTL_HUD_ENABLED already in the environment (a launcher's) is kept.
+  if (REXCVAR_GET(pinyon_shift_metal_hud)) {
+    setenv("MTL_HUD_ENABLED", "1", 0);
+  }
+#endif
+
   diagnostics::RecordEvent(
       "paths.configured",
       {{"game", rex::path_to_utf8(paths.game_data_root)},
@@ -870,6 +888,8 @@ void PinyonShiftApp::OnPostInitLogging() {
                         {"anisotropic_override",
                          rex::cvar::GetFlagByName("anisotropic_override")},
                         {"swap_post_effect", rex::cvar::GetFlagByName("swap_post_effect")},
+                        {"present_frame_generation",
+                         rex::cvar::GetFlagByName("present_frame_generation")},
                         {"disable_bloom", rex::cvar::GetFlagByName("disable_bloom")},
                         {"disable_motion_blur",
                          rex::cvar::GetFlagByName("disable_motion_blur")},
@@ -1008,6 +1028,58 @@ void PinyonShiftApp::ToggleGameMenu() {
   OpenSettingsMenu();
 }
 
+// One line describing what the renderer is still compiling, or empty when
+// nothing is pending. Shown while a cold start builds its pipelines: the
+// guest renders but nothing is presented until every draw has a real
+// pipeline, which otherwise looks like a black screen that hung.
+std::string PinyonShiftApp::ShaderCompileStatusText() const {
+  if (!runtime() || !runtime()->graphics_system()) {
+    return {};
+  }
+  const auto status = runtime()->graphics_system()->shader_compile_status();
+  if (status.startup_pipelines_total &&
+      status.startup_pipelines_done < status.startup_pipelines_total) {
+    return fmt::format("LOADING SHADERS  {} / {}", status.startup_pipelines_done,
+                       status.startup_pipelines_total);
+  }
+  const uint32_t pending = status.pending_pipelines + status.pending_translations;
+  if (!pending) {
+    return {};
+  }
+  std::string text = fmt::format("COMPILING SHADERS  {} LEFT", pending);
+  if (!status.frames_presented) {
+    text += "  (FIRST START TAKES A WHILE)";
+  }
+  return text;
+}
+
+// The HUD source is read only when something repaints, and nothing does
+// while every frame is held back, so poll a few times a second and repaint
+// while compiles are pending (and once more when they finish, to clear the
+// line). Idle otherwise.
+void PinyonShiftApp::StartShaderCompileStatusPoll() {
+  if (shader_status_poll_.joinable()) {
+    return;
+  }
+  shader_status_poll_ = std::thread([this] {
+    std::string shown;
+    while (!shader_status_poll_stop_.load(std::memory_order_acquire)) {
+      std::string text = ShaderCompileStatusText();
+      if (text != shown) {
+        shown = std::move(text);
+        // Also in the log, for reports of a start that looked hung.
+        REXLOG_INFO("Shader status: {}", shown.empty() ? "idle" : shown);
+        if (window()) {
+          window()->app_context().CallInUIThreadDeferred([this] {
+            if (host_ui_) host_ui_->HudChanged();
+          });
+        }
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(250));
+    }
+  });
+}
+
 bool PinyonShiftApp::EnsureHostUi() {
   if (host_ui_) {
     return true;
@@ -1022,14 +1094,21 @@ bool PinyonShiftApp::EnsureHostUi() {
   host_ui_ = std::make_unique<pinyon_shift::hostui::HostUi>(
       *this, *presenter, *immediate_drawer(), *window(),
       static_cast<rex::input::InputSystem*>(runtime()->input_system()), game_data_root());
-  // Mods' HUD labels (NP-11), drawn by the host UI over the title.
-  host_ui_->SetHudSource([] {
+  // Mods' HUD labels (NP-11), drawn by the host UI over the title, and the
+  // shader compilation status while frames are being held back for it.
+  host_ui_->SetHudSource([this] {
     std::vector<pinyon_shift::hostui::HostUi::HudText> texts;
+    if (auto status = ShaderCompileStatusText(); !status.empty()) {
+      // Bottom of the title's safe area, left-aligned like the title's own
+      // loading hints, small enough not to cover anything.
+      texts.push_back({std::move(status), 96.0f, 660.0f, 20.0f});
+    }
     for (const auto& label : pinyon_shift::mod::HudLabels()) {
       texts.push_back({label.text, label.x, label.y, label.size});
     }
     return texts;
   });
+  StartShaderCompileStatusPoll();
   pinyon_shift::mod::SetHudChangedCallback([this] {
     if (window()) {
       window()->app_context().CallInUIThreadDeferred([this] {
@@ -1825,6 +1904,10 @@ void PinyonShiftApp::OnShutdown() {
   pinyon_shift::achievements::SetChangedCallback(nullptr);
   pinyon_shift::achievements::SetFreeRoamCallback(nullptr);
   rex::kernel::xam::SetXamUiProvider(nullptr);
+  shader_status_poll_stop_.store(true, std::memory_order_release);
+  if (shader_status_poll_.joinable()) {
+    shader_status_poll_.join();
+  }
   pinyon_shift::mod::SetHudChangedCallback(nullptr);
   pinyon_shift::rally::SetPaceHudChangedCallback(nullptr);
   xam_dialogs_.reset();

@@ -264,7 +264,10 @@ day/night driving, traffic, race, rewind, map, pause, photo, FMV and streaming.
 Run [contributor checks](../CONTRIBUTING.md) and, for a renderer change, the
 golden frame replays (`tools/test-fh1-frame-replays.py`) and the affected
 render-test routes. Summarize performance CSVs with
-`python tools/summarize-performance.py <session.perf.csv>`. A faithful dependency
+`python tools/summarize-performance.py <session.perf.csv>`; for the free-roam
+routes, whose frames are mostly menus, `tools/summarize-drive-frames.py`
+reports the driving frames (draws above 800) and the executor stats windows
+that fall in them. A faithful dependency
 replacement can be retained without an FPS gain if it removes proven work
 without material regression. Lower hardware claims require measurements on
 that hardware. There is no Xenos reference any more: compare with earlier

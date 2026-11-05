@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Setup on Linux and macOS accepts the Games on Demand release of the game,
+  whose re-signed executables and dashboard art are catalogued as a second
+  revision of the supported dump.
+
 ## 0.8.1 - 2026-11-05
 
 - Fixed: Windows setup stopped with "Cannot bind argument to parameter

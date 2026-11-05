@@ -25,6 +25,7 @@
 #if defined(__ANDROID__)
 #include <rex/ui/vulkan/android_gpu_driver.h>
 #endif
+#include <rex/ui/frame_generator.h>
 #include <rex/ui/vulkan/presenter.h>
 
 #include "cheats.h"
@@ -507,6 +508,25 @@ std::unique_ptr<MenuScreen> SettingsPages::Display() {
                                         {"MEDIUM", {{"present_fsr_sharpness_reduction", "0.5"}}},
                                         {"HIGH", {{"present_fsr_sharpness_reduction", "0.2"}}},
                                         {"MAX", {{"present_fsr_sharpness_reduction", "0.0"}}}}));
+  // Frame generation (opt-in, off by default; docs/FRAME_GENERATION.md): one
+  // generated frame between each pair of the game's frames, so a GPU-bound
+  // machine shows about twice the frames. The real frame waits half a game
+  // frame, so input lags that much more. Offered only when a backend is built
+  // in (MetalFX on macOS); FSR 3 joins the choices once it is wired.
+  if (rex::ui::GetFrameGenerationState().offered) {
+    std::vector<Choice> backends = {{"OFF", {{"present_frame_generation", "\"off\""}}}};
+#if defined(__APPLE__)
+    // Experimental: MetalFX interpolates from the colour pair alone, so fast
+    // foliage, thin objects and sun glare ghost or tear (docs/FRAME_GENERATION.md).
+    backends.push_back({"METALFX", {{"present_frame_generation", "\"metalfx\""}}});
+#endif
+    rows.push_back(Setting("FRAME GENERATION (EXPERIMENTAL)", std::move(backends)));
+  }
+#if defined(__APPLE__)
+  // Apple's Metal performance HUD over the window: frame rate, frame time,
+  // GPU time and memory, drawn by the system. Applies at the next start.
+  rows.push_back(Toggle("METAL PERFORMANCE HUD", "pinyon_shift_metal_hud"));
+#endif
   // HDR output (#417, #442): the image on an HDR (scRGB) swapchain with its
   // white at the paper white, so an HDR desktop does not wash it out, and the
   // scene's highlights (not the HUD or menus) expanded towards the display's
@@ -581,6 +601,17 @@ std::unique_ptr<MenuScreen> SettingsPages::Display() {
     if (SameValue(Unquote(Saved("present_hdr")), "true") &&
         !rex::ui::vulkan::GetHdrOutputState().offered) {
       return std::string("HDR NEEDS HDR TURNED ON FOR THIS DISPLAY");
+    }
+    // Frame generation that cannot run here says why; one that can needs the
+    // presentation limit above the game's rate, or it only drops frames.
+    const auto generation = rex::ui::GetFrameGenerationState();
+    if (generation.requested != rex::ui::FrameGenerationBackend::kOff) {
+      if (!generation.available) {
+        return std::string("FRAME GENERATION IS NOT AVAILABLE HERE: ") + Upper(generation.reason);
+      }
+      if (present && *present > 0 && game && *game > 0 && *present <= *game) {
+        return std::string("FRAME GENERATION NEEDS A FRAME RATE LIMIT ABOVE THE GAME'S");
+      }
     }
     return ResolutionLine();
   };

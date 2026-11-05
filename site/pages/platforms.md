@@ -91,7 +91,7 @@ One trap: with Manual GPU Clock on in the Quick Access menu, Steam can pin the G
 
 **16 KB pages.** One host page holds four guest pages. The write-watch code took a host page's protection from its first guest page, so a committed page next to an uncommitted one faulted (SIGBUS in free roam, runs 2–4). Using the union of the four guest pages' access fixed it. The GPU's shared-memory tracking also used host pages, so a CPU write beside the 4 KB exposure resolve discarded it and free roam was overexposed and flashed (luma 171.5 against 114.7 on Windows); it now tracks 4 KB pages and keeps GPU-written pages a write did not touch (111.9).
 
-**Exposure and fullscreen.** Keeping that GPU copy valid does not put it in CPU guest RAM. A later M1 Max contributor trace found CPU reads of the float luminance resolve, so completed small float resolves are now read back too, a frame or two late without a GPU wait, after an unscaled copy when needed. The 4 KB tracking fix stays in place. Fullscreen defaults to a borderless window on the current desktop, and the presenter restores the Metal drawable to the swapchain extent before acquiring an image; surface recreation on resize alone did not cover a late SDL update to 1x1. The layer belongs to the connected paint context and is cleared on disconnect.
+**Exposure and fullscreen.** Keeping that GPU copy valid does not put it in CPU guest RAM. A later M1 Max contributor trace found CPU reads of the float luminance resolve, so completed small float resolves are now read back too, a frame or two late without a GPU wait, after an unscaled copy when needed. The 4 KB tracking fix stays in place. Fullscreen defaults to a borderless window on the current desktop, and the drawable is capped by pixel area at 3840 x 2160 on high-density displays (`window_max_pixel_density`); the presenter restores the Metal drawable to the swapchain extent before acquiring an image; surface recreation on resize alone did not cover a late SDL update to 1x1. The layer belongs to the connected paint context and is cleared on disconnect.
 
 **MoltenVK limits.** No geometry shaders and no wireframe fill, so the vertex-shader expansion paths are used. No fragment shading rate, so SCENE SHADING does nothing. The portability subset lacks separate stencil reference masks, and SPIRV-Cross rejects some decorations on function-local arrays, which the translator avoids.
 
@@ -101,10 +101,10 @@ One trap: with Manual GPU Clock on in the Quick Access menu, Steam can pin the G
 
 **Full-screen drawable.** Every Mac result above was measured with the window hidden. Full screen on a 4K TV in a scaled mode ("looks like 3008 × 1692", 6016 × 3384 backing pixels), the same 1x drive fell from 120 to 63–73 fps with a 28 ms frame p95, though the game's own frame took 8.4 ms: the GPU spent about 3 ms more per frame presenting into the 20-megapixel drawable. A 1280 × 720 window on the same display (2560 × 1440 drawable) held 120. macOS now caps the drawable at 3840 × 2160 pixels (`window_max_pixel_density`, default automatic) and lets the system scale it; the drive holds 120.0 fps with a 9.95 ms p95, and a cap of 1.5 (4512 × 2538) also held 120. Built-in MacBook panels have fewer pixels than that, so they keep full density. At 2x with 4x MSAA the game itself is GPU-bound at 19.5 ms, 51 fps, with or without the cap; flat pixel shaders take that to 11.5 ms, so about 8 ms is shading and the rest raster and sample traffic over about 180 renderings a frame. With the game's 4x surfaces stored at two samples (`fh1_msaa_2x`), 2x holds the 60 limit (59.6 and 60.0 fps, 16.7 ms of GPU), so QUALITY 60 uses 2x MSAA on a Mac. It also lowers peak surfaces from 848 to 584 MiB and Vulkan device memory from 4.1 to 3.9 GiB.
 
-Those measurements use MSAA off and untiled predicated tiling on. QUALITY 60 sets 2x scale, 4x MSAA and untiled predicated tiling off, so the 1x result is not a qualification of that preset. The [qualification procedure](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/MACOS.md#renderer-qualification) uses a pinned seed, all six scale/MSAA combinations and a 60 fps limit, and separates captures from the interval used for CPU, GPU and memory measurements. A successful scripted route alone does not establish a 60 fps budget or correct car geometry.
+Those measurements use MSAA off and untiled predicated tiling on. QUALITY 60 sets 2x scale, 2x MSAA on a Mac and untiled predicated tiling off, so the 1x result is not a qualification of that preset. The [qualification procedure](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/MACOS.md#renderer-qualification) uses a pinned seed, all six scale/MSAA combinations and a 60 fps limit, and separates captures from the interval used for CPU, GPU and memory measurements. A successful scripted route alone does not establish a 60 fps budget or correct car geometry.
 
 The 2026-10-18 base-game qualification on that Mac (12 CPU cores, 24 GiB,
-macOS 26.3) measured these single-run means over 36.6–36.7 s of driving:
+macOS 26.3), historical because QUALITY 60 then used 4x MSAA, measured these single-run means over 36.6–36.7 s of driving:
 
 | Scale | MSAA off | 2x MSAA | 4x MSAA |
 | --- | ---: | ---: | ---: |
@@ -124,7 +124,7 @@ but the original M1 Max failure did not reproduce and a persistent sky tint
 varied between restarts. A fixed 1x/MSAA-off packet frame replayed on Mac
 and Windows with RGB mean absolute errors 1.165/1.120/0.830 out of 255;
 larger local differences remain, so this is not a bit-exact or 2x/4x gate.
-On 2026-10-18 QUALITY 60 still missed its performance budget; see below for the 2x MSAA fix.
+On 2026-10-18 QUALITY 60 (then 4x MSAA) missed its performance budget; the 2x MSAA result above is the fix.
 Fullscreen menu/cvar routes completed, but OS screen capture was denied,
 so visible fullscreen output and native Space behavior remain unqualified.
 

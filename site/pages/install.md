@@ -40,7 +40,7 @@ Choose **Update to <version>** in the launcher's footer when it appears. The lau
 
 ## Use an extracted folder
 
-**Choose extracted folder** accepts a folder holding `default.xex`, the two facade executables and `media`. Every file must match the cataloged size and SHA-256 of the supported disc. Missing, modified or extra files are rejected before building. The source folder is never changed.
+**Choose extracted folder** accepts a folder holding `default.xex`, the two facade executables and `media`. Every file must match the cataloged size and SHA-256 of the supported disc. Missing, modified or extra files are rejected before building. The source folder is never changed. On Linux and macOS, `python3 tools/pinyon.py setup --extracted <folder>` also accepts the Games on Demand release of the same build: its executables and dashboard art are re-signed, and are catalogued as a second revision.
 
 ## Install location
 

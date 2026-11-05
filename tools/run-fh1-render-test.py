@@ -2137,8 +2137,13 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         if not presentation:
             raise RuntimeError("missing presentation telemetry")
         counters = presentation["counters"]
+        # Generated frames (frame generation) are presents of no new title
+        # frame; only distinct completed FH1 frames count.
         distinct_count = max(
-            0, counters["present_count"] - counters["duplicate_present_count"]
+            0,
+            counters["present_count"]
+            - counters["duplicate_present_count"]
+            - counters.get("generated_present_count", 0),
         )
         duration = performance["frames"]["measured_duration_seconds"]
         distinct_hz = distinct_count / duration

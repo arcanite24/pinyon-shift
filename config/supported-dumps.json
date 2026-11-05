@@ -76,6 +76,39 @@
           "size_bytes": 2662400,
           "sha256": "ED285BEEFEAFCDC90CF64D6085D19C874E3F1E15072C12CDF9BA2237C88E2CE5"
         }
+      ],
+      "executable_revisions": [
+        {
+          "id": "games-on-demand",
+          "media_id": "43C5F3C0",
+          "note": "Xbox 360 Games on Demand release of the same build (title 4D5309C9, version 0.0.0.10). Its three executables and the dashboard art package hash differently from the disc; the executables carry the same load addresses and ReXGlue translates them to byte-identical functions and module metadata, so the disc's analysis configuration applies unchanged. Every other file matches the disc catalog.",
+          "files": [
+            {
+              "guest_path": "default.xex",
+              "role": "entrypoint",
+              "size_bytes": 20856832,
+              "sha256": "4C8A2E9BAF7F160D5265B68E218AD1DB472B78B4632E51934871C4487AC27CF0"
+            },
+            {
+              "guest_path": "SpeechFacade_default.xex",
+              "role": "candidate_module",
+              "size_bytes": 2138112,
+              "sha256": "909D7127C1BE8C8DF74FC03BCA2B2E6505A20A7052CC6AF263EA1E8B106DFCF0"
+            },
+            {
+              "guest_path": "XMediaFacade_default.xex",
+              "role": "candidate_module",
+              "size_bytes": 2662400,
+              "sha256": "0A0580455A9738938A1633C43173629D5A4EF079B0ED0DC607CDAEFBCD166DC1"
+            },
+            {
+              "guest_path": "nxeart",
+              "role": "dashboard_art",
+              "size_bytes": 1548288,
+              "sha256": "77E3F1852BA2527DE5BA661E10A71DF69C479A0D702B67FE12C25557ED4CE3FF"
+            }
+          ]
+        }
       ]
     }
   ]

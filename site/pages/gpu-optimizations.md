@@ -161,14 +161,25 @@ On 2026-10-13 (RTX 4080, `fh1-race-sync`, last 600 frames, three runs) the frame
 
 Tile-based mobile GPUs pay for each rendering: on the Adreno 830 one costs 24–28 µs.
 
+The M1 results below are historical driving-window measurements made before the
+2026-11-02 rebase, not a new qualification of the merged SDK. The
+[macOS renderer guide](macos-renderer.md) separates the optimization stages and
+explains their controls and limitations.
+
 | Change | Device | Measured |
 | --- | --- | --- |
 | EDRAM clears folded into the next rendering's load | 8 Elite | renderings about 280 to 210; frame −1.6 to −2.6 ms, GPU −0.5 ms |
 | The three predicated scene bands drawn once ("single-pass scene") | Odin | 4x 32.0 to 29.2 ms; 1x 28.3 to 25.4 ms; no seam in captures |
 | | Desktop 3x | within noise |
+| | Apple M1, 1x free roam (driving frames) | 83.7 against 70.6–72.4 ms: worse, one run; the saved bands are a few of ~290 restarts a frame |
 | Draws that write nothing skipped (about 120 a frame) | Desktop | within noise |
+| Shared-memory uploads a draw needs moved ahead of the open rendering's begin in the recorded command stream, instead of ending the rendering (`fh1_hoist_uploads`) | Apple M1, 1x free roam (driving frames) | GPU 71.8 to 56.4–57.0 ms (three runs); renderings a frame about 210–300 to 90–175; image inside control noise |
+| The uploads hoisted into one rendering merged into one barrier pair and one run of copies (`fh1_hoist_uploads_merge`) | Apple M1, 1x free roam (driving frames) | GPU 56.8–60.9 to 53.9 ms (bracketed controls); hoisted barrier pairs a frame about 160 to 13, barrier batches halved |
+| Pixel-stage ALU math in 16-bit floats, converted around each op (`fh1_shader_float16`, needs `shaderFloat16`; off by default) | Apple M1, 1x free roam (driving frames) | GPU 52.8–54.0 to 50.2–50.4 ms (four controls, two runs); the MSL shows `half` in 16 of 19 guest fragment shaders. SPIR-V `RelaxedPrecision` alone did nothing: MoltenVK ignores it. The image check caught one shader (a sun-flare composite) whose 32-bit `exp2` results overflowed the 16-bit range into NaNs drawn as white glints; clamping every operand fixed it but cost the whole gain (52.9 ms), so the results of the 32-bit `exp2`, `log2` and reciprocal ops are clamped once instead (`fh1_shader_float16_clamp=1`), which keeps the gain and the image |
 
 Dropped: store-op tuning (only about 8 depth stores a frame qualified); trimming render areas (the Adreno driver already skips untouched tiles); forcing Turnip's on-chip GMEM path (50–56 ms against 29–32); skipping attachment barriers at 3x (noise).
+
+On the Apple M1 (8-core GPU, MoltenVK) the executor's GPU profile works once its timestamp pool is sized under Metal's 4,096-sample limit (`fh1_native_gpu_profile_slots=4`, `fh1_native_gpu_profile_queries=1000`, renderings only), and a Metal System Trace attached to the running game gives the encoder view: in free roam at 1x it shows a 72 ms frame as about 31 ms of shading in 27 heavy render encoders and about 40 ms of starting, stopping and idling (19 ms of GPU idle in some 670 gaps of 20–40 µs) around the other ~710 encoders a frame. About 180 of the ~290 render-pass restarts a frame were vertex and index uploads the draws discover mid-pass, the rest resolves; moving those uploads ahead of the rendering (the row above) took the drive frame to 56 ms, and the resolves are what is left. The profile then puts about 30 of the remaining 56 ms into the main scene pass (1280×720, the game's 4x MSAA depth and 2_10_10_10_FLOAT colour, single-sampled on the host), drawn in 7–10 renderings a frame: pixel shading, not restarts, is the floor now: with every guest pixel shader replaced by a constant (wrong image) the drive runs at 24.7 ms against 63 in the same chain, and discarding rasterization entirely saves only 0.6 ms more, so the translated pixel shaders are 61 % of the frame and the fixed cost of the passes is nothing. The measurements and method are in [REVERSE_ENGINEERING.md](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/REVERSE_ENGINEERING.md) (Host performance).
 
 ## Resolves and texture loads
 
@@ -195,7 +206,9 @@ Partial resolves leave texels outside the resolved area with their older content
 | Implicit LOD on Turnip | Odin 42.4 to 39.8 ms |
 | Turnip without shader preambles | 13.88 to 13.65 ms |
 | Hot shaders hand-edited to drop per-operation NaN guards, matched by guest hash and SPIR-V hash | 17.73 to 17.52 ms; identical images |
-| Fast pixel math | desktop noise; Odin 36.2 to 32.4 ms |
+| Fast pixel math (`spirv_fast_pixel_math`: no `NoContraction` on pixel ALU results, the Direct3D 9 multiply rule only on NaN products) | desktop noise; Odin 36.2 to 32.4 ms; **Apple M1 53 to 28 ms** (−47 %, two runs against three controls, image unchanged on the fixed-clock route): MoltenVK's SPIRV-Cross turns every `NoContraction` multiply and add into a non-inlined `[[clang::optnone]]` helper call, 398 of them in the largest free-roam fragment shader |
+| MoltenVK without Metal argument buffers (`vulkan_moltenvk_argument_buffers=false`, the macOS default) | **Apple M1 21.1 to 19.2 ms** (−9 %, two runs against two controls, image unchanged): with argument buffers MoltenVK implements every barrier outside a render pass by ending the Metal encoder and fencing; FH1's ~90 resolves a frame each sit behind one, and the Metal trace showed 9 of the 21 ms as 15–20 µs gaps between 386 encoders. Dropping the executor's own write-after-write buffer barrier between resolves (`fh1_coalesce_resolve_writes`) did nothing, since each resolve's batch also carries an image barrier |
+| Fast vertex math (`spirv_fast_vertex_math`: no `NoContraction` on vertex ALU results; the macOS default) | **Apple M1 28.5 to 21.1 ms** (−26 %); the same helper calls, 324 in the largest vertex shader, 64 of 66 vertex shaders carried them. Positions stay `Invariant`; the fixed-clock captures match the controls with no depth fighting |
 
 Fast math has a trap: Direct3D 9 shaders rely on 0 × ∞ = 0. Dropping that rule smeared motion blur on Adreno ([#403](https://github.com/arcanite24/pinyon-shift/issues/403)), and it was restored.
 
@@ -214,23 +227,23 @@ Fast math has a trap: Direct3D 9 shaders rely on 0 × ∞ = 0. Dropping that rul
 
 ## Three switches across four GPUs
 
-The same frame replayed on every device. The results differ enough that no saving measured on one GPU was assumed for another:
+The RTX 4080, M4 Pro and Steam Deck columns replay the same captured frame. The M1 column instead uses live free-roam driving windows; it is not a matched replay comparison. Its measurements predate the 2026-11-02 rebase and have not been repeated on the merged SDK. No saving measured on one GPU is assumed for another:
 
-| Switch | RTX 4080, 2x | M4 Pro, 1x / 2x | Steam Deck, 1x | Image |
-| --- | ---: | ---: | ---: | --- |
-| Default | 6.24 ms | 12.67 / 29.9 ms | 11.19 ms | |
-| Quads as triangle lists | −3 % | — / −5 % | about −1 % | mean difference 0.02/255 |
-| Coarse 2 × 2 shading | about −3 % | not in MoltenVK | −7 % (−9 % with alpha-tested draws) | slightly softer |
-| TEXTURE GAMMA FAST | none | −8 % / — | −2 % | darker midtones |
+| Switch | RTX 4080, 2x | M4 Pro, 1x / 2x | M1, 1x free roam | Steam Deck, 1x | Image |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Default | 6.24 ms | 12.67 / 29.9 ms | 56 ms (driving frames; 19 ms since fast pixel and vertex math and discrete-index binding became the macOS defaults) | 11.19 ms | |
+| Quads as triangle lists | −3 % | — / −5 % | — | about −1 % | mean difference 0.02/255 |
+| Coarse 2 × 2 shading | about −3 % | not in MoltenVK | not in MoltenVK | −7 % (−9 % with alpha-tested draws) | slightly softer |
+| TEXTURE GAMMA FAST | none | −8 % / — | −7 % (p95 −14 ms) | −2 % | darker midtones |
 
 - **Quads.** Quad lists were expanded in a geometry shader, which Adreno runs slowly; 77 of 220 driving pipelines had one. Converting them to triangle lists saved about 1.2 ms on the Odin and is the default everywhere.
 - **Coarse shading** uses the fragment shading rate extension: the Odin scene went 8.67 to 7.71 ms at 4x. Draws using alpha to coverage stay at full rate because Turnip turned them into dithered ghosts. It is a player option, SCENE SHADING, off by default except on Arm Mali GPUs, where a new config starts at COARSE: on a Mali-G720 (Galaxy Tab S10 Ultra) it saved 1.4-1.6 ms of a 21.5 ms race frame and the frames over 33 ms fell from 10-17 to 4-5 a run.
 - **Swapchain size on Android.** Android's swapchain scales its images to the window, so the presenter makes it the display's size divided by the largest whole number that still holds the game's output at the render scale (`android_present_divisor`, 0 automatic, 1 the display's size). A 2960 × 1848 tablet presents at 1480 × 924 at 1x and a 1080p phone at its own size. On the Mali-G720 that saved 0.8-1.2 ms a race frame; the image is scaled by the display hardware instead of the GPU.
-- **Texture gamma.** Sampling gamma textures through sRGB views skips the console's piecewise curve in every shader. The sRGB curve is darker in the midtones (half the pixels change), so the default stays accurate.
+- **Texture gamma.** Sampling gamma textures through sRGB views skips the console's piecewise curve in every shader. The sRGB curve is darker in the midtones (half the pixels change), so the default stays accurate. In the historical M1 drive before the fast-math changes, it was the shading-side switch that improved frame time while the game's own anisotropy instead of forced 4x did not. That suggested an arithmetic bottleneck for that workload; it is not a current measurement or a conclusion about every Apple GPU.
 
 ## Apple silicon
 
-The M4 Pro is shading-bound in free roam, so the shader switches the Adreno GPUs use pay off there too. The table gives medians of a 40 s scripted drive at 1x with MSAA off, two runs each, with pipelines prewarmed and untiled predicated tiling on (its own saving was measured by toggling it inside one run). QUALITY 60 instead selects 2x, 4x MSAA and untiled predicated tiling off; these 1x numbers do not qualify that preset:
+The M4 Pro is shading-bound in free roam, so the shader switches the Adreno GPUs use pay off there too. The table gives medians of a 40 s scripted drive at 1x with MSAA off, two runs each, with pipelines prewarmed and untiled predicated tiling on (its own saving was measured by toggling it inside one run). QUALITY 60 instead selects 2x scale, 2x MSAA on a Mac and untiled predicated tiling off; these 1x numbers do not qualify that preset:
 
 | Switch, M4 Pro | Median frame |
 | --- | ---: |
@@ -245,13 +258,13 @@ The M4 Pro is shading-bound in free roam, so the shader switches the Adreno GPUs
 
 With all four on, the GPU frame is 5.6–5.7 ms against 12.3–12.7 ms, and the title waits on GPU fences 6 times a frame instead of 26. Mean luma over the drive is 114.6 against 114.7 on Windows.
 
-The window is hidden in these runs, but Core Animation still hands out drawables at the display rate. MoltenVK takes the drawable while it encodes the present, on the thread that submits everything else, so no run goes past 120 fps on a 120 Hz display. MoltenVK also stamps timestamps at Metal encoder boundaries, so per-pass GPU timing doesn't work there; whole frames do.
+The window is hidden in these runs, but Core Animation still hands out drawables at the display rate. MoltenVK takes the drawable while it encodes the present, on the thread that submits everything else, so no run goes past 120 fps on a 120 Hz display. MoltenVK also stamps timestamps at Metal encoder boundaries, so timestamps inside one encoder do not isolate individual draw costs. Whole-frame measurements and the rendering-only profile described above remain useful at their respective boundaries.
 
-These are historical optimization measurements. On 2026-10-18, the current
+These are historical optimization measurements. On 2026-10-18, the
 base-game qualification on the M4 Pro (24 GiB, macOS 26.3), with a pinned
 Miata seed and a 60 fps limit, averaged 59.6–59.9 fps at 1x across off/2x/4x
-MSAA. At 2x it averaged 59.8/53.6/39.6 fps respectively. QUALITY 60's
-2x/4x cell had median/p95/p99 23.16/34.53/38.69 ms and mean whole-frame
+MSAA. At 2x it averaged 59.8/53.6/39.6 fps respectively. The 2x/4x cell, then
+QUALITY 60's, had median/p95/p99 23.16/34.53/38.69 ms and mean whole-frame
 GPU time 24.01 ms. Its heap usage was 3671 MiB and peak native surfaces
 467 MiB; RSS is not total Metal memory. These are single runs over 36.6–36.7 s,
 not an A/B speedup claim ([method and all resource columns](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/MACOS.md#renderer-qualification)). All of these ran hidden; full screen on a high-density display the drawable's size matters more than any of them ([full-screen drawable](platforms.md#macos-on-apple-silicon)).
@@ -259,7 +272,7 @@ not an A/B speedup claim ([method and all resource columns](https://github.com/a
 The 1x untiled-predicated-tiling saving did not qualify a quality-mode gain:
 an unpaired 2x/4x live control returned 34.1 fps against 43.5 with it off,
 and surfaces 848 against 467 MiB. Varying car poses limit the timing
-comparison. QUALITY 60 keeps its existing off setting. A separate uncapped
+comparison. QUALITY 60 kept its off setting. A separate uncapped
 1x/MSAA-off run with it on reached 105.5 fps, median 9.30 ms, on this seed.
 The small-float exposure readback complements 4 KiB GPU tracking; no
 measured gain justifies removing that tracking or changing fast math or

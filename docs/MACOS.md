@@ -8,8 +8,12 @@ verifies it, builds the game on your Mac and starts it.
 ## Requirements
 
 - An Apple silicon Mac (M1 or newer) with macOS 13 Ventura or newer. Intel
-  Macs have an experimental build; see [Intel Macs](#intel-macs-experimental).
-- Your ISO of the USA retail disc (`MS-2505`).
+  Macs on macOS 13.3 or newer have an experimental build; see
+  [Intel Macs](#intel-macs-experimental).
+- Your ISO of the USA retail disc (`MS-2505`), or that game extracted to a
+  folder. The Games on Demand release of the same build is accepted too;
+  see [Use an extracted game folder](EXTRACTED_GAME_INPUT.md). Windows still
+  takes the disc only.
 - About 20 GB free.
 - Apple's Command Line Tools, which provide the compiler. The launcher
   offers to install them if they are missing; nothing else needs installing.
@@ -46,6 +50,8 @@ repository checkout:
 
 ```bash
 python3 tools/pinyon.py setup --iso ~/Downloads/forza-horizon.iso
+# or, from an already extracted game folder:
+python3 tools/pinyon.py setup --extracted ~/Games/forza-horizon
 python3 tools/pinyon.py launch
 ```
 
@@ -90,12 +96,17 @@ external drive.
   drawable at the swapchain's size before acquiring an image. Fullscreen
   defaults to a borderless window on the current desktop; it does not open a
   separate Space. `SDL_VIDEO_MAC_FULLSCREEN_SPACES=1` restores SDL's Space
-  behavior for diagnosis, but that path has reported black output.
+  behavior for diagnosis, but that path has reported black output. The
+  window still rebuilds the swapchain connection when SDL reports a
+  fullscreen transition finished (ENTER/LEAVE_FULLSCREEN), in case a Space
+  is used.
 - **Low frame rate full screen on a 5K, 6K or scaled 4K display.** The
-  drawable is capped at 3840x2160 pixels by default
-  (`window_max_pixel_density = 0`) and macOS scales it to the screen.
-  Drawing every backing pixel (`4`) cost an M4 Pro half its frame rate on a
-  6016x3384 backing; `1` draws one pixel per point, the cheapest.
+  drawable is capped by pixel area at 3840x2160 by default
+  (`window_max_pixel_density = 0`, automatic, never below one drawable pixel
+  per window point) and macOS scales it to the screen. Drawing every backing
+  pixel (`4`) cost an M4 Pro half its frame rate on a 6016x3384 backing, about
+  3 ms of GPU a frame spent presenting; `1` draws one pixel per point, the
+  cheapest. Restart after changing it.
 - **Free roam is too bright and flashes.** Two paths need correct luminance
   data. GPU memory tracks 4 KB guest pages so writes beside the exposure
   resolve do not discard it, even on a Mac with 16 KB host pages. Completed
@@ -103,6 +114,16 @@ external drive.
   Rebuild an older version; see the qualification results below. The M4 Pro
   route did not reproduce the reported bright pulses, so the original M1 Max
   exposure case still needs retesting. HDR brightness is a separate check.
+- **Black window for a while on the first start.** The game is building the
+  pipelines it saved from earlier sessions, and macOS compiles each one the
+  first time it sees a new build; a "LOADING SHADERS n / total" line at the
+  bottom of the window counts them (about 20 s for 600 on an M1). The next
+  start of the same build takes under a second.
+- **Fullscreen was black and windowed blue (builds before 2026-10-18).** The
+  swapchain was rebuilt mid-transition; fixed by rebuilding it again when the
+  transition finishes. The Metal performance HUD grows with the fullscreen
+  layer's pixel size and keeps that size back in the window; Apple offers
+  no size setting (only on, off and logging), so use its menu-bar item.
 - **The build cannot find a compiler.** Run `xcode-select --install` in
   Terminal, or reinstall the Command Line Tools from Apple's developer site.
 
@@ -116,6 +137,8 @@ delete the app and `~/Library/Application Support/PinyonShift`.
 | System | Status |
 | --- | --- |
 | Mac mini, M4 Pro, macOS 26 | Release app to a built game in 18 minutes, installed on an external drive; free roam route passes. Dev 04feee2 (2026-10-15): base and v4 builds, all 21 DLC packages imported from a ZIP and enabled, 1000 Club offline and the Horizon Rally entry on v4 |
+| Mac mini, M4 Pro, macOS 26 | Release app to a built game in 18 minutes, installed on an external drive; free roam route passes |
+| MacBook Pro, M1 (8-core GPU, 16 GB), macOS 26 | Games on Demand files; boots and plays. Free roam on the scripted drive: 7.6 fps at the compiled defaults (a first-start settings bug kept `clear_memory_page_state` on, fixed in this change), 12 fps with shadows off, quarter-rate reflections, TEXTURE GAMMA FAST and GAME anisotropy; 17 fps (57 ms GPU median) with the fix and those four settings together; uncapped, the driving frames of the free-roam route ran at about 14 fps (71 ms GPU median; a 35 fps figure recorded earlier was the route's whole-run median, which is mostly the title screen) and run at about 18 fps (56-57 ms) with the shared-memory uploads hoisted behind the open rendering (`fh1_hoist_uploads`, on by default); with TEXTURE GAMMA FAST, shadows off and quarter-rate reflections the same drive reaches about 24 fps (42.5 ms). Fast pixel math (`spirv_fast_pixel_math`, now on by default on macOS) halves the drive frame on its own, 53 to 28 ms GPU (35 fps), because MoltenVK's shader converter was emitting a non-inlined helper call for every `NoContraction` multiply and add; with the three quality settings as well the drive runs at 20 ms (49 fps). Lifting `NoContraction` from the vertex stage too (`spirv_fast_vertex_math`, also the macOS default) takes the drive to 21 ms (47 fps) with the compiled defaults, and binding descriptors by resource index instead of Metal argument buffers (`vulkan_moltenvk_argument_buffers=false`, the macOS default) to 19 ms (52 fps): MoltenVK's argument-buffer mode ends a Metal encoder at every barrier, and the frame had ~90 resolves a frame each behind one. `F6 > DISPLAY > METAL PERFORMANCE HUD` (`pinyon_shift_metal_hud`) shows Apple's frame-rate overlay. The Android single-pass scene (`fh1_untile_predicated_tiling`) measured worse here; the drive-window knock-outs and a Metal System Trace are in docs/REVERSE_ENGINEERING.md (Host performance). Some frames render with red and blue swapped, intermittently, in every configuration |
 | Other Apple silicon Macs | Not tested yet |
 
 DLC, the title update, saves from another PC or from Xenia, crash reports,
@@ -131,7 +154,8 @@ profile backup, shader preparation and offline 1000 Club.
 
 ## Renderer qualification
 
-QUALITY 60 (2x scale, the game's 4x MSAA) needs a 16.67 ms budget. Qualify
+QUALITY 60 (2x scale, 2x MSAA on a Mac; the game's 4x MSAA surfaces keep two
+samples each) needs a 16.67 ms budget. Qualify
 each combination after a restart: scale 1x and 2x, each with MSAA off, 2x
 and 4x. Use bilinear presentation, SDR, a 60 fps render limit, full shadows
 and reflection rate, and `fh1_untile_predicated_tiling=false`, as the
@@ -159,12 +183,12 @@ python3 tools/run-fh1-render-test.py \
   config/render-tests/fh1-macos-quality.fh1test \
   --state-root .local/render-seeds/<pinned-seed> \
   --build-directory out/build/macos-arm64-release \
-  --output .local/macos-quality-2x-4x --hidden --no-performance-gate \
+  --output .local/macos-quality-2x-2x --hidden --no-performance-gate \
   --seed-vulkan-shader-storage --seed-pipeline-prewarm \
   --game-argument=--draw_resolution_scale_x=2 \
   --game-argument=--draw_resolution_scale_y=2 \
   --game-argument=--fh1_msaa_single_sample=false \
-  --game-argument=--fh1_msaa_2x=false \
+  --game-argument=--fh1_msaa_2x=true \
   --game-argument=--fh1_scaled_msaa_single_sample=false \
   --game-argument=--present_effect=bilinear \
   --game-argument=--present_hdr=false \
@@ -221,7 +245,9 @@ one core as 100%; no other fleet workload used the Mac during these runs.
 No forced GPU clock or power mode was applied. An earlier pass ranged from
 55.2 to 59.4 fps at 1x and from
 42.7 to 43.5 fps at 2x/4x with readback off/on. This variability does not
-establish a readback speedup or regression. Both 2x/4x passes miss 60 fps.
+establish a readback speedup or regression. Both 2x/4x passes miss 60 fps;
+this is the historical 2026-10-18 result for the 4x preset, which QUALITY 60
+no longer uses (it is 2x MSAA, see the 2026-11-01 results below).
 
 | Scale / MSAA | Median Vulkan heap usage, MiB | Peak native surfaces, MiB | Median process RSS, MiB |
 | --- | ---: | ---: | ---: |
@@ -246,7 +272,7 @@ An untiled-predicated-tiling control at 2x/4x returned 34.1 fps against the
 earlier off run's 43.5 fps, median 28.29 against 22.24 ms, surfaces 848
 against 467 MiB. These were unpaired live drives with varying car poses,
 so they do not isolate a timing cost, but they do not qualify a gain.
-QUALITY 60 keeps its existing off setting. A separate uncapped 1x/MSAA-off run with
+QUALITY 60 kept its then-existing off setting. A separate uncapped 1x/MSAA-off run with
 it on reached 105.5 fps, median 9.30 ms, p95 11.65 ms. The older 8.35 ms,
 120 Hz result on the site used a different 40 s drive and two-run medians;
 it is historical, not a guarantee for every route or current build.
@@ -394,7 +420,19 @@ false, so no OS window image was available: black output, a 1x1 drawable,
 native Space transitions and HDR remain **unqualified visually**. No privacy
 permissions or normal install settings were changed. Before closing #548,
 check these transitions interactively and retest the original M1 Max scene
-and save; QUALITY 60 still fails its performance budget on this M4 Pro.
+and save. On 2026-10-18 QUALITY 60 (then 4x MSAA) failed its performance
+budget on this M4 Pro; that is historical, and QUALITY 60 now uses 2x MSAA.
+
+Frame generation (docs/FRAME_GENERATION.md) is experimental. It uses MetalFX
+frame interpolation, which needs macOS 26 and Apple silicon, and it is off by
+default (F6 > DISPLAY > FRAME GENERATION). On the M1, at the game's 20 fps
+render limit so the generated frames fit the 60 Hz panel, free roam presents
+about 22 frames a second against 17 without it. MetalFX runs its own optical
+flow over the two finished frames, so no depth or motion vectors are plumbed;
+each generated frame costs about 7 ms of the GPU. The first version waits for
+the Metal work on the paint thread, so some real frames are dropped to make
+room; an asynchronous handoff is the next step. These M1 figures predate the
+2026-11-02 upstream rebase and have not been remeasured.
 
 ## Intel Macs (experimental)
 

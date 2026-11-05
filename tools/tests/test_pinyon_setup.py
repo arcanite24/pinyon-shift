@@ -1,8 +1,12 @@
 """tools/pinyon_setup.py and tools/pinyon_steam.py: the Linux and macOS
 setup path (LX-3) and the Steam shortcut (LX-5.10)."""
 
+import argparse
 import hashlib
+import io
 import json
+import runpy
+from contextlib import ExitStack, redirect_stderr, redirect_stdout
 import struct
 import subprocess
 import sys
@@ -67,6 +71,11 @@ def make_image(path: Path, files: dict, offset: int = 0x2080000) -> None:
 
 
 class DiscImageTests(unittest.TestCase):
+    DISC_FILES = {"default.xex": b"disc-main", "SpeechFacade_default.xex": b"disc-speech",
+                  "XMediaFacade_default.xex": b"disc-xmedia", "nxeart": b"disc-art",
+                  "readme.txt": b"hello"}
+    GOD_FILES = {name: data.replace(b"disc", b"god!") for name, data in DISC_FILES.items()}
+
     def test_reads_files_and_folders_from_an_xgd3_image(self):
         with tempfile.TemporaryDirectory() as directory:
             image = Path(directory) / "disc.iso"
@@ -101,8 +110,8 @@ class DiscImageTests(unittest.TestCase):
         self.assertEqual(pinyon_setup.check_paths([("DEFAULT.XEX", 0, 1), ("media/A.zip", 0, 1)],
                                                   expected), [])
 
-    def catalog(self, files: dict) -> tuple[dict, dict]:
-        """A dump whose executables are default.xex and the two facades."""
+    def catalog(self, files: dict, alternate=None) -> tuple[dict, dict]:
+        """A dump with three executables and optional re-signed files."""
         entries = {name.lower(): {"guest_path": name, "size_bytes": len(content),
                                   "sha256": hashlib.sha256(content).hexdigest().upper()}
                    for name, content in files.items()}
@@ -110,7 +119,13 @@ class DiscImageTests(unittest.TestCase):
                                   "sha256": hashlib.sha256(b"inner file").hexdigest().upper()}
         executables = [entries[name.lower()] for name in
                        ("default.xex", "SpeechFacade_default.xex", "XMediaFacade_default.xex")]
-        return {"id": "test", "executables": executables}, entries
+        dump = {"id": "test", "executables": executables}
+        if alternate:
+            dump["executable_revisions"] = [{"id": "games-on-demand", "files": [
+                dict(entries[name.lower()], size_bytes=len(data),
+                     sha256=hashlib.sha256(data).hexdigest().upper())
+                for name, data in alternate.items() if data != files[name]]}]
+        return dump, entries
 
     def test_executables_come_out_first_and_the_rest_waits_for_the_swap(self):
         # TP-7: the build starts on the executables while extraction runs.
@@ -126,8 +141,9 @@ class DiscImageTests(unittest.TestCase):
                 self.assertEqual(sorted(path.name for path in game.iterdir()),
                                  ["SpeechFacade_default.xex", "XMediaFacade_default.xex",
                                   "default.xex"])
-                dump, staging = pinyon_setup.Extraction(image).result()
+                dump, revision, staging = pinyon_setup.Extraction(image).result()
                 self.assertEqual(dump["id"], "test")
+                self.assertEqual(revision, "disc")
                 self.assertEqual((staging / "media" / "a.bin").read_bytes(), b"inner file")
                 # The executables alone are not a game until the swap.
                 self.assertFalse(pinyon_setup.game_ready())
@@ -137,9 +153,8 @@ class DiscImageTests(unittest.TestCase):
                 self.assertTrue(pinyon_setup.game_ready())
 
     def test_another_disc_fails_before_anything_is_built(self):
-        files = {"default.xex": b"xex" * 1000, "SpeechFacade_default.xex": b"speech",
-                 "XMediaFacade_default.xex": b"xmedia", "readme.txt": b"hello"}
-        dump, expected = self.catalog(files)
+        files = self.DISC_FILES
+        dump, expected = self.catalog(files, self.GOD_FILES)
         dump["executables"][0] = dict(dump["executables"][0], sha256="0" * 64)
         with tempfile.TemporaryDirectory() as directory:
             image = Path(directory) / "disc.iso"
@@ -147,15 +162,318 @@ class DiscImageTests(unittest.TestCase):
             with patch.object(pinyon_setup, "load_catalog", return_value=(dump, expected)):
                 with self.assertRaises(pinyon_setup.SetupError):
                     pinyon_setup.copy_executables(image, Path(directory) / "out")
+                with self.assertRaises(pinyon_setup.SetupError):
+                    pinyon_setup.copy_executables(image, Path(directory) / "posix", allow_revisions=True)
             make_image(image, dict(files, **{"extra.bin": b"x"}))
             with patch.object(pinyon_setup, "load_catalog", return_value=self.catalog(files)):
                 with self.assertRaises(pinyon_setup.SetupError):
                     pinyon_setup.copy_executables(image, Path(directory) / "out2")
 
+    def test_early_copy_accepts_disc_and_opt_in_god_but_windows_stays_disc_only(self):
+        windows_copy = runpy.run_path(str(ROOT / "tools/copy-disc-executables.py"))["main"]
+        for revision, files in (("disc", self.DISC_FILES), ("games-on-demand", self.GOD_FILES)):
+            with self.subTest(revision=revision), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                image = root / "disc.iso"
+                make_image(image, files, offset=0)
+                with patch.object(pinyon_setup, "load_catalog", return_value=self.catalog(
+                        self.DISC_FILES, self.GOD_FILES)):
+                    pinyon_setup.copy_executables(image, root / "posix", allow_revisions=True)
+                    copied = {p.name: p.read_bytes() for p in (root / "posix").iterdir()}
+                    self.assertEqual(copied, {p: data for p, data in files.items()
+                                              if p.endswith(".xex")})
+                    with redirect_stderr(io.StringIO()):
+                        result = windows_copy(["--iso", str(image), "--output", str(root / "win")])
+                    self.assertEqual(result, 0 if revision == "disc" else 1)
+
+    def test_early_copy_rejects_mixed_unknown_and_wrong_sized_executables(self):
+        for name in (p for p in self.DISC_FILES if p.endswith(".xex")):
+            for fault, data in (("mixed", self.GOD_FILES[name]),
+                                ("unknown", b"?" * len(self.DISC_FILES[name])),
+                                ("size", self.DISC_FILES[name] + b"!")):
+                with self.subTest(name=name, fault=fault), tempfile.TemporaryDirectory() as directory:
+                    root = Path(directory)
+                    image = root / "disc.iso"
+                    make_image(image, dict(self.DISC_FILES, **{name: data}), offset=0)
+                    with patch.object(pinyon_setup, "load_catalog", return_value=self.catalog(
+                            self.DISC_FILES, self.GOD_FILES)):
+                        with self.assertRaises(pinyon_setup.SetupError) as caught:
+                            pinyon_setup.copy_executables(image, root / "out", allow_revisions=True)
+                        self.assertEqual(caught.exception.stage, "verify")
+
+    def test_extract_returns_revision_and_destination_for_both_replacement_modes(self):
+        for revision, files in (("disc", self.DISC_FILES), ("games-on-demand", self.GOD_FILES)):
+            for replace in (False, True):
+                with self.subTest(revision=revision, replace=replace), \
+                        tempfile.TemporaryDirectory() as directory:
+                    root = Path(directory)
+                    image, game = root / "disc.iso", root / "base"
+                    make_image(image, files, offset=0)
+                    game.mkdir()
+                    (game / "old").write_bytes(b"previous install")
+                    with patch.object(pinyon_setup, "load_catalog", return_value=self.catalog(
+                            self.DISC_FILES, self.GOD_FILES)), patch.object(pinyon_setup, "GAME", game):
+                        dump, actual_revision, destination = pinyon_setup.extract_iso(
+                            image, lambda *_: None, replace=replace)
+                        self.assertEqual((dump["id"], actual_revision), ("test", revision))
+                        self.assertEqual(destination, game if replace else root / "base.extracting")
+                        self.assertEqual((game / "old").exists(), not replace)
+                        for name, data in dict(files, **{"media/a.bin": b"inner file"}).items():
+                            self.assertEqual((destination / name).read_bytes(), data)
+                        self.assertEqual(pinyon_setup.game_ready(), replace)
+
+    def test_folder_accepts_each_complete_revision(self):
+        for revision, files in (("disc", self.DISC_FILES), ("games-on-demand", self.GOD_FILES)):
+            with self.subTest(revision=revision), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                source, game = root / "source", root / "base"
+                for name, data in dict(files, **{"media/a.bin": b"inner file"}).items():
+                    path = source / name
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_bytes(data)
+                with patch.object(pinyon_setup, "load_catalog", return_value=self.catalog(
+                        self.DISC_FILES, self.GOD_FILES)), patch.object(pinyon_setup, "GAME", game):
+                    dump, actual_revision = pinyon_setup.verify_folder(source, lambda *_: None)
+                    self.assertEqual((dump["id"], actual_revision), ("test", revision))
+                    self.assertTrue(pinyon_setup.game_ready())
+                    for name, data in files.items():
+                        self.assertEqual((game / name).read_bytes(), data)
+                        self.assertEqual((source / name).read_bytes(), data)
+
+    def test_full_verification_rejects_all_bad_revision_files_before_publish(self):
+        # nxeart is not read by early copy, but it must agree at publication.
+        for name in self.DISC_FILES:
+            faults = [("unknown", b"?" * len(self.DISC_FILES[name])),
+                      ("size", self.DISC_FILES[name] + b"!")]
+            if self.GOD_FILES[name] != self.DISC_FILES[name]:
+                faults.append(("mixed", self.GOD_FILES[name]))
+            for fault, data in faults:
+                for source_kind in ("iso", "folder"):
+                    with self.subTest(name=name, fault=fault, source=source_kind), \
+                            tempfile.TemporaryDirectory() as directory:
+                        root = Path(directory)
+                        game = root / "base"
+                        game.mkdir()
+                        (game / "old").write_bytes(b"previous install")
+                        files = dict(self.DISC_FILES, **{name: data})
+                        source = root / "source"
+                        if source_kind == "iso":
+                            make_image(source, files, offset=0)
+                            verify = pinyon_setup.extract_iso
+                        else:
+                            for path, content in dict(files, **{"media/a.bin": b"inner file"}).items():
+                                target = source / path
+                                target.parent.mkdir(parents=True, exist_ok=True)
+                                target.write_bytes(content)
+                            verify = pinyon_setup.verify_folder
+                        with patch.object(pinyon_setup, "load_catalog", return_value=self.catalog(
+                                self.DISC_FILES, self.GOD_FILES)), \
+                                patch.object(pinyon_setup, "GAME", game):
+                            with self.assertRaises(pinyon_setup.SetupError) as caught:
+                                verify(source, lambda *_: None)
+                            self.assertEqual(caught.exception.stage, "verify")
+                            self.assertEqual(list(game.iterdir()), [game / "old"])
+                            self.assertEqual((game / "old").read_bytes(), b"previous install")
+                            self.assertFalse((root / "base.extracting").exists())
+
+    def test_background_extraction_preserves_tuple_and_errors(self):
+        result = ({"id": "test"}, "games-on-demand", Path("staging"))
+        with patch.object(pinyon_setup, "extract_iso", return_value=result) as extract:
+            self.assertIs(pinyon_setup.Extraction(Path("disc.iso")).result(), result)
+            self.assertEqual(extract.call_args.args[0], Path("disc.iso"))
+            self.assertEqual(extract.call_args.kwargs, {"replace": False})
+        for error in (pinyon_setup.SetupError("bad dashboard art", "verify"), OSError("read failed")):
+            with self.subTest(error=error), patch.object(pinyon_setup, "extract_iso", side_effect=error):
+                with self.assertRaises(type(error)) as caught:
+                    pinyon_setup.Extraction(Path("disc.iso")).result()
+                self.assertIs(caught.exception, error)
+
+    def test_ready_requires_no_incomplete_staging_and_a_supported_main_executable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            game = Path(directory) / "base"
+            game.mkdir()
+            with patch.object(pinyon_setup, "load_catalog", return_value=self.catalog(
+                    self.DISC_FILES, self.GOD_FILES)), patch.object(pinyon_setup, "GAME", game):
+                for files in (self.DISC_FILES, self.GOD_FILES):
+                    for name, data in files.items():
+                        (game / name).write_bytes(data)
+                    self.assertTrue(pinyon_setup.game_ready())
+                    staging = game.with_name("base.extracting")
+                    staging.mkdir()
+                    self.assertFalse(pinyon_setup.game_ready())
+                    staging.rmdir()
+                (game / "default.xex").write_bytes(b"?" * len(self.DISC_FILES["default.xex"]))
+                self.assertFalse(pinyon_setup.game_ready())
+                (game / "default.xex").write_bytes(self.DISC_FILES["default.xex"])
+                (game / "SpeechFacade_default.xex").write_bytes(b"")
+                self.assertFalse(pinyon_setup.game_ready())
+                (game / "SpeechFacade_default.xex").unlink()
+                self.assertFalse(pinyon_setup.game_ready())
+
+    def setup_environment(self, stack, root):
+        """Run the real setup control flow without tools, downloads or builds."""
+        for name, value in {"ROOT": root, "LOCAL": root / ".local",
+                            "LOGS": root / ".local/logs", "GAME": root / ".local/game/base"}.items():
+            stack.enter_context(patch.object(pinyon_setup, name, value))
+        returns = {"Progress": pinyon_setup._Quiet(), "host_platform": "macos-arm64",
+                   "toolchain_config": {"posix": {"macos-arm64": {
+                       "disk_space_gb": {"first_build": 1}}}},
+                   "load_catalog": self.catalog(self.DISC_FILES, self.GOD_FILES),
+                   "provision_python": Path(sys.executable), "free_space_gb": 100,
+                   "used_space_gb": 0, "provision": {}, "install_kit": root / "kit",
+                   "prepare_shiftglue": root / "sdk", "build": root / "pinyon_shift"}
+        calls = {name: stack.enter_context(patch.object(pinyon_setup, name, return_value=value))
+                 for name, value in returns.items()}
+        calls["prefetch"] = stack.enter_context(patch.object(pinyon_setup, "prefetch"))
+        stack.enter_context(patch.object(pinyon_setup.subprocess, "run",
+                                         side_effect=AssertionError("unexpected subprocess")))
+        stack.enter_context(redirect_stdout(io.StringIO()))
+        stack.enter_context(redirect_stderr(io.StringIO()))
+        parser = argparse.ArgumentParser()
+        pinyon_setup.add_parser(parser.add_subparsers())
+        return parser.parse_args(["setup", "--jobs", "2"]), calls
+
+    def test_setup_records_the_actual_revision_for_iso_folder_and_existing_game(self):
+        for source_kind in ("iso", "extracted", "existing"):
+            for revision, files in (("disc", self.DISC_FILES), ("games-on-demand", self.GOD_FILES)):
+                with self.subTest(source=source_kind, revision=revision), \
+                        tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
+                    root = Path(directory)
+                    args, calls = self.setup_environment(stack, root)
+                    game = pinyon_setup.GAME
+                    if source_kind == "iso":
+                        args.iso = root / "disc.iso"
+                        make_image(args.iso, files, offset=0)
+                    else:
+                        source = game if source_kind == "existing" else root / "source"
+                        for name, data in dict(files, **{"media/a.bin": b"inner file"}).items():
+                            path = source / name
+                            path.parent.mkdir(parents=True, exist_ok=True)
+                            path.write_bytes(data)
+                        if source_kind == "extracted":
+                            args.extracted = source
+                    # Both the prebuilt kit and source fallback keep the same setup flow.
+                    use_kit = revision == "disc"
+                    calls["install_kit"].return_value = root / "kit" if use_kit else None
+
+                    def provision(*_):
+                        if source_kind != "existing":
+                            calls["prefetch"].return_value.join.assert_called_once_with()
+                        return {}
+
+                    def build(progress, tools, sdk, python, platform, jobs, configuration):
+                        self.assertEqual(sdk, root / ("kit" if use_kit else "sdk"))
+                        self.assertEqual((platform, jobs, configuration), ("macos-arm64", 2, "Release"))
+                        self.assertEqual((game / "default.xex").read_bytes(), files["default.xex"])
+                        if source_kind == "iso":
+                            # Extraction may have finished in staging, but has not been published.
+                            self.assertEqual({p.name for p in game.iterdir()},
+                                             {p for p in files if p.endswith(".xex")})
+
+                    calls["provision"].side_effect = provision
+                    calls["build"].side_effect = build
+                    self.assertEqual(pinyon_setup.run_setup(args), 0)
+                    calls["build"].assert_called_once()
+                    if use_kit:
+                        calls["prepare_shiftglue"].assert_not_called()
+                    else:
+                        calls["prepare_shiftglue"].assert_called_once()
+                    if source_kind == "existing":
+                        calls["prefetch"].assert_not_called()
+                    else:
+                        calls["prefetch"].assert_called_once()
+                    state = json.loads((pinyon_setup.LOCAL / "setup-state.json").read_text())
+                    self.assertEqual((state["dump_id"], state["executable_revision"],
+                                      state["source_kind"], state["result"]),
+                                     ("test", revision, source_kind, "ready"))
+                    self.assertEqual((game / "nxeart").read_bytes(), files["nxeart"])
+                    self.assertTrue(pinyon_setup.game_ready())
+
+    def test_failed_early_or_background_verification_removes_only_the_partial_game(self):
+        for name in ("SpeechFacade_default.xex", "nxeart"):
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory, \
+                    ExitStack() as stack:
+                root = Path(directory)
+                args, calls = self.setup_environment(stack, root)
+                args.iso = root / "disc.iso"
+                # Only the background pass checks nxeart; a mixed facade fails early.
+                make_image(args.iso, dict(self.DISC_FILES, **{name: self.GOD_FILES[name]}), offset=0)
+                self.assertEqual(pinyon_setup.run_setup(args), 1)
+                self.assertEqual(calls["build"].call_count, 1 if name == "nxeart" else 0)
+                self.assertFalse((pinyon_setup.LOCAL / "setup-state.json").exists())
+                self.assertFalse(pinyon_setup.GAME.exists())
+                self.assertFalse(pinyon_setup.game_ready())
+                error = json.loads((pinyon_setup.LOGS / "setup-error.json").read_text())
+                self.assertEqual(error["stage"], "verify")
+                self.assertIn("different releases", error["message"])
+
+    def test_failed_rebuild_preserves_the_existing_game(self):
+        with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
+            root = Path(directory)
+            args, calls = self.setup_environment(stack, root)
+            game = pinyon_setup.GAME
+            game.mkdir(parents=True)
+            for name, data in self.DISC_FILES.items():
+                (game / name).write_bytes(data)
+            calls["build"].side_effect = pinyon_setup.SetupError("build failed", "build")
+            self.assertEqual(pinyon_setup.run_setup(args), 1)
+            self.assertTrue(pinyon_setup.game_ready())
+            for name, data in self.DISC_FILES.items():
+                self.assertEqual((game / name).read_bytes(), data)
+
+    def test_verify_only_checks_inventory_without_copying_building_or_prefetching(self):
+        with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
+            root = Path(directory)
+            args, calls = self.setup_environment(stack, root)
+            args.iso, args.verify_only = root / "disc.iso", True
+            files = dict(self.DISC_FILES, **{"default.xex": b"not an accepted executable"})
+            make_image(args.iso, files, offset=0)
+            with patch.object(pinyon_setup, "copy_executables") as copy, \
+                    patch.object(pinyon_setup, "Extraction") as extraction:
+                self.assertEqual(pinyon_setup.run_setup(args), 0)
+                copy.assert_not_called()
+                extraction.assert_not_called()
+            make_image(args.iso, dict(files, **{"extra.bin": b"extra"}), offset=0)
+            self.assertEqual(pinyon_setup.run_setup(args), 1)
+            for name in ("prefetch", "provision", "install_kit", "prepare_shiftglue", "build"):
+                calls[name].assert_not_called()
+            self.assertFalse(pinyon_setup.GAME.exists())
+            self.assertFalse((pinyon_setup.LOCAL / "setup-state.json").exists())
+
     def test_the_supported_catalog_matches_the_dump_manifest(self):
         dump, expected = pinyon_setup.load_catalog()
         self.assertEqual(len(expected), dump["extraction"]["file_count"])
         self.assertIn("default.xex", expected)
+
+    def test_games_on_demand_executables_are_a_second_accepted_revision(self):
+        """The Games on Demand release of the same build ships re-signed
+        executables and dashboard art; every other file matches the disc."""
+        dump, expected = pinyon_setup.load_catalog()
+        accepted = pinyon_setup.executable_hashes(dump, expected)
+        revisions = [r["id"] for r in dump["executable_revisions"]]
+        self.assertEqual(revisions, ["games-on-demand"])
+        for item in dump["executable_revisions"][0]["files"]:
+            key = item["guest_path"].lower()
+            self.assertIn(key, expected)
+            self.assertEqual(item["size_bytes"], expected[key]["size_bytes"])
+            self.assertNotEqual(item["sha256"], expected[key]["sha256"])
+            self.assertRegex(item["sha256"], r"^[0-9A-F]{64}$")
+            self.assertEqual(sorted(accepted[key].values()), ["disc", "games-on-demand"])
+        self.assertEqual(sorted(accepted), ["default.xex", "nxeart", "speechfacade_default.xex",
+                                            "xmediafacade_default.xex"])
+
+    def test_executable_revision_refuses_mixed_or_unknown_executables(self):
+        dump, expected = pinyon_setup.load_catalog()
+        disc = {e["guest_path"]: e["sha256"] for e in dump["executables"]}
+        god = {f["guest_path"]: f["sha256"] for f in dump["executable_revisions"][0]["files"]}
+        self.assertEqual(pinyon_setup.executable_revision(disc, dump, expected), "disc")
+        self.assertEqual(pinyon_setup.executable_revision(god, dump, expected), "games-on-demand")
+        mixed = dict(disc, **{"nxeart": god["nxeart"]})
+        with self.assertRaises(pinyon_setup.SetupError):
+            pinyon_setup.executable_revision(mixed, dump, expected)
+        unknown = dict(disc, **{"default.xex": "00" * 32})
+        with self.assertRaises(pinyon_setup.SetupError):
+            pinyon_setup.executable_revision(unknown, dump, expected)
 
 
 class ToolchainPinTests(unittest.TestCase):
