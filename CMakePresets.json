@@ -219,6 +219,7 @@
       "inherits": "macos-base",
       "cacheVariables": {
         "CMAKE_OSX_ARCHITECTURES": "x86_64",
+        "CMAKE_OSX_DEPLOYMENT_TARGET": "13.3",
         "PINYON_SHIFT_CPU_BASELINE": "sse4.1",
         "CMAKE_C_FLAGS": "-msse4.1",
         "CMAKE_CXX_FLAGS": "-msse4.1"

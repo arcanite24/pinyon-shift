@@ -322,6 +322,11 @@ class ToolchainPinTests(unittest.TestCase):
         base = configure["macos-amd64-base"]["cacheVariables"]
         self.assertEqual(base["CMAKE_OSX_ARCHITECTURES"], "x86_64")
         self.assertIn("-msse4.1", base["CMAKE_CXX_FLAGS"])
+        # The kit, the translator and the game share one deployment target.
+        target = pinyon_setup.MACOS_DEPLOYMENT_TARGET["macos-x86_64"]
+        self.assertEqual(base["CMAKE_OSX_DEPLOYMENT_TARGET"], target)
+        self.assertIn(f"-DCMAKE_OSX_DEPLOYMENT_TARGET={target}",
+                      pinyon_setup.KIT_CACHE["macos-x86_64"])
         sdk_presets = ROOT / "thirdparty/shiftglue-sdk/CMakePresets.json"
         if not sdk_presets.is_file():
             return  # a checkout without the submodule

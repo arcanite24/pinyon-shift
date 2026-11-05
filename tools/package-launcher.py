@@ -136,7 +136,7 @@ INFO_PLIST = """<?xml version="1.0" encoding="UTF-8"?>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleExecutable</key><string>PinyonShiftLauncher</string>
   <key>CFBundleIconFile</key><string>PinyonShift.icns</string>
-  <key>LSMinimumSystemVersion</key><string>13.0</string>
+  <key>LSMinimumSystemVersion</key><string>{minimum}</string>
   <key>LSArchitecturePriority</key><array><string>{architecture}</string></array>
   <key>NSHighResolutionCapable</key><true/>
 </dict>
@@ -145,15 +145,16 @@ INFO_PLIST = """<?xml version="1.0" encoding="UTF-8"?>
 
 
 # The .NET runtime identifier, the release asset's suffix and Info.plist's
-# architecture for each macOS launcher.
-MAC_RUNTIMES = {"osx-arm64": ("macos-arm64", "arm64"), "osx-x64": ("macos-x86_64", "x86_64")}
+# architecture and minimum macOS version for each macOS launcher.
+MAC_RUNTIMES = {"osx-arm64": ("macos-arm64", "arm64", "13.0"),
+                "osx-x64": ("macos-x86_64", "x86_64", "13.3")}
 
 
 def package_mac(version: str, payload: Path, published: Path | None = None,
                 runtime: str = "osx-arm64") -> Path:
     if sys.platform != "darwin":
         raise SystemExit("package the macOS launcher on a Mac: the app must be signed there")
-    suffix, architecture = MAC_RUNTIMES[runtime]
+    suffix, architecture, minimum = MAC_RUNTIMES[runtime]
     if published is None:
         published = ARTIFACTS / f"publish-{runtime}"
         publish(runtime, version, published)
@@ -170,7 +171,8 @@ def package_mac(version: str, payload: Path, published: Path | None = None,
     (bundle / "Contents/MacOS/PinyonShiftLauncher").chmod(0o755)
     shutil.copy2(payload, bundle / "Contents/Resources/pinyon-shift-source.zip")
     (bundle / "Contents" / "Info.plist").write_text(INFO_PLIST.format(
-        version=version.split("-", 1)[0], architecture=architecture), encoding="utf-8")
+        version=version.split("-", 1)[0], architecture=architecture,
+        minimum=minimum), encoding="utf-8")
     make_icns(bundle / "Contents" / "Resources" / "PinyonShift.icns")
     # Apple silicon runs only signed code; an ad-hoc signature is enough for
     # an app the player opens themselves (docs/MACOS.md).
