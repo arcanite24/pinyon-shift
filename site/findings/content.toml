@@ -113,7 +113,7 @@ group = """Cars"""
 base = """media/cars/<id>.zip"""
 v4 = """same"""
 name = """car archive layout"""
-what = """Members use compression method 21: `<id>_lod0.carbin`, `<id>_cockpit.carbin`, per-wheel caliper and rotor `carbin`s, `stripped_*` variants, `.xds` atlases (damage, no damage, lights, interior, digital gauge), `LiveryMasks/*.tga` with `Masks.xml`, `physicsdefinition.bin` and `Physics/MAXData.xml`. The target of a car importer."""
+what = """Members use compression method 21 (stored members also load): `<id>.carbin` (LOD1-5), `<id>_lod0.carbin`, `<id>_cockpit.carbin`, per-wheel caliper and rotor `carbin`s, `stripped_*` variants, `.xds` atlases (damage, no damage, lights, interior, digital gauge), `LiveryMasks/*.tga` with `Masks.xml`, `physicsdefinition.bin` and `Physics/MAXData.xml`. The target of a car importer."""
 how = """Archive listing of one car."""
 confidence = """confirmed"""
 issue = """#496"""
@@ -170,6 +170,17 @@ how = """Seeds from a clone purchase with the mod removed (a placeholder mod kee
 confidence = """confirmed"""
 note = """Re-enabling the mod after a run without it, and whether the title drops the orphan when it next saves, were not tested."""
 source = """docs/REVERSE_ENGINEERING.md@fc1751fe2a38 Custom content"""
+
+[[finding]]
+group = """Cars"""
+base = """media/cars/<new MediaName>.zip, media/zipmanifest.xml"""
+v4 = """not tested"""
+name = """a car with its own model archive"""
+what = """A clone whose `Data_Car.MediaName` names a new archive loads its model from it once `media/zipmanifest.xml` lists that archive. Without the line the Autoshow showed another car's model (a BMW M3) for it. The archive is the source car's with every member renamed from the source's media name to the new one (`JAG_XKRS_12_lod0.carbin` to `PNY_TEST_01_lod0.carbin`, and the `stripped_` twins in lower case). Members stored uncompressed load as well as the disc's method 21 members. The car was bought, shown in the Autoshow and driven in free roam with rewritten models."""
+how = """Buy-car and drive routes from pinned seeds (id 1700 cloned from the XKR-S, `MediaName` set by a `db/` script); with and without the manifest line, which `tools/build-mod-archives.py` now adds for a mod's new archives (2026-11-05)."""
+confidence = """confirmed"""
+issue = """#496"""
+source = """tools/build-mod-archives.py collect_new_archives; docs/MODDING.md New cars from existing models"""
 # --- Upgrades, colours and liveries ---------------------------------------
 
 [[finding]]

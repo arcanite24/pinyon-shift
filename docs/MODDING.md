@@ -374,6 +374,14 @@ instructions should build its files from the player's own copy, as
 `tools/install-sample-mod.py english_strings` does. Each replaced file the
 title opens is logged as `mod.file.override`.
 
+The title only opens archives that `media/zipmanifest.xml` lists. A new
+archive a mod adds under `game/media/` (a car's
+`media/cars/<MediaName>.zip`, say) gets its line there from
+`tools/build-mod-archives.py`, which writes the manifest into
+`zz-archive-patches` with the archive's directory offsets and its
+siblings' priority. Without that line the title ignores the archive: a
+new car archive shows another car's model in the Autoshow.
+
 For an FH1 archive containing XMem members, use
 [`patch-fh1-archive.py`](../tools/patch-fh1-archive.py) to replace selected
 members in a new archive built from your own game files:

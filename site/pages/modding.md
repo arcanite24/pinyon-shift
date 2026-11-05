@@ -86,6 +86,7 @@ A mod that only changes how the game looks or sounds, and never what it saves, c
 | Kind | How it works |
 | --- | --- |
 | Whole files (`game/`) | Replace the file with the same path, case-insensitively. The earlier mod in the load order wins |
+| New archives (`game/media/.../<name>.zip`) | Listed in `zipmanifest.xml` before each start, which the game needs to open them; a car's own model archive, `media/cars/<MediaName>.zip`, is one ([#496](https://github.com/arcanite24/pinyon-shift/issues/496)) |
 | Archive members (`members/<archive>/<member>`) | Before each start, the affected archives are rebuilt from your own copy with only those members replaced |
 | New archive members (`add/<archive>/<member>`) | Appended to the rebuilt archive, for example a new colour grading map in `dynamicpost.zip`. A name the archive already has is refused, as is a `members/` name it lacks |
 | Strings (`strings/<language or ALL>/<Table>.toml`) | `IDS_` names with their text: existing names are changed, new ones added with their key, which the database refers to as `_&N` (`tools/fh1-strings.py`) |

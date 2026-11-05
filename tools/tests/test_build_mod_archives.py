@@ -349,6 +349,37 @@ class BuildModArchivesTests(unittest.TestCase):
             self.assertIn("new_car.zip", (generated / "zipmanifest.xml").read_text(
                 encoding="utf-8-sig"))
 
+    def test_lists_a_new_archive_a_mod_adds(self):
+        # A converted car ships its own media/cars/<MediaName>.zip (#496); the
+        # title opens only archives the manifest lists.
+        with tempfile.TemporaryDirectory() as directory:
+            game, state = self.make(Path(directory))
+            for mod in ("first", "second"):
+                shutil.rmtree(state / "mods" / mod / "members")
+            cars = state / "mods" / "first" / "game" / "media" / "cars"
+            cars.mkdir(parents=True)
+            archive = cars / "PNY_TEST_01.zip"
+            with zipfile.ZipFile(archive, "w") as zipped:
+                zipped.writestr("PNY_TEST_01.carbin", b"model")
+                zipped.writestr("physicsdefinition.bin", b"physics")
+            result = MODULE.build(state, game)
+            self.assertTrue(result["patched"])
+            self.assertIn({"archive": "media/cars/PNY_TEST_01.zip", "new": True}, result["archives"])
+            manifest = (state / "mods" / MODULE.GENERATED / "game" / "media" /
+                        "zipmanifest.xml").read_bytes().decode("utf-8-sig")
+            line = manifest_line(archive, "game:\\media\\cars\\pny_test_01.zip")
+            self.assertEqual(1, manifest.count(line))
+            self.assertLess(manifest.index(line), manifest.index("</ZipFiles>"))
+            # A second build does not list it twice, and a listed archive
+            # takes the priority of the archives beside it.
+            text = manifest.replace(line, line.replace("pny_test_01", "other").replace(
+                'priority="80"', 'priority="70"'))
+            self.assertIn('priority="70"', MODULE.add_manifest_line(
+                text, "media/cars/PNY_TEST_01.zip", 1, 2, 3))
+            self.assertEqual(1, MODULE.build(state, game) and (
+                state / "mods" / MODULE.GENERATED / "game" / "media" / "zipmanifest.xml"
+            ).read_bytes().decode("utf-8-sig").count("pny_test_01.zip"))
+
     def test_removes_the_generated_mod_without_members(self):
         with tempfile.TemporaryDirectory() as directory:
             game, state = self.make(Path(directory))
