@@ -126,8 +126,8 @@ REXCVAR_DEFINE_BOOL(
     pinyon_shift_stabilize_vehicle_presentation, false, "Pinyon Shift",
     "Suppress isolated implausible player-vehicle presentation transforms");
 REXCVAR_DEFINE_DOUBLE(pinyon_shift_fov_scale, 1.0, "Display",
-                      "Multiply the cameras' vertical field of view (0.8 to 1.3)")
-    .range(0.8, 1.3)
+                      "Multiply the cameras' vertical field of view (0.8 to 2.0)")
+    .range(0.8, 2.0)
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
 REXCVAR_DEFINE_DOUBLE(pinyon_shift_chase_height, 0.0, "Display", "Chase height offset in metres")
     .range(-0.5, 1.5).lifecycle(rex::cvar::Lifecycle::kHotReload);
@@ -8127,8 +8127,13 @@ void PinyonShiftSetViewportAspectScale(float scale) {
 }
 
 void PinyonShiftCameraFieldOfView(PPCRegister& f1) {
+  // Up to 2x applies to every camera, and a wide one would reach 180
+  // degrees, where the projection's tangent diverges; stop at 170.
+  constexpr double kMaxFieldOfView = 170.0 * 3.14159265358979323846 / 180.0;
   const double scale = REXCVAR_GET(pinyon_shift_fov_scale);
-  if (scale != 1.0) f1.f64 = double(float(f1.f64 * scale));
+  if (scale != 1.0) {
+    f1.f64 = double(float(std::min(f1.f64 * scale, std::max(f1.f64, kMaxFieldOfView))));
+  }
 }
 
 // sub_82857B00 (v4 sub_82907F88) updates one camera physics layer at r31

@@ -423,7 +423,7 @@ std::unique_ptr<MenuScreen> SettingsPages::Display() {
   // Every camera's vertical field of view, applied at once (NP-4.4).
   {
     std::vector<Choice> fov;
-    for (const char* value : {"0.9", "1.0", "1.1", "1.2", "1.3"}) {
+    for (const char* value : {"0.9", "1.0", "1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8", "1.9", "2.0"}) {
       const int percent = int(std::lround(std::stod(value) * 100));
       fov.push_back({std::to_string(percent) + "%", {{"pinyon_shift_fov_scale", value}}});
     }
