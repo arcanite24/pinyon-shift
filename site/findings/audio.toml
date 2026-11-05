@@ -368,3 +368,13 @@ confidence = """probable"""
 negative = true
 source = """docs/LOW_SPEC_BACKLOG.md LS-1.8"""
 
+[[finding]]
+group = """Audio engine"""
+base = """sub_82BB5918"""
+v4 = """sub_82C74230"""
+name = """UI sounds by name"""
+what = """`media/audio/UI/ui4audio.xml` maps each UI sound name to a group and cue in the `UIInGame` event project. The achievement event (`MiniAchieve`) maps to the silent `Blank` cue, so the title plays nothing on an unlock; its HUD notifications use `UIInGame/UI/HorizonHud` cues such as `HUD_General_Notification_Reward` (sponsor and flyer rewards). With `UIInGame` already loaded by the title, the audio manager's named-cue factory (vtable +300) creates that cue from inside `CAudioEngine::Update`, and it plays."""
+how = """Reading the XML; Pinyon's unlock sound hook on a render route (`achievements.sound` reports the cue created and played)."""
+confidence = """probable"""
+note = """The cue is created and play is called; that it is audible has not been checked with an audio capture."""
+source = """src/pinyon_shift_runtime_hooks.cpp UpdateUiSounds; docs/ACHIEVEMENTS_UI_BACKLOG.md AC-0.4"""

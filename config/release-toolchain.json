@@ -20,6 +20,19 @@
       "Microsoft.VisualStudio.Component.Windows11SDK.22621"
     ]
   },
+  "msvc_sysroot": {
+    "comment": "TP-4: opt-in instead of the Build Tools with a prebuilt ShiftGlue kit; xwin fetches the CRT and Windows SDK from Microsoft after the player accepts Microsoft's license",
+    "install_path": ".local/toolchain/msvc-sysroot",
+    "sdk_version": "10.0.22621",
+    "license_url": "https://go.microsoft.com/fwlink/?LinkId=2179911",
+    "xwin": {
+      "version": "0.10.0",
+      "url": "https://github.com/Jake-Shadle/xwin/releases/download/0.10.0/xwin-0.10.0-x86_64-pc-windows-msvc.tar.gz",
+      "sha256": "96E83665EF5C1406AABD0BE603A8D08E67E604F36FDA630B6807EE948A614E26",
+      "install_path": ".local/toolchain/xwin-0.10.0",
+      "executable": "xwin.exe"
+    }
+  },
   "cmake": {
     "version": "3.31.10",
     "url": "https://github.com/Kitware/CMake/releases/download/v3.31.10/cmake-3.31.10-windows-x86_64.zip",
@@ -140,11 +153,39 @@
         "install_path": ".local/toolchain/python-3.13.16-macos",
         "executable": "bin/python3"
       }
+    },
+    "macos-x86_64": {
+      "disk_space_gb": {
+        "first_build": 20,
+        "rebuild": 8
+      },
+      "cmake": {
+        "version": "3.31.10",
+        "url": "https://github.com/Kitware/CMake/releases/download/v3.31.10/cmake-3.31.10-macos-universal.tar.gz",
+        "sha256": "BE9F3FAEEAF7921CC2D77CEA711DD5E6F72C63AF2810CACD9205B3CE8D1593C9",
+        "install_path": ".local/toolchain/cmake-3.31.10-macos",
+        "executable": "CMake.app/Contents/bin/cmake"
+      },
+      "ninja": {
+        "version": "1.13.2",
+        "url": "https://github.com/ninja-build/ninja/releases/download/v1.13.2/ninja-mac.zip",
+        "sha256": "C99048673AA765960A99CF10C6DDB9F1FAD506099FF0A0E137AD8960A88F321B",
+        "install_path": ".local/toolchain/ninja-1.13.2-macos",
+        "executable": "ninja",
+        "strip_top": false
+      },
+      "python": {
+        "version": "3.13.16",
+        "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261003/cpython-3.13.16%2B20261003-x86_64-apple-darwin-install_only.tar.gz",
+        "sha256": "8E9CB087305BFB8969F68A905F79F41469D4AA5220C1AA71ADA7FC9953BDBA0F",
+        "install_path": ".local/toolchain/python-3.13.16-macos-x86_64",
+        "executable": "bin/python3"
+      }
     }
   },
   "rexglue": {
     "repository": "https://github.com/arcanite24/shiftglue-sdk",
-    "revision": "5cc210660e1fd08b48acc06f512b63534f4b8c71",
+    "revision": "f9f31eaf9e65a9326a34736e0b3019097f806d3b",
     "submodule_path": "thirdparty/shiftglue-sdk",
     "fallback_path": ".local/rexglue"
   }

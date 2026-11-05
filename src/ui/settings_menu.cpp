@@ -913,7 +913,14 @@ std::unique_ptr<MenuScreen> SettingsPages::Graphics() {
        // The reference desktop (Ryzen 7 5800X, RTX 4080) holds the 120 limit
        // in the race at 1x (8.3 ms median) and runs it at 9.5 ms at 3x.
        {"PERFORMANCE 120", preset("1", "\"fsr\"", "true", "120")},
+#if defined(__APPLE__)
+       // 2x with 4X MSAA averaged 51 fps on an M4 Pro (19.5 ms of GPU a
+       // frame), so a Mac stores the game's 4x surfaces with two samples:
+       // 59.6-60.0 fps at the 60 limit, 16.7 ms of GPU.
+       {"QUALITY 60", preset("2", "\"bilinear\"", "false", "60", {{"fh1_msaa_2x", "true"}})}}));
+#else
        {"QUALITY 60", preset("2", "\"bilinear\"", "false", "60")}}));
+#endif
   // The game's 4x MSAA, apart from the post-process FXAA row below: off,
   // edges are harder and targets take a quarter of the memory.
   // 2X stores the game's 4x surfaces with two samples each (Vulkan): on the

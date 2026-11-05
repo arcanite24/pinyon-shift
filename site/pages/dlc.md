@@ -86,6 +86,10 @@ were checked with the real v1.2 and Traffic ZIPs. With XE 1.01 enabled
 alongside both packages, the base build reached the Autoshow and displayed
 the RSX name. This does not qualify all combined content; see the
 [DLC backlog](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/DLC_BACKLOG.md#community-udlc-595).
+XE 1.0 without its 1.01 hotfix does not work with UDLC: a new save stops
+in the opening drive on a disc read error, so an install that lacks the
+hotfix hides UDLC while XE is on
+([#901](https://github.com/arcanite24/pinyon-shift/issues/901)).
 
 With the stock RSX selected, turning UDLC off on the tested base save
 loaded a fallback Corrado and preserved the owned garage. After turning

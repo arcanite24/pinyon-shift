@@ -19,7 +19,7 @@ planned here as an opt-in feature, off by default.
 - **Spatial output scaling ships:** bilinear, CAS and FSR 1 (EASU and RCAS)
   in the presenter (`present_effect`, SDK `src/ui/presenter.cpp`,
   `src/ui/vulkan/vulkan_presenter.cpp`). On the 8 Elite FSR 1 costs 1.4 ms.
-- **FSR 2 and 3 run as providers but without the game's inputs.**
+- **FSR 2 and 3 use extracted scene depth and derived motion.**
   `present_effect=fsr2|fsr3` dispatches FSR 2.3.3 or 3.1.4 (AMD's
   signed runtime on Windows, the same library built from source on
   Linux, Android and macOS, UP-2.1) once per guest frame with the real frame delta (UP-0.3,

@@ -40,7 +40,7 @@ class ExperimentIsolationTests(unittest.TestCase):
                 experiment.check(build, snapshot, True)
             command["file"] = str(snapshot / "pinyon_shift_recomp.0.cpp")
             commands.write_text(json.dumps([command]))
-            ninja.write_text("rexglue codegen --ignore-stamp")
+            ninja.write_text("Generating dependency-tracked recompiled code for Pinyon Shift")
             with self.assertRaisesRegex(ValueError, "invoke codegen"):
                 experiment.check(build, snapshot, True)
 

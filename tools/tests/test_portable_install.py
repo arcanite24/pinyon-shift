@@ -184,7 +184,7 @@ class RelocatedBuildTreeTests(unittest.TestCase):
     def test_build_preview_checks_both_trees_before_configuring(self):
         build = read("tools/build-preview.ps1")
         check = build.index("Reset-PinyonRelocatedCMakeCache -BuildDirectory $buildTree")
-        self.assertIn("(Join-Path $sdkRoot 'out/build/win-amd64')", build)
+        self.assertIn("Join-Path $sdkRoot 'out/build/win-amd64'", build)
         self.assertIn("(Join-Path $root \"out/build/$previewPreset\")", build)
         self.assertLess(check, build.index("'--preset', 'win-amd64'"))
         self.assertLess(check, build.index("'--preset', $previewPreset"))

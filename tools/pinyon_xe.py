@@ -10,19 +10,24 @@ pass the dirty-disc check; Pinyon Shift accepts the hashes of every file a
 mod replaces, so the base build runs XE unchanged and its executables are
 not used.
 
-  pinyon.py xe install <XE 1.0 archive> [<1.01 hotfix archive>]
+  pinyon.py xe install <XE 1.0 archive> <1.01 hotfix archive>
                        [--state-root DIR] [--game-root DIR] [--json]
   pinyon.py xe install --find [--dir DIR] [--wait SECONDS] [--open-pages] ...
   pinyon.py xe find [--dir DIR] [--json]
   pinyon.py xe status|enable|disable|remove [--state-root DIR] [--json]
 
-`install` checks each archive's size and MD5 against ModDB's, extracts them
+`install` needs both downloads, checks each archive's size and MD5 against
+ModDB's, extracts them
 (the hotfix over 1.0) with 7-Zip or libarchive's bsdtar, keeps only the
 files that differ from the player's game, and writes the asset mod
 <state>/mods/xe. Its mod.toml targets the base executable, hides the Horizon
 Rally expansion (XE replaces the database Rally extends) and plays its own
-new save, <state>/user-xe, as XE's readme asks. The player's own save, DLC
-and game files are never changed. Nothing from the mod is distributed.
+new save, <state>/user-xe, as XE's readme asks. Earlier releases also
+installed 1.0 without the hotfix; with the community UDLC pack such an
+install stops the game with a "dirty disc" error when the new-player
+opening loads (#901), so its mod.toml hides UDLC too. `refresh_manifest`
+rewrites the mod.toml of an earlier install that lacks a newer setting.
+The player's own save, DLC and game files are never changed. Nothing from the mod is distributed.
 
 `--find` takes the archives from the player's Downloads folder (or --dir)
 instead of a list, matched by name and size. `--open-pages` opens both
@@ -50,6 +55,8 @@ ROOT = Path(__file__).resolve().parents[1]
 MOD = "xe"
 BASE_EXECUTABLE = "DB40DF605ADE49A6"
 RALLY = "6F6992766050D818245ADD408031E280FB5F4E634D"
+# The community UDLC pack and its Traffic Car Unlocker (config/supported-dlc.json).
+UDLC = ("4D5309C900000729", "4D5309C900000732")
 
 # ModDB's published sizes and MD5s.
 ARCHIVES = {
@@ -152,7 +159,7 @@ def find_archives(folders: list[Path]) -> dict[str, Path]:
 def wait_for_archives(folders: list[Path], seconds: float, quiet: bool,
                       poll: float = 5.0) -> dict[str, Path]:
     """Look for both downloads until they are complete or the time runs out;
-    returns what was found (1.0 alone is enough to install)."""
+    returns what was found."""
     deadline = time.monotonic() + seconds
     announced: set[str] = set()
     while True:
@@ -277,9 +284,32 @@ def mod_toml(version: str) -> str:
         "# XE is made for the base game without title updates.\n"
         f'game_version = "{BASE_EXECUTABLE}"\n'
         "# XE replaces the database the Horizon Rally expansion extends.\n"
-        f'hide_dlc = ["{RALLY}"]\n'
+        + ("# Without the 1.01 hotfix, UDLC stops the opening on a dirty-disc error (#901).\n"
+           if version == "1.0" else "")
+        + "hide_dlc = [" + ", ".join(f'"{p}"' for p in (RALLY, *(UDLC if version == "1.0" else ())))
+        + "]\n"
         "# XE needs a new save; it plays <state>/user-xe.\n"
         f'profile = "{MOD}"\n')
+
+
+def refresh_manifest(state: Path) -> bool:
+    """Rewrite an installed XE's mod.toml when it differs from what this
+    version writes (1.0-only installs before #901 did not hide UDLC). True
+    when rewritten."""
+    target = state / "mods" / MOD
+    manifest = target / "mod.toml"
+    try:
+        version = json.loads((target / "xe-install.json").read_text(encoding="utf-8"))["version"]
+        current = manifest.read_text(encoding="utf-8")
+    except (OSError, ValueError, KeyError):
+        return False
+    wanted = mod_toml(version)
+    if current == wanted:
+        return False
+    temporary = manifest.with_name(manifest.name + ".tmp")
+    temporary.write_text(wanted, encoding="utf-8", newline="\n")
+    os.replace(temporary, manifest)
+    return True
 
 
 def install(args: argparse.Namespace) -> dict:
@@ -295,10 +325,11 @@ def install(args: argparse.Namespace) -> dict:
             open_pages(quiet)
         say("Looking for the XE downloads in " + ", ".join(str(f) for f in folders), quiet)
         found = wait_for_archives(folders, args.wait, quiet)
-        if "1.0" not in found:
-            raise XeError(f"{ARCHIVES['1.0']['file']} was not found in "
-                          + (", ".join(str(f) for f in folders) or "a Downloads folder")
-                          + f"; download it from {ARCHIVES['1.0']['page']}")
+        for version in ARCHIVES:
+            if version not in found:
+                raise XeError(f"{ARCHIVES[version]['file']} was not found in "
+                              + (", ".join(str(f) for f in folders) or "a Downloads folder")
+                              + f"; download it from {ARCHIVES[version]['page']}")
         archives += [found[v] for v in ARCHIVES if v in found]
     if not archives:
         raise XeError("choose the XE archives, or pass --find to look in Downloads")
@@ -314,6 +345,10 @@ def install(args: argparse.Namespace) -> dict:
     if "1.0" not in versions:
         raise XeError(f"XE needs its full 1.0 download, {ARCHIVES['1.0']['file']}; "
                       "the 1.01 hotfix applies over it")
+    if "1.01" not in versions:
+        raise XeError(f"XE needs its 1.01 hotfix too, {ARCHIVES['1.01']['file']}, from "
+                      f"{ARCHIVES['1.01']['page']}; it corrects engines that stop the game "
+                      "in the opening drive")
     mods = state / "mods"
     target = mods / MOD
     if target.exists() and not args.replace:
@@ -331,11 +366,10 @@ def install(args: argparse.Namespace) -> dict:
     try:
         layers = []
         for version in ("1.0", "1.01"):
-            if version in versions:
-                say(f"Extracting XE {version} (a few minutes)", quiet)
-                layer = staging / "archives" / version
-                extract(extractor, versions[version], layer)
-                layers.append(index_tree(layer))
+            say(f"Extracting XE {version} (a few minutes)", quiet)
+            layer = staging / "archives" / version
+            extract(extractor, versions[version], layer)
+            layers.append(index_tree(layer))
         merged: dict[str, tuple[str, Path]] = {}
         for layer in layers:
             merged.update(layer)
@@ -363,7 +397,7 @@ def install(args: argparse.Namespace) -> dict:
         for readme in ("readme.txt", "readme 1.1 hotfix.txt"):
             if readme in merged:
                 shutil.copy2(merged[readme][1], output / readme.replace(" ", "-"))
-        version = "1.01" if "1.01" in versions else "1.0"
+        version = "1.01"
         (output / "mod.toml").write_text(mod_toml(version), encoding="utf-8", newline="\n")
         record = {"schema_version": 1, "version": version,
                   "archives": {v: {"file": p.name, "md5": ARCHIVES[v]["md5"],
@@ -385,9 +419,6 @@ def install(args: argparse.Namespace) -> dict:
     result = {"result": "installed", "version": version, "mod": str(target),
               "enabled": not args.no_enable, "replaced": record["replaced"],
               "added": record["added"], "profile": str(state / f"user-{MOD}")}
-    if "1.01" not in versions:
-        result["warning"] = ("the 1.01 hotfix is not installed; it fixes engines, models "
-                             "and audio: " + ARCHIVES["1.01"]["page"])
     return result
 
 
@@ -410,7 +441,9 @@ def status(args: argparse.Namespace) -> dict:
         return {"installed": False}
     record = json.loads(record_path.read_text(encoding="utf-8"))
     enabled = MOD in _patches().enabled_mods(state / "config" / "pinyon_shift.toml")
+    # An earlier release's 1.0-only install: Reinstall with both downloads.
     return {"installed": True, "enabled": enabled, "version": record["version"],
+            "hotfix": record["version"] == "1.01",
             "replaced": record["replaced"], "added": record["added"], "mod": str(target),
             "profile": str(state / f"user-{MOD}")}
 

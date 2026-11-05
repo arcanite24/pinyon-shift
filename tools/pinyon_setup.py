@@ -37,6 +37,7 @@ import struct
 import subprocess
 import sys
 import tarfile
+import threading
 import time
 import urllib.request
 import zipfile
@@ -90,8 +91,17 @@ def host_platform() -> str:
         return "linux-x86_64"
     if sys.platform == "darwin" and machine in ("arm64", "aarch64"):
         return "macos-arm64"
+    if sys.platform == "darwin" and machine in ("x86_64", "amd64"):
+        # Experimental: built and run under Rosetta, not yet on Intel or AMD GPUs.
+        return "macos-x86_64"
     raise SetupError(f"no build for {sys.platform} on {machine}: Pinyon Shift builds on "
-                     "x86-64 Linux, Apple silicon Macs and Windows")
+                     "x86-64 Linux, Macs and Windows")
+
+
+MACOS_PLATFORMS = ("macos-arm64", "macos-x86_64")
+# The x86_64 libc++ in the macOS 15 SDKs (Xcode 16) marks floating-point
+# std::to_chars, which std::format uses, as new in macOS 13.3.
+MACOS_DEPLOYMENT_TARGET = {"macos-arm64": "13.0", "macos-x86_64": "13.3"}
 
 
 def toolchain_config() -> dict:
@@ -310,6 +320,45 @@ def provision_python(progress: Progress, config: dict, name: str) -> Path:
     return executable
 
 
+class _Quiet(Progress):
+    """A Progress that prints nothing, for downloads in the background."""
+
+    def __init__(self) -> None:
+        super().__init__(False)
+
+    def __call__(self, stage: str, percent: float | None, message: str) -> None:
+        pass
+
+
+def prefetch(config: dict, name: str) -> threading.Thread:
+    """TP-7: the tool and kit downloads, while the game is checked and
+    extracted; provision() and install_kit() then find them in .local/downloads.
+    A failure is left to them to retry and report. Join the thread first:
+    both write the same files."""
+    tools = platform_tools(config, name)
+    items = []
+    for key in ("cmake", "ninja", "llvm", "sysroot"):
+        if key in tools:
+            stamp = ROOT / tools[key]["install_path"] / ".pinyon-sha256"
+            if not (stamp.is_file() and stamp.read_text(encoding="ascii").strip()
+                    == tools[key]["sha256"]):
+                items.append(tools[key])
+    entry = kit_entry(config, name)
+    if entry and not kit_ready(config, name):
+        items.append(entry)
+
+    def work() -> None:
+        for item in items:
+            try:
+                download(item, _Quiet(), "")
+            except (SetupError, OSError):
+                pass
+
+    thread = threading.Thread(target=work, name="prefetch", daemon=True)
+    thread.start()
+    return thread
+
+
 def provision(progress: Progress, config: dict, name: str) -> dict:
     """Downloads and unpacks every pinned tool for this platform; returns
     name -> executable."""
@@ -334,7 +383,7 @@ def provision(progress: Progress, config: dict, name: str) -> dict:
         found[key] = install / item["executable"] if item.get("executable") else install
     if name == "linux-x86_64":
         prepare_linux_toolchain(tools)
-    if name == "macos-arm64":
+    if name in MACOS_PLATFORMS:
         require_xcode_tools()
     progress("tools", 100, "Toolchain ready")
     return found
@@ -510,7 +559,9 @@ def executable_hashes(dump: dict, expected: dict) -> dict[str, dict[str, str]]:
     for revision in dump.get("executable_revisions", []):
         for item in revision["files"]:
             key = item["guest_path"].lower()
-            accepted.setdefault(key, {})[expected[key]["sha256"].upper()] = "disc"
+            # The dump owns executable hashes; only extra files such as nxeart
+            # take their disc hash from the extraction catalog.
+            accepted.setdefault(key, {expected[key]["sha256"].upper(): "disc"})
             accepted[key][item["sha256"].upper()] = revision["id"]
     return accepted
 
@@ -539,10 +590,49 @@ def check_paths(files: list[tuple[str, int, int]], expected: dict) -> list[str]:
     return mismatches
 
 
-def extract_iso(iso: Path, progress: Progress) -> tuple[dict, str]:
+def copy_executables(iso: Path, destination: Path, *, allow_revisions: bool = False) -> None:
+    """Copies the three .xex files out of the disc image, checked against the
+    supported dump. They are all the translation reads, so the build can
+    start while the rest of the game is extracted (extract_iso with
+    replace=False, or extract-xiso on Windows). Windows remains disc-only;
+    POSIX setup opts into other supported executable revisions. Full
+    extraction also checks the dashboard art belongs to the same revision."""
+    dump, expected = load_catalog()
+    disc = DiscImage(iso)
+    try:
+        listing = [entry for entry in disc.files()
+                   if not entry[0].split("/", 1)[0].lower() == SYSTEM_UPDATE.lower()]
+        # Another disc fails here, in seconds, not after the build.
+        mismatches = check_paths(listing, expected)
+        if mismatches:
+            raise SetupError("This disc image is not the supported Forza Horizon (USA, "
+                             f"MS-2505) dump: {mismatches[0]}", "verify")
+        files = {path.lower(): (sector, size) for path, sector, size in listing}
+        destination.mkdir(parents=True, exist_ok=True)
+        digests = {}
+        for executable in dump["executables"]:
+            name = executable["guest_path"]
+            found = files.get(name.lower())
+            if found is None or found[1] != executable["size_bytes"]:
+                raise SetupError(f"This disc image is not the supported Forza Horizon (USA, "
+                                 f"MS-2505) dump: {name} differs", "verify")
+            digest = disc.copy(found[0], found[1], destination / name)
+            if not allow_revisions and digest != executable["sha256"].upper():
+                raise SetupError(f"This disc image is not the supported Forza Horizon (USA, "
+                                 f"MS-2505) dump: {name} differs", "verify")
+            digests[name.lower()] = digest
+        if allow_revisions:
+            executable_revision(digests, dump, expected)
+    finally:
+        disc.close()
+
+
+def extract_iso(iso: Path, progress: Progress, replace: bool = True) -> tuple[dict, str, Path]:
     """Copies the game out of the disc image, checking each file against the
-    catalog; an image that is not the supported dump leaves nothing behind.
-    Returns the dump and the executables' revision (disc or games-on-demand)."""
+    catalog; an image that is not the supported dump is never published.
+    Returns the dump, executable revision (disc or games-on-demand) and
+    destination. Without replace, the checked copy stays in staging for
+    the caller to swap in with replace_game."""
     dump, expected = load_catalog()
     accepted = executable_hashes(dump, expected)
     digests = {}
@@ -587,8 +677,10 @@ def extract_iso(iso: Path, progress: Progress) -> tuple[dict, str]:
             raise
     finally:
         disc.close()
+    if not replace:
+        return dump, revision, staging
     replace_game(staging)
-    return dump, revision
+    return dump, revision, GAME
 
 
 def verify_folder(source: Path, progress: Progress) -> tuple[dict, str]:
@@ -644,6 +736,29 @@ def verify_folder(source: Path, progress: Progress) -> tuple[dict, str]:
     return dump, revision
 
 
+class Extraction:
+    """extract_iso on a thread, its progress kept quiet so it does not fight
+    the build's; result() waits and re-raises its error."""
+
+    def __init__(self, iso: Path):
+        self._result = None
+        self._error = None
+        self._thread = threading.Thread(target=self._run, args=(iso,), daemon=True)
+        self._thread.start()
+
+    def _run(self, iso: Path) -> None:
+        try:
+            self._result = extract_iso(iso, lambda *_: None, replace=False)
+        except BaseException as error:  # noqa: BLE001 (re-raised in result)
+            self._error = error
+
+    def result(self) -> tuple[dict, str, Path]:
+        self._thread.join()
+        if self._error:
+            raise self._error
+        return self._result
+
+
 def replace_game(staging: Path) -> None:
     if GAME.is_symlink():
         raise SetupError(f"{GAME} is a link; remove it first", "extract")
@@ -653,7 +768,11 @@ def replace_game(staging: Path) -> None:
 
 
 def game_ready() -> bool:
-    """The extracted game is there and its executables still match."""
+    """The extracted game is there and its executables still match. A
+    staging folder left behind means the last extraction never finished and
+    the game folder may hold only the executables (copy_executables)."""
+    if GAME.with_name(GAME.name + ".extracting").exists():
+        return False
     dump, expected = load_catalog()
     for executable in dump["executables"]:
         path = GAME / executable["guest_path"]
@@ -711,6 +830,104 @@ def prepare_shiftglue(progress: Progress, config: dict) -> Path:
     return sdk
 
 
+# --- Prebuilt ShiftGlue kit (TP-2/TP-3) ------------------------------------------
+
+KIT = LOCAL / "shiftglue-kit"
+
+
+def kit_entry(config: dict, name: str) -> dict | None:
+    """The release's kit for this platform when it was built from the pinned
+    ShiftGlue revision (tools/apply-prebuilt-pins.py). PINYON_SHIFT_SOURCE_SDK=1
+    forces the source tree."""
+    if os.environ.get("PINYON_SHIFT_SOURCE_SDK") == "1":
+        return None
+    entry = config.get("shiftglue_kit", {}).get(name)
+    if entry and entry.get("revision") == config["rexglue"]["revision"]:
+        return entry
+    return None
+
+
+def kit_ready(config: dict, name: str) -> Path | None:
+    if os.environ.get("PINYON_SHIFT_SOURCE_SDK") == "1":
+        return None
+    try:
+        kit = json.loads((KIT / "kit.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if kit.get("shiftglue_revision") != config["rexglue"]["revision"] or kit.get("platform") != name:
+        return None
+    return KIT
+
+
+def install_kit(progress: Progress, config: dict, name: str) -> Path | None:
+    """The unpacked kit, or None (setup then clones and builds ShiftGlue)."""
+    ready = kit_ready(config, name)
+    entry = kit_entry(config, name)
+    if ready or not entry:
+        return ready
+    progress("tools", 92, "Getting the prebuilt ShiftGlue kit")
+    try:
+        archive = download(entry, progress, "the ShiftGlue kit")
+        unpack(archive, KIT)
+        archive.unlink()
+    except (SetupError, OSError, tarfile.TarError) as error:
+        progress("tools", 92, f"The prebuilt ShiftGlue kit could not be installed ({error}); "
+                 "building ShiftGlue from source instead")
+        return None
+    return kit_ready(config, name)
+
+
+def is_kit(sdk: Path) -> bool:
+    return (sdk / "kit.json").is_file()
+
+
+HOST_OBJECTS = LOCAL / "host-objects"
+
+
+def install_host_objects(progress: Progress, name: str, variant: str) -> str:
+    """TP-3 host split: the release's prebuilt host objects for this platform
+    and variant (base or v4), unpacked for PINYON_SHIFT_HOST_OBJECTS, or "" to
+    compile the host code here. The game build also checks their fingerprint
+    and falls back on its own."""
+    config = toolchain_config()
+    entry = config.get("host_objects", {}).get(name, {}).get(variant)
+    if not entry or entry.get("revision") != config["rexglue"]["revision"]:
+        return ""
+    target = HOST_OBJECTS / variant
+    stamp = target / ".asset-sha256"
+    if stamp.is_file() and stamp.read_text(encoding="ascii").strip() == entry["sha256"].upper():
+        return str(target)
+    try:
+        archive = download(entry, progress, "the prebuilt host objects")
+        unpack(archive, target)
+        stamp.write_text(entry["sha256"].upper() + "\n", encoding="ascii")
+    except (SetupError, OSError, tarfile.TarError) as error:
+        progress("build", 28, f"The prebuilt host objects could not be installed ({error}); "
+                 "compiling the host code instead")
+        return ""
+    return str(target)
+
+
+def sdk_arguments(sdk: Path, host_objects: str = "") -> list[str]:
+    """The game configure's SDK: the kit (with the release's host objects) or
+    the source tree. Everything is always passed, so a build folder switches
+    cleanly between them."""
+    if is_kit(sdk):
+        return ["-DREXSDK_DIR=", f"-DPINYON_SHIFT_SHIFTGLUE_KIT={sdk}",
+                f"-DPINYON_SHIFT_HOST_OBJECTS={host_objects}"]
+    return [f"-DREXSDK_DIR={sdk}", "-DPINYON_SHIFT_SHIFTGLUE_KIT=", "-DPINYON_SHIFT_HOST_OBJECTS="]
+
+
+def generator_path(sdk: Path, presets: dict) -> Path:
+    return sdk / "bin" / "rexglue" if is_kit(sdk) else sdk / presets["generator"]
+
+
+def sdk_revision(sdk: Path) -> str:
+    if is_kit(sdk):
+        return json.loads((sdk / "kit.json").read_text(encoding="utf-8"))["shiftglue_revision"]
+    return git_output("rev-parse", "HEAD", cwd=sdk)
+
+
 # --- Build ---------------------------------------------------------------------
 
 PRESETS = {
@@ -718,6 +935,8 @@ PRESETS = {
                      "generator": "out/linux-amd64/Release/rexglue"},
     "macos-arm64": {"sdk": "mac-arm64", "game": "macos-arm64",
                     "generator": "out/mac-arm64/Release/rexglue"},
+    "macos-x86_64": {"sdk": "mac-amd64", "game": "macos-amd64",
+                     "generator": "out/mac-amd64/Release/rexglue"},
 }
 
 
@@ -774,8 +993,10 @@ def cpu_baseline(name: str, cpuinfo: Path = Path("/proc/cpuinfo")) -> str:
     and later, the Steam Deck included; NN-1.8), the FMA3 variant, or SSE4.1.
     PINYON_SHIFT_CPU_BASELINE (sse4.1, fma or v3) overrides it, for example
     for a build copied to an older PC; the game's own guard stops a build on
-    a CPU without its baseline."""
-    if name != "linux-x86_64":
+    a CPU without its baseline. An Intel Mac reports its features through
+    sysctl; under Rosetta, whose instruction set depends on the macOS
+    version, the build keeps SSE4.1."""
+    if name not in ("linux-x86_64", "macos-x86_64"):
         return "native"
     chosen = os.environ.get("PINYON_SHIFT_CPU_BASELINE", "").strip()
     if chosen:
@@ -783,18 +1004,37 @@ def cpu_baseline(name: str, cpuinfo: Path = Path("/proc/cpuinfo")) -> str:
             raise SetupError(f"PINYON_SHIFT_CPU_BASELINE must be one of "
                              f"{', '.join(CPU_BASELINE_FLAGS)}, not {chosen!r}", "build")
         return chosen
-    try:
-        text = cpuinfo.read_text(encoding="ascii", errors="replace")
-    except OSError:
-        return "sse4.1"
-    flags = set()
-    for line in text.splitlines():
-        if line.startswith("flags"):
-            flags = set(line.split(":", 1)[-1].split())
-            break
+    if name == "macos-x86_64":
+        flags = macos_cpu_flags()
+    else:
+        try:
+            text = cpuinfo.read_text(encoding="ascii", errors="replace")
+        except OSError:
+            return "sse4.1"
+        flags = set()
+        for line in text.splitlines():
+            if line.startswith("flags"):
+                flags = set(line.split(":", 1)[-1].split())
+                break
     if all(flag in flags for flag in V3_CPU_FLAGS):
         return "v3"
     return "fma" if {"fma", "avx2"} <= flags else "sse4.1"
+
+
+def macos_cpu_flags(run=subprocess.run) -> set[str]:
+    """An Intel Mac's CPU features in /proc/cpuinfo's names (LZCNT is abm),
+    or none under Rosetta or when sysctl fails, which keeps SSE4.1."""
+    def sysctl(*keys: str) -> str:
+        try:
+            result = run(["sysctl", "-n", *keys], capture_output=True, text=True)
+        except OSError:
+            return ""
+        return result.stdout if result.returncode == 0 else ""
+    if sysctl("sysctl.proc_translated").strip() == "1":
+        return set()
+    names = sysctl("machdep.cpu.features", "machdep.cpu.leaf7_features",
+                   "machdep.cpu.extfeatures").lower().split()
+    return {"abm" if name == "lzcnt" else name for name in names}
 
 
 def discard_unfinished_configure(directory: Path) -> None:
@@ -874,41 +1114,35 @@ def diagnose_macos_pch(directory: Path, build_log: Path, environment: dict) -> P
     return log
 
 
+def toolchain_arguments(name: str) -> list[str]:
+    if name == "linux-x86_64":
+        # ShiftGlue's preset names plain clang; the toolchain file's pinned
+        # paths must win or every configure discards the cache.
+        llvm = LOCAL / "toolchain" / "linux-x86_64" / "llvm" / "bin"
+        return [f"-DCMAKE_TOOLCHAIN_FILE={ROOT / 'cmake/toolchains/linux-x86_64-sniper.cmake'}",
+                f"-DCMAKE_C_COMPILER={llvm / 'clang'}",
+                f"-DCMAKE_CXX_COMPILER={llvm / 'clang++'}"]
+    if name == "macos-arm64":
+        return ["-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"]
+    if name == "macos-x86_64":
+        # ShiftGlue's mac-amd64 preset compiles for x86-64-v3, which every
+        # Intel Mac on macOS 13 has but Rosetta may not; the translator and
+        # the kit need only the SSE4.1 baseline. The game picks its own.
+        return ["-DCMAKE_EXPORT_COMPILE_COMMANDS=ON", "-DCMAKE_C_FLAGS=-msse4.1",
+                "-DCMAKE_CXX_FLAGS=-msse4.1",
+                f"-DCMAKE_OSX_DEPLOYMENT_TARGET={MACOS_DEPLOYMENT_TARGET['macos-x86_64']}"]
+    return []
+
+
 def build(progress: Progress, tools: dict, sdk: Path, python: Path, name: str,
           jobs: int, configuration: str = "Release") -> Path:
     presets = PRESETS[name]
     environment = build_environment(tools)
     cmake = str(tools["cmake"])
-    toolchain = []
-    if name == "linux-x86_64":
-        # ShiftGlue's preset names plain clang; the toolchain file's pinned
-        # paths must win or every configure discards the cache.
-        llvm = LOCAL / "toolchain" / "linux-x86_64" / "llvm" / "bin"
-        toolchain = [f"-DCMAKE_TOOLCHAIN_FILE={ROOT / 'cmake/toolchains/linux-x86_64-sniper.cmake'}",
-                     f"-DCMAKE_C_COMPILER={llvm / 'clang'}",
-                     f"-DCMAKE_CXX_COMPILER={llvm / 'clang++'}"]
-    elif name == "macos-arm64":
-        toolchain = ["-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"]
-    generator = sdk / presets["generator"]
-    discard_unfinished_configure(sdk / "out" / "build" / presets["sdk"])
-    run_logged([cmake, "--preset", presets["sdk"], "-DREXGLUE_ENABLE_TRACY=OFF",
-                "-DSDL_HIDAPI_LIBUSB=OFF"] + toolchain, LOGS / "rexglue-configure.log",
-               progress, "build", 0, 2, "Configuring ShiftGlue", environment, cwd=sdk)
-    try:
-        run_logged([cmake, "--build", "--preset", f"{presets['sdk']}-release", "--target", "rexglue",
-                    "--parallel", str(jobs)], LOGS / "rexglue-build.log", progress, "build", 2, 20,
-                   "Building the translator", environment, cwd=sdk)
-    except SetupError as error:
-        if name == "macos-arm64":
-            try:
-                diagnostic = diagnose_macos_pch(sdk / "out/build" / presets["sdk"],
-                                                LOGS / "rexglue-build.log", environment)
-            except OSError:
-                diagnostic = None
-            if diagnostic:
-                raise SetupError(f"{error}\nAttach rexglue-configure.log, rexglue-build.log "
-                                 f"and {diagnostic} when reporting this failure.", "build") from error
-        raise
+    toolchain = toolchain_arguments(name)
+    generator = generator_path(sdk, presets)
+    if not is_kit(sdk):
+        build_generator(progress, sdk, presets, name, cmake, toolchain, jobs, environment)
 
     generated = LOCAL / "generated"
     stamps = [generated / "default" / "codegen.build.stamp"] + [
@@ -938,7 +1172,8 @@ def build(progress: Progress, tools: dict, sdk: Path, python: Path, name: str,
                  f"-DCMAKE_C_FLAGS={CPU_BASELINE_FLAGS[baseline]}",
                  f"-DCMAKE_CXX_FLAGS={CPU_BASELINE_FLAGS[baseline]}"]
     discard_unfinished_configure(ROOT / "out" / "build" / preset)
-    run_logged([cmake, "--preset", preset, f"-DREXSDK_DIR={sdk}", f"-DPYTHON_EXECUTABLE={python}",
+    host_objects = install_host_objects(progress, name, "base") if is_kit(sdk) else ""
+    run_logged([cmake, "--preset", preset, *sdk_arguments(sdk, host_objects), f"-DPYTHON_EXECUTABLE={python}",
                 "-DREXGLUE_ENABLE_TRACY=OFF", "-DSDL_HIDAPI_LIBUSB=OFF"] + flags,
                LOGS / "preview-configure.log", progress, "build", 28, 30,
                "Configuring the game", environment)
@@ -954,6 +1189,127 @@ def build(progress: Progress, tools: dict, sdk: Path, python: Path, name: str,
     if controller_db.is_file():
         shutil.copyfile(str(controller_db), str(directory / "gamecontrollerdb.txt"))
     return executable
+
+
+def build_generator(progress: Progress, sdk: Path, presets: dict, name: str, cmake: str,
+                    toolchain: list, jobs: int, environment: dict) -> None:
+    discard_unfinished_configure(sdk / "out" / "build" / presets["sdk"])
+    run_logged([cmake, "--preset", presets["sdk"], "-DREXGLUE_ENABLE_TRACY=OFF",
+                "-DSDL_HIDAPI_LIBUSB=OFF"] + toolchain, LOGS / "rexglue-configure.log",
+               progress, "build", 0, 2, "Configuring ShiftGlue", environment, cwd=sdk)
+    try:
+        run_logged([cmake, "--build", "--preset", f"{presets['sdk']}-release", "--target", "rexglue",
+                    "--parallel", str(jobs)], LOGS / "rexglue-build.log", progress, "build", 2, 20,
+                   "Building the translator", environment, cwd=sdk)
+    except SetupError as error:
+        if name in MACOS_PLATFORMS:
+            try:
+                diagnostic = diagnose_macos_pch(sdk / "out/build" / presets["sdk"],
+                                                LOGS / "rexglue-build.log", environment)
+            except OSError:
+                diagnostic = None
+            if diagnostic:
+                raise SetupError(f"{error}\nAttach rexglue-configure.log, rexglue-build.log "
+                                 f"and {diagnostic} when reporting this failure.", "build") from error
+        raise
+
+
+# The options every Pinyon Shift build compiles the SDK with
+# (cmake/PinyonShiftRexGlue.cmake), fixed for the kit: Release, perf counters
+# on, Tracy off, and on Linux the SSE4.1 baseline, the small code model, 4 KB
+# pages and functions bound inside each library.
+KIT_FLAGS = {
+    "linux-x86_64": "-msse4.1 -DREXGLUE_ENABLE_PERF_COUNTERS -DREX_PHYSICAL_HEAP_4K_PAGES=1",
+    "macos-arm64": "-DREXGLUE_ENABLE_PERF_COUNTERS",
+    "macos-x86_64": "-msse4.1 -DREXGLUE_ENABLE_PERF_COUNTERS",
+}
+# Linker flags for the kit's shared libraries, through LDFLAGS: CMake adds
+# that to the toolchain file's own linker flags, where a
+# CMAKE_SHARED_LINKER_FLAGS cache entry replaced them (lld, the libgcc
+# overlay) and the link fell back to the build host's ld.
+KIT_LDFLAGS = {"linux-x86_64": "-Wl,-Bsymbolic-functions"}
+KIT_CACHE = {
+    "linux-x86_64": ["-DREXGLUE_X86_64_CODE_MODEL=small"],
+    "macos-arm64": ["-DCMAKE_OSX_ARCHITECTURES=arm64", "-DCMAKE_OSX_DEPLOYMENT_TARGET=13.0"],
+    "macos-x86_64": ["-DCMAKE_OSX_ARCHITECTURES=x86_64", "-DCMAKE_OSX_DEPLOYMENT_TARGET=13.3"],
+}
+# SDK files the host compiles or includes itself, at their source-tree paths
+# (PINYON_SHIFT_SDK_SOURCE_DIR in cmake/PinyonShiftRexGlue.cmake).
+KIT_SOURCES = (("thirdparty/crypto", "sha256.*"), ("thirdparty/imgui", "*.h"),
+               ("thirdparty/renderdoc", "*.h"), ("thirdparty/tomlplusplus/include", "**/*"),
+               (".", "LICENSE*"))
+
+
+def build_kit(progress: Progress, tools: dict, sdk: Path, python: Path, name: str, jobs: int,
+              output: Path) -> Path:
+    """TP-2/TP-3: the ShiftGlue kit for this platform, as
+    tools/build-shiftglue-kit.ps1 builds Windows's: the generator, the runtime
+    and graphics backend with their CMake package, the FidelityFX Vulkan
+    library, and the SDK sources the host compiles. Nothing game-derived."""
+    config = toolchain_config()
+    revision = git_output("rev-parse", "HEAD", cwd=sdk)
+    if revision != config["rexglue"]["revision"]:
+        raise SetupError(f"ShiftGlue is at {revision}, but the config pins "
+                         f"{config['rexglue']['revision']}", "build")
+    environment = build_environment(tools)
+    if name in KIT_LDFLAGS:
+        environment["LDFLAGS"] = KIT_LDFLAGS[name]
+    cmake = str(tools["cmake"])
+    work = LOCAL / "kit-build"
+    tree, prefix = work / "build", work / "kit"
+    if prefix.exists():
+        shutil.rmtree(prefix)
+    flags = f"{KIT_FLAGS[name]} -ffile-prefix-map={sdk}=shiftglue"
+    run_logged([cmake, "-S", str(sdk), "-B", str(tree), "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release",
+                *toolchain_arguments(name), f"-DCMAKE_C_FLAGS={flags}", f"-DCMAKE_CXX_FLAGS={flags}",
+                "-DREXGLUE_USE_VULKAN=ON", "-DREXGLUE_ENABLE_TRACY=OFF", "-DSDL_HIDAPI_LIBUSB=OFF",
+                "-DREXGLUE_INSTALL_REGISTER_PACKAGE=OFF", f"-DPYTHON_EXECUTABLE={python}",
+                f"-DCMAKE_INSTALL_PREFIX={prefix}", *KIT_CACHE[name]],
+               LOGS / "kit-configure.log", progress, "build", 0, 5, "Configuring the kit", environment)
+    run_logged([cmake, "--build", str(tree), "--target", "install", "--parallel", str(jobs)],
+               LOGS / "kit-build.log", progress, "build", 5, 80, "Building the kit", environment)
+    # AMD's FidelityFX Vulkan library, which a source build compiles at every
+    # first build (rexglue_helpers.cmake), built once here.
+    ffx_tree = work / "fidelityfx-vk"
+    ffx_arguments = [f"-DCMAKE_C_FLAGS={flags}", f"-DCMAKE_CXX_FLAGS={flags}"]
+    if name in MACOS_PLATFORMS:
+        ffx_arguments.append(f"-DVulkan_LIBRARY={prefix / 'lib' / 'libvulkan.1.dylib'}")
+    run_logged([cmake, "-S", str(sdk / "thirdparty/fidelityfx-vk"), "-B", str(ffx_tree), "-G", "Ninja",
+                "-DCMAKE_BUILD_TYPE=Release", *toolchain_arguments(name), *KIT_CACHE[name],
+                *ffx_arguments],
+               LOGS / "kit-ffx-configure.log", progress, "build", 80, 82,
+               "Configuring FidelityFX", environment)
+    run_logged([cmake, "--build", str(ffx_tree), "--target", "amd_fidelityfx_vk",
+                "--parallel", str(jobs)], LOGS / "kit-ffx-build.log", progress, "build", 82, 90,
+               "Building FidelityFX", environment)
+    library = "libamd_fidelityfx_vk.dylib" if name in MACOS_PLATFORMS else "libamd_fidelityfx_vk.so"
+    upscalers = prefix / "share/rexglue/upscalers/fidelityfx"
+    upscalers.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(str(ffx_tree / "ffx-api" / library), str(upscalers / library))
+    shutil.copy2(str(sdk / "thirdparty/fidelityfx-vk/LICENSE.txt"), str(upscalers / "LICENSE.txt"))
+    mirror = prefix / "share/rexglue/source"
+    for folder, pattern in KIT_SOURCES:
+        for path in sorted((sdk / folder).glob(pattern)):
+            if path.is_file():
+                target = mirror / path.relative_to(sdk)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(str(path), str(target))
+    tools_config = platform_tools(config, name)
+    kit = {"schema_version": 1, "platform": name, "shiftglue_revision": revision,
+           "configuration": "Release", "flags": KIT_FLAGS[name]}
+    if "llvm" in tools_config:
+        kit["llvm"] = tools_config["llvm"]["version"]
+    if "sysroot" in tools_config:
+        kit["sysroot"] = tools_config["sysroot"]["version"]
+    if name in MACOS_PLATFORMS:
+        kit["deployment_target"] = MACOS_DEPLOYMENT_TARGET[name]
+        kit["compiler"] = subprocess.run(["clang", "--version"], capture_output=True,
+                                         text=True).stdout.splitlines()[0]
+    (prefix / "kit.json").write_text(json.dumps(kit, indent=2) + "\n", encoding="utf-8")
+    run_logged([str(python), str(ROOT / "tools" / "repack-toolchain.py"), "kit", "--source",
+                str(prefix), "--output", str(output)], LOGS / "kit-archive.log", progress,
+               "build", 90, 100, "Archiving the kit", environment)
+    return output
 
 
 def git_output(*arguments: str, cwd: Path = ROOT) -> str:
@@ -978,7 +1334,8 @@ def write_provenance(directory: Path, executable: Path, sdk: Path, configuration
         "pinyon_shift_dirty": bool(git_output("status", "--porcelain", "--untracked-files=no")),
         "pinyon_shift_source_payload_sha256": (payload.read_text(encoding="ascii").strip()
                                                if payload.is_file() else None),
-        "rexglue_commit": git_output("rev-parse", "HEAD", cwd=sdk),
+        "rexglue_commit": sdk_revision(sdk),
+        "shiftglue_kit": is_kit(sdk),
         "guest_executable_sha256": sha256_file(GAME / "default.xex"),
     }
     if title_update:
@@ -1023,7 +1380,7 @@ def build_v4(progress: Progress, tools: dict, sdk: Path, python: Path, name: str
         if not (update / f"{module}.xexp").is_file():
             raise SetupError("Install the verified title update first (pinyon.py title-update "
                              "import).", "build")
-    generator = sdk / presets["generator"]
+    generator = generator_path(sdk, presets)
     if not generator.is_file():
         raise SetupError("The ShiftGlue generator is missing. Build the base game first "
                          "(pinyon.py setup).", "build")
@@ -1072,7 +1429,8 @@ def build_v4(progress: Progress, tools: dict, sdk: Path, python: Path, name: str
     discard_unfinished_configure(directory)
     # A release install keeps the SDK in .local/rexglue, not in the submodule
     # path the preset names (#459).
-    run_logged([cmake, "--preset", preset, f"-DREXSDK_DIR={sdk}", f"-DPYTHON_EXECUTABLE={python}",
+    host_objects = install_host_objects(progress, name, "v4") if is_kit(sdk) else ""
+    run_logged([cmake, "--preset", preset, *sdk_arguments(sdk, host_objects), f"-DPYTHON_EXECUTABLE={python}",
                 "-DREXGLUE_ENABLE_TRACY=OFF", "-DSDL_HIDAPI_LIBUSB=OFF"] + flags,
                LOGS / "v4-configure.log", progress, "build", 10, 12, "Configuring the v4 build",
                environment)
@@ -1117,7 +1475,7 @@ def build_v4_from_cli(state: Path, game: Path, jobs: int | None, as_json: bool) 
     try:
         python = provision_python(progress, config, name)
         tools = provision(progress, config, name)
-        sdk = shiftglue_root(config)
+        sdk = kit_ready(config, name) or shiftglue_root(config)
         return build_v4(progress, tools, sdk, python, name, jobs or job_count(), state, game)
     finally:
         sys.stdout = stdout
@@ -1160,6 +1518,7 @@ def run_setup(args: argparse.Namespace) -> int:
     error_file = LOGS / "setup-error.json"
     if error_file.exists():
         error_file.unlink()
+    early_game = False
     try:
         python = provision_python(progress, config, name)
         if Path(sys.executable).resolve() != python.resolve():
@@ -1167,19 +1526,31 @@ def run_setup(args: argparse.Namespace) -> int:
             return subprocess.run([str(python), str(Path(__file__).resolve())]
                                   + sys.argv[1:]).returncode
         needed = platform_tools(config, name)["disk_space_gb"]["first_build"]
-        if not args.tools_only and not (LOCAL / "build.json").is_file():
+        if not args.tools_only and not args.build_kit and not (LOCAL / "build.json").is_file():
             # The first build's total, less what a resumed setup already has.
             remaining = needed - used_space_gb(LOCAL, ROOT / "out")
             if free_space_gb(LOCAL) < remaining:
                 raise SetupError(f"{remaining:.0f} GB of free space is needed to finish the "
                                  f"first build ({free_space_gb(LOCAL):.0f} GB free)", "verify")
+        if args.build_kit:
+            # CI (release.yml): the prebuilt kit from the pinned source tree.
+            tools = provision(progress, config, name)
+            sdk = prepare_shiftglue(progress, config)
+            build_kit(progress, tools, sdk, python, name, args.jobs or job_count(),
+                      args.build_kit.resolve())
+            return 0
         if args.tools_only:
             provision(progress, config, name)
-            prepare_shiftglue(progress, config)
+            install_kit(progress, config, name) or prepare_shiftglue(progress, config)
             return 0
         dump = None
         source_kind = None
         revision = None
+        extraction = None
+        # TP-7: the tool and kit downloads run while the game is checked and
+        # extracted.
+        fetching = (args.iso or args.extracted) and not args.verify_only
+        downloads = prefetch(config, name) if fetching else None
         if args.iso or args.extracted:
             progress("verify", 0, "Checking the game")
             if args.iso:
@@ -1197,17 +1568,38 @@ def run_setup(args: argparse.Namespace) -> int:
                         raise SetupError(f"Not the supported dump: {mismatches[0]}", "verify")
                     progress("verify", 100, "The disc image has the supported dump's files")
                     return 0
-                dump, revision = extract_iso(args.iso, progress)
+                # The executables first, then the rest of the game in the
+                # background while the tools are provisioned and the code
+                # compiles; it is swapped in before setup finishes.
+                progress("extract", 10, "Copying the game executables")
+                if GAME.is_symlink():
+                    raise SetupError(f"{GAME} is a link; remove it first", "extract")
+                if GAME.exists():
+                    shutil.rmtree(GAME)
+                early_game = True
+                copy_executables(args.iso, GAME, allow_revisions=True)
+                extraction = Extraction(args.iso)
             else:
                 source_kind = "extracted"
                 dump, revision = verify_folder(args.extracted.resolve(), progress)
-            progress("extract", 100, "Game files ready")
+            progress("extract", 100, "Extracting the game files in the background"
+                     if extraction else "Game files ready")
         elif not game_ready():
             raise SetupError("choose your disc image (--iso) first", "verify")
+        if downloads:
+            downloads.join()
         tools = provision(progress, config, name)
-        sdk = prepare_shiftglue(progress, config)
+        # TP-2/TP-3: the release's prebuilt kit replaces the clone and the
+        # SDK build; without one (or if it fails) ShiftGlue builds from source.
+        sdk = install_kit(progress, config, name) or prepare_shiftglue(progress, config)
         jobs = args.jobs or job_count()
         build(progress, tools, sdk, python, name, jobs, args.configuration)
+        if extraction:
+            progress("extract", 50, "Finishing the game file extraction")
+            dump, revision, staging = extraction.result()
+            replace_game(staging)
+            early_game = False
+            progress("extract", 100, "Game files ready")
         if dump is None:
             dump, expected = load_catalog()
             revision = executable_hashes(dump, expected)["default.xex"].get(
@@ -1236,6 +1628,11 @@ def run_setup(args: argparse.Namespace) -> int:
                                              "error": str(error)}), flush=True)
         print(f"==== SETUP FAILED ====\n{error}", file=sys.stderr)
         return 1
+    finally:
+        # Only this attempt's executable-only copy: a failed extraction may
+        # remove staging, so leaving it would make game_ready() pass on retry.
+        if early_game and GAME.exists():
+            shutil.rmtree(GAME)
 
 
 def add_parser(commands) -> None:
@@ -1248,6 +1645,8 @@ def add_parser(commands) -> None:
                         help="rebuild from the game files already extracted")
     parser.add_argument("--tools-only", action="store_true",
                         help="provision the toolchain and ShiftGlue, then stop")
+    parser.add_argument("--build-kit", type=Path, metavar="ARCHIVE",
+                        help="build the prebuilt ShiftGlue kit into ARCHIVE (.tar.xz), then stop")
     parser.add_argument("--configuration", choices=("Release", "RelWithDebInfo"),
                         default="Release")
     parser.add_argument("--jobs", type=int, help="parallel compile jobs")

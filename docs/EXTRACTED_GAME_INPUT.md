@@ -31,6 +31,13 @@ package (`nxeart`) are re-signed and hash differently, and are listed as the
 match the disc catalog. The four files must all come from one release. The
 Windows launcher and `verify-extracted-game.ps1` still accept only the disc.
 
+An extracted folder is verified and copied before the build starts. From an
+ISO, setup copies the executables first (accepting either executable
+revision) and extracts the rest of the game in the background while tools
+are provisioned and the code compiles; each file is checked against the
+catalog and the copy is swapped in before setup finishes, so a mismatch
+still fails setup and never publishes the game.
+
 The catalog was generated from a fresh extraction of the exact supported ISO.
 A folder match identifies those game files; it does not claim to establish the
 whole-file hash of an ISO that was not supplied. Setup copies verified game

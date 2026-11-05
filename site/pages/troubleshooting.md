@@ -142,9 +142,13 @@ The save was made with title update v4, which the base build can't load. Import 
 
 Leave the launcher open while playing. After a crash it prepares a sanitized ZIP under `.local/preview/reports`, selects it in Explorer and opens a prefilled GitHub issue. Attach the ZIP and describe what you did last. Reports never include the game, your saves or local paths.
 
-When the crash was inside the graphics card's Vulkan driver, as most reported crashes on Intel graphics are, the launcher says so: install the newest driver from the GPU maker's site, and on integrated graphics choose **Low-spec 60** in Settings.
+When the crash was inside the graphics card's Vulkan driver, as most reported crashes on Intel graphics are, the launcher says so: install the newest driver from the GPU maker's site, and on integrated graphics choose **Low-spec 60** in Settings. The Intel startup crash in [#608](https://github.com/arcanite24/pinyon-shift/issues/608) was reported on drivers 31.0.101.2115 to 2135; a UHD 620 laptop with 31.0.101.2140 starts and plays.
 
 When the game's log shows the graphics card running out of memory, the launcher says that instead. Higher resolution scales need much more graphics memory: a report at 3x ran out within 30 seconds ([#558](https://github.com/arcanite24/pinyon-shift/issues/558)). Choose 1x or 2x, or **Low-spec 60**, in Settings.
+
+When the game stopped because it couldn't open one of its files (its "dirty disc" error, exit `0x80000003`), the launcher says that and names the file. This almost always comes from a mod or DLC pack that changes the game's files. Turn off the one you added last. With the XE mod, install the 1.01 hotfix too ([#901](https://github.com/arcanite24/pinyon-shift/issues/901)).
+
+Closing the game (Alt-F4 or the window's close button) is not a crash, even when the window stops answering afterwards and Windows ends it (exit `0xCFFFFFFF`). Once the game has recorded its shutdown, after the last save backup, the launcher treats that exit as a normal close, and the game now ends itself before Windows has to ([#946](https://github.com/arcanite24/pinyon-shift/issues/946)).
 
 Memory dumps in `.local/preview/crashes` can hold fragments of process memory, so they never go into the public report. Keep them local.
 

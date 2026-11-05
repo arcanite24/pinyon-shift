@@ -6,6 +6,20 @@
   whose re-signed executables and dashboard art are catalogued as a second
   revision of the supported dump.
 
+## 0.8.0 - 2026-11-04
+
+- Faster first setup: prebuilt ShiftGlue kits, a trimmed LLVM and Linux
+  sysroot, and prebuilt host code; Windows builds without Visual Studio
+  after accepting Microsoft's licence; downloads and disc extraction
+  overlap the build; 4 MiB generated files; no double translation;
+  Android APKs from a prebuilt shell without a JDK.
+- New achievements screen (F7); free-roam shaders built ahead of time;
+  Mali starts at coarse scene shading; macOS caps full screen at 4K and
+  QUALITY 60 uses 2x MSAA.
+- Fixed: XE 1.0 with UDLC stopping a new save (#901), a clean close
+  reported as a crash (#946), title-thread spikes with a tracked
+  achievement, Android push-data without the pipeline list.
+
 ## 0.7.1 - 2026-10-27
 
 - Fixed: Windows setup failed to download ShiftGlue ("schannel: failed

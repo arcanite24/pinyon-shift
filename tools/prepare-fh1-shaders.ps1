@@ -92,6 +92,15 @@ try {
     # Do not prepare legacy packs from a saved Direct3D 12 selection before
     # the game's schema 28 migration replaces it with Vulkan.
     if (-not $LegacyD3D12) {
+        # Free roam's pipelines, rebuilt from this disc (AOT-4), before the
+        # route so its start builds them too. Rewritten only when the
+        # catalog or the installed DLC change; a failure is only logged.
+        try {
+            $output = & (Get-PinyonPython) (Join-Path $PSScriptRoot 'pinyon.py') prepare-shaders --pipelines-only `
+                --state-root $StateRoot --game-root $GameRoot --build-directory $BuildDirectory `
+                $(if ($JsonEvents) { '--json' })
+            if ($LASTEXITCODE -ne 0) { throw "pinyon.py prepare-shaders exited with $LASTEXITCODE ($output)" }
+        } catch { Write-PinyonEvent shaders 0 "Ahead-of-time pipelines were skipped: $($_.Exception.Message)" -JsonEvents:$JsonEvents }
         $stored = @(Get-ChildItem -LiteralPath (Join-Path $cache 'shaders/shareable') -Filter '*.vk.xpso' -File -ErrorAction SilentlyContinue)
         # A preparation that failed, or was stopped, for this build is not retried
         # at every start: the attempt is recorded before it runs (#389). The game

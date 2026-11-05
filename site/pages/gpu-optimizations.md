@@ -18,12 +18,79 @@ Single runs mislead. The same build drifts about 4 % between batches on the desk
 | Interleaved A/B | last 600 frames of the scripted race, hidden window, pinned save, three interleaved pairs; median and p95 |
 | ns per draw | recorder changes, judged on heavy frames only |
 | In-run A/B | live settings flipped every 180-300 frames inside one run, for devices that heat up; the error bar comes from disjoint A B A blocks of windows |
-| Frame replay | one dumped frame replayed 1,210 times; the median repeats within 0.02 ms, on any device |
+| Frame replay | fixed command input; require byte-identical controls, valid GPU samples and no pacing floor |
 | Knock-out | skip one phase, accept a wrong image, time the frame |
 | Per-frame CSV | GPU time, draws, waits and per-thread CPU for every frame |
 | Nsight GPU Trace, driver IR dumps, pipeline statistics | finding what the GPU is bound by |
 
-GPU timestamps around each phase cost 2–5 ms a frame and overstate the phases several times, because each one waits for the queued draws. Knock-outs gave the true costs.
+GPU timestamps around each phase cost 2–5 ms a frame and overstate the phases several times, because each one waits for the queued draws. Knock-outs measure the marginal frame cost, including changes to dependent work; a CPU or display limit can hide GPU work they remove.
+
+### Measuring modern replacements
+
+The default-off `fh1_debug_skip_renderings` selector and hot
+`fh1_debug_skip_rendering_draws` toggle suppress draw commands for exact
+attachment labels while retaining state setup, clears, resolves and fences.
+Memory-export draws and draws inside guest occlusion queries remain. The
+image is deliberately wrong: this measures a candidate's scope before a
+replacement is designed. Render-target reuse still needs shader and resolve
+traces to separate semantic passes.
+The optional decimal `fh1_debug_skip_pixel_shader` filter isolates one
+shader within those targets: a race trace's final composite has two draws,
+followed by 170 HUD draws on the same color target. Treating that target as
+one post pass would remove both.
+
+Offline benchmarks retain byte-identical control images and reject missing
+GPU samples. `fh1_frame_replay_present=false` removes host presentation from
+offline replays so swapchain acquisition cannot impose a display-rate floor;
+normal gameplay and the inspector keep presenting. The main-scene group
+saved 8.19 ± 0.12 ms on the M4 Pro at 2x/4x in three replay blocks, and
+28.06 ± 0.16 ms on a UHD 620 at 1x/MSAA off. These are marginal GPU frame
+spans, not promised replacement savings. The Deck and desktop need live
+controls because replay also serializes decoding and recording. No modern
+replacement is enabled by these probes. Live draw-group comparisons on all
+five target GPUs put the Mali small post group at 1.79 ± 0.24 ms and final
+composition at 1.57 ± 0.27 ms; the UHD 620 final composite is 6.37 ± 0.44 ms.
+These are standard errors over five disjoint blocks. RTX 4080 runs at
+2x/4x remain paced near 8.35 ms and do not reveal isolated phase costs.
+The live resolve-dispatch probe removes 4.80 ± 0.40 ms of GPU frame span
+on the M4 Pro and 10.42 ± 0.43 ms on UHD 620. It retains setup and barriers
+but supplies wrong sampled contents, so these are marginal effects rather
+than promised gains from direct sampling. Reflection mip draws account for
+0.50 ± 0.11 ms on M4 Pro and 1.43 ± 0.44 ms on UHD 620 in separate live
+probes; mip resolves still execute. Mali with shadows enabled measures
+0.49 ± 0.08 ms at quarter-rate reflections and 2.46 ± 0.22 ms at full rate.
+Night lamp/headlight probes are small
+relative to controls, and suppressing tyre smoke (6 draws a frame) saves
+0.21 ± 0.48 ms in a UHD 620 replay. Fixed-command 4x-to-2x comparisons save 3.67 ± 0.10 ms on Mali and
+7.65 ± 0.36 ms on UHD 620, with identical repeated control images. These
+sample-count controls do not include AA reconstruction. One static RGB8
+comparison of existing scene-only FXAA plus 2x against original 4x gives
+40.98 dB PSNR, versus 43.01 dB for 2x alone. It has not qualified a default
+change. Current Vulkan ports are the qualification scope.
+
+Each candidate then had to clear 1 ms of GPU frame span on one GPU-bound
+target at the preset that ships the work. Sun-shadow caster reuse (MR-3),
+reusing the camera-depth prepass (MR-4) and sprite batching (MR-8) were
+dropped: their whole knocked-out cost is below that everywhere, or reuse
+would break the depth, shadow mask and scene order. No MSAA default changed
+(MR-2), because 4x only ships where it already costs nothing measurable.
+Dropping the decoder's later-tile walk (MR-1) was already built as an
+option and moved Odin decoder time by -0.36 ± 0.40 ms. Lower-rate
+reflection updates (MR-7) are kept: the existing rate option ships at a
+quarter on Android and ULTRA LOW and cuts Mali mip work from 2.46 to
+0.49 ms.
+
+Resolves already write their textures directly; only the guest memory
+copy beside them could go (MR-6). Skipping it outright saves
+2.41 ± 0.29 ms on UHD 620 but renders wrong. An exact version that writes
+the copy from the texture only when something reads that memory saved
+0.12 ± 0.16 ms. A quarter of the bytes are read every frame (mostly the
+reflection cube's faces), and the extra passes cost the rest. The post
+chain (MR-5) is not fused: the final composite is already one draw, and
+the scene-colour pass before it is required (without it the frame drops
+to 11.8 dB PSNR) and could only be folded in with a host-written shader.
+See the
+[gates, decisions and method](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/MODERN_RENDERING_RESEARCH.md#gates-and-decisions).
 
 ## The recorder thread
 
@@ -94,6 +161,11 @@ On 2026-10-13 (RTX 4080, `fh1-race-sync`, last 600 frames, three runs) the frame
 
 Tile-based mobile GPUs pay for each rendering: on the Adreno 830 one costs 24–28 µs.
 
+The M1 results below are historical driving-window measurements made before the
+2026-11-02 rebase, not a new qualification of the merged SDK. The
+[macOS renderer guide](macos-renderer.md) separates the optimization stages and
+explains their controls and limitations.
+
 | Change | Device | Measured |
 | --- | --- | --- |
 | EDRAM clears folded into the next rendering's load | 8 Elite | renderings about 280 to 210; frame −1.6 to −2.6 ms, GPU −0.5 ms |
@@ -155,7 +227,7 @@ Fast math has a trap: Direct3D 9 shaders rely on 0 × ∞ = 0. Dropping that rul
 
 ## Three switches across four GPUs
 
-The same frame replayed on every device. The results differ enough that no saving measured on one GPU was assumed for another:
+The RTX 4080, M4 Pro and Steam Deck columns replay the same captured frame. The M1 column instead uses live free-roam driving windows; it is not a matched replay comparison. Its measurements predate the 2026-11-02 rebase and have not been repeated on the merged SDK. No saving measured on one GPU is assumed for another:
 
 | Switch | RTX 4080, 2x | M4 Pro, 1x / 2x | M1, 1x free roam | Steam Deck, 1x | Image |
 | --- | ---: | ---: | ---: | ---: | --- |
@@ -165,12 +237,13 @@ The same frame replayed on every device. The results differ enough that no savin
 | TEXTURE GAMMA FAST | none | −8 % / — | −7 % (p95 −14 ms) | −2 % | darker midtones |
 
 - **Quads.** Quad lists were expanded in a geometry shader, which Adreno runs slowly; 77 of 220 driving pipelines had one. Converting them to triangle lists saved about 1.2 ms on the Odin and is the default everywhere.
-- **Coarse shading** uses the fragment shading rate extension: the Odin scene went 8.67 to 7.71 ms at 4x. Draws using alpha to coverage stay at full rate because Turnip turned them into dithered ghosts. It is a player option, SCENE SHADING, off by default.
-- **Texture gamma.** Sampling gamma textures through sRGB views skips the console's piecewise curve in every shader. The sRGB curve is darker in the midtones (half the pixels change), so the default stays accurate. That it is the one shading-side switch that moves the M1 (the game's own anisotropy instead of forced 4x does nothing there) says the M1's main pass is bound by shader arithmetic rather than by sampling.
+- **Coarse shading** uses the fragment shading rate extension: the Odin scene went 8.67 to 7.71 ms at 4x. Draws using alpha to coverage stay at full rate because Turnip turned them into dithered ghosts. It is a player option, SCENE SHADING, off by default except on Arm Mali GPUs, where a new config starts at COARSE: on a Mali-G720 (Galaxy Tab S10 Ultra) it saved 1.4-1.6 ms of a 21.5 ms race frame and the frames over 33 ms fell from 10-17 to 4-5 a run.
+- **Swapchain size on Android.** Android's swapchain scales its images to the window, so the presenter makes it the display's size divided by the largest whole number that still holds the game's output at the render scale (`android_present_divisor`, 0 automatic, 1 the display's size). A 2960 × 1848 tablet presents at 1480 × 924 at 1x and a 1080p phone at its own size. On the Mali-G720 that saved 0.8-1.2 ms a race frame; the image is scaled by the display hardware instead of the GPU.
+- **Texture gamma.** Sampling gamma textures through sRGB views skips the console's piecewise curve in every shader. The sRGB curve is darker in the midtones (half the pixels change), so the default stays accurate. In the historical M1 drive before the fast-math changes, it was the shading-side switch that improved frame time while the game's own anisotropy instead of forced 4x did not. That suggested an arithmetic bottleneck for that workload; it is not a current measurement or a conclusion about every Apple GPU.
 
 ## Apple silicon
 
-The M4 Pro is shading-bound in free roam, so the shader switches the Adreno GPUs use pay off there too. The table gives medians of a 40 s scripted drive at 1x with MSAA off, two runs each, with pipelines prewarmed and untiled predicated tiling on (its own saving was measured by toggling it inside one run). QUALITY 60 instead selects 2x, 4x MSAA and untiled predicated tiling off; these 1x numbers do not qualify that preset:
+The M4 Pro is shading-bound in free roam, so the shader switches the Adreno GPUs use pay off there too. The table gives medians of a 40 s scripted drive at 1x with MSAA off, two runs each, with pipelines prewarmed and untiled predicated tiling on (its own saving was measured by toggling it inside one run). QUALITY 60 instead selects 2x scale, 2x MSAA on a Mac and untiled predicated tiling off; these 1x numbers do not qualify that preset:
 
 | Switch, M4 Pro | Median frame |
 | --- | ---: |
@@ -185,21 +258,21 @@ The M4 Pro is shading-bound in free roam, so the shader switches the Adreno GPUs
 
 With all four on, the GPU frame is 5.6–5.7 ms against 12.3–12.7 ms, and the title waits on GPU fences 6 times a frame instead of 26. Mean luma over the drive is 114.6 against 114.7 on Windows.
 
-The window is hidden in these runs, but Core Animation still hands out drawables at the display rate. MoltenVK takes the drawable while it encodes the present, on the thread that submits everything else, so no run goes past 120 fps on a 120 Hz display. MoltenVK also stamps timestamps at Metal encoder boundaries, so per-pass GPU timing doesn't work there; whole frames do.
+The window is hidden in these runs, but Core Animation still hands out drawables at the display rate. MoltenVK takes the drawable while it encodes the present, on the thread that submits everything else, so no run goes past 120 fps on a 120 Hz display. MoltenVK also stamps timestamps at Metal encoder boundaries, so timestamps inside one encoder do not isolate individual draw costs. Whole-frame measurements and the rendering-only profile described above remain useful at their respective boundaries.
 
-These are historical optimization measurements. On 2026-10-18, the current
+These are historical optimization measurements. On 2026-10-18, the
 base-game qualification on the M4 Pro (24 GiB, macOS 26.3), with a pinned
 Miata seed and a 60 fps limit, averaged 59.6–59.9 fps at 1x across off/2x/4x
-MSAA. At 2x it averaged 59.8/53.6/39.6 fps respectively. QUALITY 60's
-2x/4x cell had median/p95/p99 23.16/34.53/38.69 ms and mean whole-frame
+MSAA. At 2x it averaged 59.8/53.6/39.6 fps respectively. The 2x/4x cell, then
+QUALITY 60's, had median/p95/p99 23.16/34.53/38.69 ms and mean whole-frame
 GPU time 24.01 ms. Its heap usage was 3671 MiB and peak native surfaces
 467 MiB; RSS is not total Metal memory. These are single runs over 36.6–36.7 s,
-not an A/B speedup claim ([method and all resource columns](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/MACOS.md#renderer-qualification)).
+not an A/B speedup claim ([method and all resource columns](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/MACOS.md#renderer-qualification)). All of these ran hidden; full screen on a high-density display the drawable's size matters more than any of them ([full-screen drawable](platforms.md#macos-on-apple-silicon)).
 
 The 1x untiled-predicated-tiling saving did not qualify a quality-mode gain:
 an unpaired 2x/4x live control returned 34.1 fps against 43.5 with it off,
 and surfaces 848 against 467 MiB. Varying car poses limit the timing
-comparison. QUALITY 60 keeps its existing off setting. A separate uncapped
+comparison. QUALITY 60 kept its off setting. A separate uncapped
 1x/MSAA-off run with it on reached 105.5 fps, median 9.30 ms, on this seed.
 The small-float exposure readback complements 4 KiB GPU tracking; no
 measured gain justifies removing that tracking or changing fast math or
