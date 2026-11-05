@@ -1,0 +1,18 @@
+pinyon-shift-fh1-render-test-v1
+# clock-hz 60
+# MR-0 parked base route. Generate A/B and A/A variants with make-ab-route.py.
+# The reference capture precedes every probe. Keep the car parked throughout.
+input 0 0000 0 0 0 0 0 0
+wait 1 30000 file pressstart.wmv
+input 360 1000 0 0 0 0 0 0
+input 366 0000 0 0 0 0 0 0
+input 480 1000 0 0 0 0 0 0
+input 486 0000 0 0 0 0 0 0
+input 600 1000 0 0 0 0 0 0
+input 606 0000 0 0 0 0 0 0
+input 720 1000 0 0 0 0 0 0
+input 726 0000 0 0 0 0 0 0
+wait 960 3600 freeroam
+capture 1200 parked
+input 1400 0000 0 0 0 0 0 0
+stop 3900

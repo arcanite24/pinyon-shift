@@ -43,6 +43,16 @@ source = """config/rexglue/analysis/main-xex.toml dirty-disc hooks; docs/NATIVE_
 
 [[finding]]
 group = """Media layout and file access"""
+base = """XamShowDirtyDiscErrorUI (xam import)"""
+name = """a failed open of a needed file stops the title"""
+what = """When the title can't open a file it needs, it calls `XamShowDirtyDiscErrorUI`, and once that returns it stops itself with a breakpoint exception: exit `0x80000003` in `pinyon_shift.exe`, with the same offset for every player of a release (`+0x244f878` on 0.7.1, `+0x2be7328` on 0.7.0). The last `NtCreateFile` failure logged before the call names the file. Crash reports detect this stop (`pinyon_crash.disc_read_error`) and the launcher reports it as a file read error rather than a crash."""
+how = """About 25 crash reports from #901 and a reproduction from pinned seeds (XE 1.0 with UDLC, `fh1-opening-sync`); the runtime log shows the failed open, the dirty-disc call and then the breakpoint exit."""
+confidence = """confirmed"""
+source = """docs/MODDING.md The Forza Horizon XE mod; tools/pinyon_crash.py disc_read_error"""
+issue = """#901"""
+
+[[finding]]
+group = """Media layout and file access"""
 base = """sub_82C03E90, 0x82C041A4, sub_82A7CDB8"""
 v4 = """0x82CC359C"""
 name = """file size check"""
@@ -188,10 +198,10 @@ source = """tools/build-mod-patches.py; docs/TITLE_UPDATE_V4_BACKLOG.md TU-4, TU
 group = """Other formats"""
 base = """media/shaders/**/*.fxobj, default.xex"""
 name = """shader corpus"""
-what = """Shader programs ship in `media/shaders/**/*.fxobj`, some inside method-21 `bin.zip` archives (197 archived members). The retail disc has 4,293 containers with 3,349 unique raw programs (1,615 vertex, 1,734 pixel); its 34 vertex declarations patch the fetch templates into 8,377 more vertex programs. `default.xex` holds further programs and vertex declarations used by the map and motion passes; with them there are 3,819 raw programs in 4,770 containers, and 12,846 programs counting derived vertex variants (10,818 vertex, 2,028 pixel)."""
-how = """Extraction over loose assets, LZX archives and the loaded executable image; leaving out the executable's programs gave a blank map and smeared cars."""
+what = """Shader programs ship in `media/shaders/**/*.fxobj`, some inside method-21 `bin.zip` archives (197 archived members). The retail disc has 4,293 containers with 3,349 unique raw programs (1,615 vertex, 1,734 pixel); its 34 vertex declarations patch the fetch templates into 8,377 more vertex programs. `default.xex` holds further programs and vertex declarations used by the map and motion passes; with them there are 3,819 raw programs in 4,770 containers, and 12,846 programs counting derived vertex variants (10,818 vertex, 2,028 pixel). In 6 minutes of Mac free roam, 264 of the 266 pixel shaders drawn were disc programs, but 89 of 224 vertex shaders were not. Most are a disc program of the same size with some exports turned into no-ops and others moved to another output register, the shape of a link step that fits a vertex shader's outputs to its pixel shader's inputs; others also have vertex fetches reformatted for a layout the shader files do not hold, and a few have instructions inserted. Of 1,594 stored shaders from long play on Windows and the Mac, 925 are disc programs as stored and 636 are such edits of one (at most a quarter of their words changed); 33 are neither. Both shaders of every on-disc pipeline pair (138) came from the same source file."""
+how = """Extraction over loose assets, LZX archives and the loaded executable image; leaving out the executable's programs gave a blank map and smeared cars. The play census joined stored pipelines and microcode (`.vk.signs.xpso`, `.xsh`) to the corpus by SHA-256, and aligned each runtime-only shader with the same-size disc program that shares the most words (`tools/fh1_aot_pipelines.py` keeps those edits as recipes)."""
 confidence = """confirmed"""
-source = """docs/native-renderer/CANDIDATE_SHADER_CAPTURE.md Retail-disc corpus; docs/native-renderer/SHADER_PACK_FORMAT.md Qualification history; docs/PERFORMANCE_BACKLOG.md PB-1.8"""
+source = """docs/native-renderer/CANDIDATE_SHADER_CAPTURE.md Retail-disc corpus; docs/native-renderer/SHADER_PACK_FORMAT.md Qualification history; docs/PERFORMANCE_BACKLOG.md PB-1.8; docs/AOT_PIPELINE_BACKLOG.md AOT-2"""
 
 [[finding]]
 group = """Other formats"""

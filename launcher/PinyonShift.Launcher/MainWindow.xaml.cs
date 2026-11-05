@@ -357,6 +357,7 @@ public partial class MainWindow : Window
         BrowseButton.IsEnabled = false;
         BrowseFolderButton.IsEnabled = false;
         OwnershipCheckBox.IsEnabled = false;
+        MicrosoftLicenseCheckBox.IsEnabled = false;
         PrimaryButton.IsEnabled = false;
         SetPrimaryText("Building…");
         ShowPanel(View.Log);
@@ -391,6 +392,8 @@ public partial class MainWindow : Window
             startInfo.ArgumentList.Add(Directory.Exists(IsoPathTextBox.Text) ? "-ExtractedPath" : "-IsoPath");
             startInfo.ArgumentList.Add(IsoPathTextBox.Text);
             startInfo.ArgumentList.Add("-JsonEvents");
+            if (MicrosoftLicenseCheckBox.IsChecked == true)
+                startInfo.Environment["PINYON_SHIFT_ACCEPT_MICROSOFT_LICENSE"] = "1";
 
             using var process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
             process.OutputDataReceived += (_, args) => Dispatcher.Invoke(() => HandleOutput(args.Data));
@@ -437,6 +440,7 @@ public partial class MainWindow : Window
             BrowseButton.IsEnabled = true;
             BrowseFolderButton.IsEnabled = true;
             OwnershipCheckBox.IsEnabled = true;
+            MicrosoftLicenseCheckBox.IsEnabled = true;
             UpdatePrimaryButton();
         }
     }
@@ -757,7 +761,8 @@ public partial class MainWindow : Window
                 !string.IsNullOrWhiteSpace(result.IssueUrl))
             {
                 SetPendingReport(new CrashReport(result.CrashId, result.Bundle, result.IssueUrl,
-                    $"0x{unchecked((uint)result.ExitCode):X8}", result.GraphicsDriver, result.GraphicsMemory));
+                    $"0x{unchecked((uint)result.ExitCode):X8}", result.GraphicsDriver, result.GraphicsMemory,
+                    result.DiscReadError, result.MissingFile));
             }
             if (_pendingReport is null)
                 throw new InvalidOperationException(string.IsNullOrWhiteSpace(error)
@@ -850,10 +855,22 @@ public partial class MainWindow : Window
                 WaitingBrush, ActiveBrush, CompleteBrush, FailedBrush);
         HeadlineText.Text = "The game crashed";
         SetSubhead("");
+        // The game stopped itself on its "dirty disc" error: a file it needs
+        // could not be opened, almost always one a mod or DLC pack changed
+        // (#901: the XE mod with UDLC).
+        if (report.DiscReadError)
+        {
+            HeadlineText.Text = "The game could not read one of its files";
+            SetSubhead("It stopped on a disc read error" +
+                (string.IsNullOrWhiteSpace(report.MissingFile) ? "" : $" after it failed to open {report.MissingFile}") +
+                ". This usually comes from a mod or a DLC pack that changes the game's files. " +
+                "Turn off the mod or DLC you added last, then play again. Report the crash if it " +
+                "happens without mods.");
+        }
         // Exit 1309: the GPU device was lost (src/pinyon_shift_app.cpp,
         // OnHostGpuLoss). Usually a driver reset on weak graphics, which the
         // player can act on; the report still helps when it is not.
-        if (string.Equals(report.ExitCodeHex, "0x0000051D", StringComparison.OrdinalIgnoreCase))
+        else if (string.Equals(report.ExitCodeHex, "0x0000051D", StringComparison.OrdinalIgnoreCase))
         {
             HeadlineText.Text = "The graphics driver stopped responding";
             SetSubhead("Install the newest graphics driver. On integrated or older graphics, choose " +
@@ -1599,6 +1616,11 @@ public partial class MainWindow : Window
     private static void OpenUrl(string url) =>
         Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
 
+    // The license the Visual Studio installer itself presents for the Build
+    // Tools; xwin fetches the same packages (config/release-toolchain.json).
+    private void MicrosoftLicenseLink_Click(object sender, RoutedEventArgs e) =>
+        OpenUrl("https://go.microsoft.com/fwlink/?LinkId=2179911");
+
     private void ProjectButton_Click(object sender, RoutedEventArgs e) =>
         Process.Start(new ProcessStartInfo("https://github.com/arcanite24/pinyon-shift") { UseShellExecute = true });
 
@@ -1883,7 +1905,9 @@ public partial class MainWindow : Window
             ? "Not installed. Download from ModDB opens both downloads in your browser and installs them when they finish; Install XE takes archives you already have."
             : status.Enabled
                 ? $"XE {status.Version} is on. It plays its own new save and hides Horizon Rally; your base save is kept."
-                : $"XE {status.Version} is installed and off. The game runs as on the disc.");
+                : $"XE {status.Version} is installed and off. The game runs as on the disc.")
+            // A 1.0-only install from an earlier release (#901).
+            + (message is null && status.Installed && !status.Hotfix ? " The 1.01 hotfix is missing: choose Reinstall with both downloads. Until then UDLC is hidden while XE is on (#901)." : "");
     }
 
     private async void InstallXeButton_Click(object sender, RoutedEventArgs e)
@@ -2258,6 +2282,8 @@ public partial class MainWindow : Window
         public bool Installed { get; set; }
         public bool Enabled { get; set; }
         public string? Version { get; set; }
+        // Absent before #901: count an install as complete unless it says otherwise.
+        public bool Hotfix { get; set; } = true;
         public string? Error { get; set; }
     }
 
@@ -2780,14 +2806,18 @@ public partial class MainWindow : Window
         [property: JsonPropertyName("exit_code")] long ExitCode,
         [property: JsonPropertyName("config")] string? Config = null,
         [property: JsonPropertyName("graphics_driver")] string? GraphicsDriver = null,
-        [property: JsonPropertyName("graphics_memory")] bool GraphicsMemory = false);
+        [property: JsonPropertyName("graphics_memory")] bool GraphicsMemory = false,
+        [property: JsonPropertyName("disc_read_error")] bool DiscReadError = false,
+        [property: JsonPropertyName("missing_file")] string? MissingFile = null);
     private sealed record CrashReport(
         [property: JsonPropertyName("crash_id")] string CrashId,
         [property: JsonPropertyName("bundle")] string Bundle,
         [property: JsonPropertyName("issue_url")] string IssueUrl,
         [property: JsonPropertyName("exit_code_hex")] string? ExitCodeHex,
         [property: JsonPropertyName("graphics_driver")] string? GraphicsDriver = null,
-        [property: JsonPropertyName("graphics_memory")] bool GraphicsMemory = false);
+        [property: JsonPropertyName("graphics_memory")] bool GraphicsMemory = false,
+        [property: JsonPropertyName("disc_read_error")] bool DiscReadError = false,
+        [property: JsonPropertyName("missing_file")] string? MissingFile = null);
     private sealed record GraphicsResult(
         [property: JsonPropertyName("backup_path")] string? BackupPath,
         [property: JsonPropertyName("settings")] GraphicsSettings Settings,

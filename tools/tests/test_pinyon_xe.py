@@ -115,6 +115,9 @@ class PinyonXeTests(unittest.TestCase):
                     pinyon_xe.run(self.args(state, game, downloads / "other.7z"))
                 with self.assertRaisesRegex(pinyon_xe.XeError, "full 1.0 download"):
                     pinyon_xe.run(self.args(state, game, downloads / "xe-1.01.7z"))
+                # #901: 1.0 alone stops the opening drive (with UDLC).
+                with self.assertRaisesRegex(pinyon_xe.XeError, "1.01 hotfix too.*example.invalid"):
+                    pinyon_xe.run(self.args(state, game, downloads / "xe-1.0.7z"))
                 (downloads / "xe-1.0.7z").write_bytes(b"one" * 4 + b"two")  # same size
                 with self.assertRaisesRegex(pinyon_xe.XeError, "not its MD5"):
                     pinyon_xe.run(self.args(state, game, downloads / "xe-1.0.7z"))
@@ -127,12 +130,14 @@ class PinyonXeTests(unittest.TestCase):
                     mock.patch.object(pinyon_xe, "find_extractor", return_value=["7z"]), \
                     mock.patch.object(pinyon_xe, "extract", side_effect=extract), \
                     mock.patch.object(pinyon_xe, "FREE_SPACE_GB", 0):
-                pinyon_xe.run(self.args(state, game, downloads / "xe-1.0.7z", no_enable=True))
+                pinyon_xe.run(self.args(state, game, downloads / "xe-1.0.7z",
+                                        downloads / "xe-1.01.7z", no_enable=True))
                 config = state / "config" / "pinyon_shift.toml"
                 self.assertIn('enabled_mods = "other"', config.read_text(encoding="utf-8"))
                 status = pinyon_xe.run(self.args(state, game, xe_command="status"))
-                self.assertEqual((True, False, "1.0"),
-                                 (status["installed"], status["enabled"], status["version"]))
+                self.assertEqual((True, False, "1.01", True),
+                                 (status["installed"], status["enabled"], status["version"],
+                                  status["hotfix"]))
                 pinyon_xe.run(self.args(state, game, xe_command="enable"))
                 self.assertIn('enabled_mods = "other,xe"', config.read_text(encoding="utf-8"))
                 (state / "user-xe" / "save").mkdir(parents=True)
@@ -140,6 +145,28 @@ class PinyonXeTests(unittest.TestCase):
                 self.assertIn('enabled_mods = "other"', config.read_text(encoding="utf-8"))
                 self.assertFalse((state / "mods" / "xe").exists())
                 self.assertTrue((state / "user-xe" / "save").is_dir())
+
+    def test_refresh_hides_udlc_for_an_earlier_install_without_the_hotfix(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory)
+            self.assertFalse(pinyon_xe.refresh_manifest(state))  # XE not installed
+            mod = state / "mods" / "xe"
+            mod.mkdir(parents=True)
+            (mod / "xe-install.json").write_text('{"version": "1.0"}', encoding="utf-8")
+            # What releases before #901 wrote for a 1.0-only install.
+            (mod / "mod.toml").write_text(pinyon_xe.mod_toml("1.01").replace(
+                'version = "1.01"', 'version = "1.0"'), encoding="utf-8")
+            self.assertTrue(pinyon_xe.refresh_manifest(state))
+            refreshed = (mod / "mod.toml").read_text(encoding="utf-8")
+            self.assertIn(f'hide_dlc = ["{pinyon_xe.RALLY}", "4D5309C900000729", '
+                          '"4D5309C900000732"]', refreshed)
+            self.assertFalse(pinyon_xe.refresh_manifest(state))
+            self.assertFalse((mod / "mod.toml.tmp").exists())
+            # With the hotfix, UDLC stays available.
+            (mod / "xe-install.json").write_text('{"version": "1.01"}', encoding="utf-8")
+            self.assertTrue(pinyon_xe.refresh_manifest(state))
+            self.assertIn(f'hide_dlc = ["{pinyon_xe.RALLY}"]',
+                          (mod / "mod.toml").read_text(encoding="utf-8"))
 
     def test_find_takes_finished_downloads_by_name_and_size(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -1,5 +1,12 @@
 [CmdletBinding()]
-param([string]$Configuration = 'Release')
+param(
+    [string]$Configuration = 'Release',
+    # TP-1 to TP-3: the release's prebuilt assets (with their .json sidecars)
+    # and the URL they are attached at; tools/apply-prebuilt-pins.py pins
+    # them in the payload's toolchain config.
+    [string]$PrebuiltAssets = '',
+    [string]$ReleaseBaseUrl = ''
+)
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -83,9 +90,9 @@ $include = @(
     'config/render-tests',
     'config/performance/symbol-order-base.txt', 'config/performance/symbol-order-v4.txt',
     'tools/build-preview.ps1', 'tools/create-crash-report.ps1', 'tools/install-build-tools.ps1',
-    'tools/launch-preview.ps1', 'tools/prepare-rexglue.ps1',
+    'tools/launch-preview.ps1', 'tools/prepare-rexglue.ps1', 'tools/prefetch-setup.ps1',
     'tools/build-mod-patches.py', 'tools/build-mod-archives.py', 'tools/mod_options.py', 'tools/install-sample-mod.py',
-    'tools/pinyon.py', 'tools/pinyon_android.py', 'tools/build-android.ps1',
+    'tools/pinyon.py', 'tools/pinyon_android.py', 'tools/apk_sign.py', 'tools/build-android.ps1',
     # pinyon.py's other commands and the launchers' content panels: the XE mod,
     # asset export (#446), custom radio stations (#445) and the mod manager (FB-9.1).
     'tools/pinyon_xe.py', 'tools/manage-xe.ps1', 'tools/pinyon_assets.py', 'tools/fh1_audio_decode.cpp',
@@ -98,6 +105,7 @@ $include = @(
     'tools/pinyon_common.py', 'tools/pinyon_dlc.py', 'tools/pinyon_title_update.py',
     'tools/pinyon_saves.py', 'tools/import-xenia-save.ps1', 'tools/pinyon_crash.py',
     'tools/pinyon_config.py', 'tools/pinyon_hardware.py', 'tools/pinyon_shaders.py',
+    'tools/fh1_aot_pipelines.py', 'config/fh1-aot-pipelines.json',
     'config/android-toolchain.json', 'android',
     'tools/fh1-profile.py', 'tools/fh1-strings.py', 'tools/inspect-fh1-ui.py',
     'tools/native-shader-pack.py',
@@ -143,6 +151,13 @@ $sourceProvenancePath = Join-Path $payloadRoot 'config/source-provenance.json'
 [IO.File]::WriteAllText($sourceProvenancePath,
     ($sourceProvenance | ConvertTo-Json) + [Environment]::NewLine,
     [Text.UTF8Encoding]::new($false))
+
+if ($PrebuiltAssets) {
+    if (-not $ReleaseBaseUrl) { throw '-PrebuiltAssets needs -ReleaseBaseUrl.' }
+    & python (Join-Path $root 'tools/apply-prebuilt-pins.py') --config (Join-Path $payloadRoot 'config/release-toolchain.json') `
+        --assets $PrebuiltAssets --base-url $ReleaseBaseUrl
+    if ($LASTEXITCODE -ne 0) { throw 'Could not pin the prebuilt assets in the payload.' }
+}
 
 Get-ChildItem -LiteralPath $payloadRoot -Recurse -File | Where-Object {
     $_.Extension -in @('.exe', '.dll', '.obj', '.lib', '.pdb', '.iso', '.xex', '.dxil', '.pnsp',

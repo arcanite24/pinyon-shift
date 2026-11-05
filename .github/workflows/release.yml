@@ -9,8 +9,169 @@ permissions:
   contents: write
 
 jobs:
-  package:
+  # TP-1 to TP-3 (docs/TIME_TO_PLAY_BACKLOG.md): the trimmed LLVM, the
+  # trimmed Linux sysroot and the ShiftGlue kits, built here and attached
+  # to the release. The packagers pin whatever was built in the payload's
+  # toolchain config; setup builds from source when an asset is missing,
+  # so a failed prebuilt job slows first setup down but does not block
+  # the release.
+  prebuilt-windows:
     if: github.event.repository.visibility == 'public'
+    runs-on: windows-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+      - name: Prepare ShiftGlue and the toolchain
+        shell: powershell
+        run: |
+          ./tools/prepare-rexglue.ps1
+          ./tools/provision-toolchain.ps1
+      - name: Build the trimmed LLVM and the ShiftGlue kit
+        shell: powershell
+        env:
+          # The Windows runtime links NVIDIA's NGX loader. The maintainer
+          # confirmed on 2026-10-31 that NVIDIA's DLSS approval covers the
+          # prebuilt runtime (docs/TIME_TO_PLAY_BACKLOG.md TP-3); the
+          # repository variable stays as the switch to hold it back.
+          PUBLISH_KIT: ${{ vars.PINYON_SHIFT_PUBLISH_WINDOWS_KIT }}
+        run: |
+          . ./tools/release-common.ps1
+          $config = Get-PinyonReleaseToolchain
+          $output = Join-Path (Get-PinyonRepoRoot) '.artifacts/prebuilt'
+          [void](New-Item -ItemType Directory -Force -Path $output)
+          $python = Join-Path (Resolve-PinyonLocalPath -RelativePath $config.python.install_path) 'python.exe'
+          & $python tools/repack-toolchain.py llvm --platform windows-x64 `
+            --source (Resolve-PinyonLocalPath -RelativePath $config.llvm.install_path) `
+            --version $config.llvm.version `
+            --output (Join-Path $output "llvm-$($config.llvm.version)-pinyon1-windows-x64.zip")
+          if ($LASTEXITCODE -ne 0) { throw 'LLVM repack failed' }
+          $revision = $config.rexglue.revision.Substring(0, 12)
+          $kit = Join-Path $output "shiftglue-kit-$revision-windows-x64.zip"
+          ./tools/build-shiftglue-kit.ps1 -BuildRoot (Join-Path $env:RUNNER_TEMP 'kit') -Output $kit
+          if ($env:PUBLISH_KIT -ne 'true') { Remove-Item -LiteralPath $kit, "$kit.json" }
+      # TP-3 host split: the host code built once, from the kit above, against
+      # the same pinned Microsoft libraries a player's setup fetches (TP-4),
+      # so the objects match the player's build.
+      - name: Build the prebuilt host objects
+        shell: powershell
+        env:
+          PINYON_SHIFT_MSVC_SYSROOT: '1'
+          # The maintainer accepts Microsoft's license for the release build,
+          # as a player does in the launcher.
+          PINYON_SHIFT_ACCEPT_MICROSOFT_LICENSE: '1'
+          PUBLISH_KIT: ${{ vars.PINYON_SHIFT_PUBLISH_WINDOWS_KIT }}
+        run: |
+          if ($env:PUBLISH_KIT -ne 'true') { return }
+          . ./tools/release-common.ps1
+          Install-PinyonMsvcSysroot -AcceptMicrosoftLicense
+          $environment = Enter-PinyonBuildEnvironment
+          $env:PATH = "$(Split-Path $environment.Ninja);$env:PATH"
+          $config = Get-PinyonReleaseToolchain
+          $python = Join-Path (Resolve-PinyonLocalPath -RelativePath $config.python.install_path) 'python.exe'
+          $output = Join-Path (Get-PinyonRepoRoot) '.artifacts/prebuilt'
+          foreach ($variant in @(@{ Name = 'base'; Preset = 'win-amd64-release' }, @{ Name = 'v4'; Preset = 'win-amd64-v4' })) {
+            & $python tools/build-host-objects.py --kit (Join-Path $env:RUNNER_TEMP 'kit/kit') `
+              --platform windows-x64 --preset $variant.Preset --variant $variant.Name `
+              --output $output --cmake $environment.CMake
+            if ($LASTEXITCODE -ne 0) { throw "Host objects ($($variant.Name)) failed" }
+          }
+      - uses: actions/upload-artifact@v7
+        with:
+          name: prebuilt-windows
+          path: .artifacts/prebuilt/
+
+  prebuilt-linux:
+    if: github.event.repository.visibility == 'public'
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      # The full LLVM and sysroot unpack beside the kit build and do not fit
+      # in the runner's free space; drop preinstalled SDKs this job never uses.
+      - name: Free runner disk
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL /usr/local/share/boost
+          df -h /
+      - uses: actions/checkout@v7
+      - name: Build the trimmed LLVM and sysroot and the ShiftGlue kit
+        run: python3 tools/build-prebuilt.py --output .artifacts/prebuilt
+      - uses: actions/upload-artifact@v7
+        with:
+          name: prebuilt-linux
+          path: .artifacts/prebuilt/
+
+  prebuilt-macos:
+    if: github.event.repository.visibility == 'public'
+    runs-on: macos-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build the ShiftGlue kit
+        run: python3 tools/build-prebuilt.py --output .artifacts/prebuilt
+      - uses: actions/upload-artifact@v7
+        with:
+          name: prebuilt-macos
+          path: .artifacts/prebuilt/
+
+  # Intel Macs (experimental): the same kit and host objects, built on an
+  # Intel runner so the translator and runtime are native x86_64.
+  prebuilt-macos-intel:
+    if: github.event.repository.visibility == 'public'
+    runs-on: macos-15-intel
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build the ShiftGlue kit
+        run: python3 tools/build-prebuilt.py --output .artifacts/prebuilt
+      - name: Show the kit build errors
+        if: failure()
+        run: |
+          xcodebuild -version || true
+          grep -nE -B2 -A6 "error:|FAILED:|fatal" .local/logs/kit-build.log | head -150 || true
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: prebuilt-macos-intel-logs
+          path: .local/logs/
+      - uses: actions/upload-artifact@v7
+        with:
+          name: prebuilt-macos-intel
+          path: .artifacts/prebuilt/
+
+  # TP-5: the Android shell (ShiftGlue for Android, the app's code and
+  # resources), so a PC builds the APK with only the NDK, CMake and Ninja.
+  prebuilt-android:
+    if: github.event.repository.visibility == 'public'
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+      - name: Install the pinned Android packages and Ninja
+        run: |
+          packages=$(python3 -c "import json; print(' '.join(json.load(open('config/android-toolchain.json'))['android_sdk']['packages']))")
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install $packages > /dev/null
+          sudo apt-get install -y ninja-build
+          echo "JAVA_HOME=$JAVA_HOME_17_X64" >> "$GITHUB_ENV"
+      - name: Build the Android shell
+        run: |
+          revision=$(python3 -c "import json; print(json.load(open('config/release-toolchain.json'))['rexglue']['revision'][:12])")
+          python3 tools/pinyon.py android shell --jobs 4 \
+            --output ".artifacts/prebuilt/android-shell-$revision-android-arm64.tar.xz"
+      - name: Build the prebuilt Android host objects
+        run: python3 tools/pinyon.py android host-objects --jobs 4 --output .artifacts/prebuilt
+      - uses: actions/upload-artifact@v7
+        with:
+          name: prebuilt-android
+          path: .artifacts/prebuilt/
+
+  package:
+    # A prebuilt job can also end cancelled when GitHub has no runner for
+    # it; package without that asset, as after a failure. !cancelled()
+    # still stops here when someone cancels the whole run.
+    if: ${{ !cancelled() && github.event.repository.visibility == 'public' }}
+    needs: [prebuilt-windows, prebuilt-linux, prebuilt-macos, prebuilt-macos-intel, prebuilt-android]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
@@ -41,9 +202,21 @@ jobs:
           $release = Get-Content config/release.json -Raw | ConvertFrom-Json
           $branch = if ($release.channel -eq 'preview') { 'dev' } else { 'main' }
           python tools/verify-release-tag.py --tag "${{ github.ref_name }}" --main-ref "refs/remotes/origin/$branch"
+      - uses: actions/download-artifact@v7
+        continue-on-error: true
+        with:
+          pattern: prebuilt-*
+          path: .artifacts/prebuilt
+          merge-multiple: true
       - name: Package launcher
         shell: powershell
-        run: .\tools\package-launcher.ps1
+        run: |
+          if ('${{ github.ref_type }}' -eq 'tag') {
+            .\tools\package-launcher.ps1 -PrebuiltAssets .artifacts/prebuilt `
+              -ReleaseBaseUrl 'https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}'
+          } else {
+            .\tools\package-launcher.ps1
+          }
       - name: Check launcher behavior
         run: python tools/check-launcher.py
       - uses: actions/upload-artifact@v7
@@ -54,7 +227,11 @@ jobs:
   # The Linux (Steam Deck) and macOS launchers: the same source payload,
   # the Avalonia launcher (docs/LINUX.md, docs/MACOS.md).
   package-linux:
-    if: github.event.repository.visibility == 'public'
+    # A prebuilt job can also end cancelled when GitHub has no runner for
+    # it; package without that asset, as after a failure. !cancelled()
+    # still stops here when someone cancels the whole run.
+    if: ${{ !cancelled() && github.event.repository.visibility == 'public' }}
+    needs: [prebuilt-windows, prebuilt-linux, prebuilt-macos, prebuilt-macos-intel, prebuilt-android]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -63,15 +240,27 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
+      - uses: actions/download-artifact@v7
+        continue-on-error: true
+        with:
+          pattern: prebuilt-*
+          path: .artifacts/prebuilt
+          merge-multiple: true
       - name: Package launcher
-        run: python3 tools/package-launcher.py --platform linux-x64
+        run: python3 tools/package-launcher.py --platform linux-x64 $PREBUILT
+        env:
+          PREBUILT: ${{ github.ref_type == 'tag' && format('--prebuilt-assets .artifacts/prebuilt --release-base-url https://github.com/{0}/releases/download/{1}', github.repository, github.ref_name) || '' }}
       - uses: actions/upload-artifact@v7
         with:
           name: PinyonShift-Launcher-linux-x86_64
           path: .artifacts/PinyonShift-Launcher-linux-x86_64.tar.gz
 
   package-macos:
-    if: github.event.repository.visibility == 'public'
+    # A prebuilt job can also end cancelled when GitHub has no runner for
+    # it; package without that asset, as after a failure. !cancelled()
+    # still stops here when someone cancels the whole run.
+    if: ${{ !cancelled() && github.event.repository.visibility == 'public' }}
+    needs: [prebuilt-windows, prebuilt-linux, prebuilt-macos, prebuilt-macos-intel, prebuilt-android]
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v7
@@ -80,22 +269,53 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
+      - uses: actions/download-artifact@v7
+        continue-on-error: true
+        with:
+          pattern: prebuilt-*
+          path: .artifacts/prebuilt
+          merge-multiple: true
       - name: Package launcher
-        run: python3 tools/package-launcher.py --platform osx-arm64
+        run: python3 tools/package-launcher.py --platform osx-arm64 $PREBUILT
+        env:
+          PREBUILT: ${{ github.ref_type == 'tag' && format('--prebuilt-assets .artifacts/prebuilt --release-base-url https://github.com/{0}/releases/download/{1}', github.repository, github.ref_name) || '' }}
       - uses: actions/upload-artifact@v7
         with:
           name: PinyonShift-Launcher-macos-arm64
           path: .artifacts/PinyonShift-Launcher-macos-arm64.zip
+      # The experimental Intel launcher: .NET cross-publishes osx-x64, and the
+      # payload is the same, so it packages on this Apple silicon runner.
+      - name: Package Intel launcher
+        continue-on-error: true
+        run: python3 tools/package-launcher.py --platform osx-x64 --payload .artifacts/launcher-desktop/pinyon-shift-source.zip
+      - uses: actions/upload-artifact@v7
+        continue-on-error: true
+        with:
+          name: PinyonShift-Launcher-macos-x86_64
+          path: .artifacts/PinyonShift-Launcher-macos-x86_64.zip
+          if-no-files-found: ignore
 
   release:
-    if: startsWith(github.ref, 'refs/tags/')
+    # Every launcher must exist; only the prebuilt assets may be missing.
+    if: >-
+      ${{ !cancelled() && startsWith(github.ref, 'refs/tags/')
+      && needs.package.result == 'success'
+      && needs.package-linux.result == 'success'
+      && needs.package-macos.result == 'success' }}
     needs: [package, package-linux, package-macos]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v7
         with:
+          pattern: PinyonShift-Launcher*
           path: .artifacts
+          merge-multiple: true
+      - uses: actions/download-artifact@v7
+        continue-on-error: true
+        with:
+          pattern: prebuilt-*
+          path: .artifacts/prebuilt
           merge-multiple: true
       - name: Attach tagged release
         env:
@@ -109,6 +329,15 @@ jobs:
             .artifacts/PinyonShift-Launcher-linux-x86_64.tar.gz
             .artifacts/PinyonShift-Launcher-macos-arm64.zip
             --verify-tag)
+          # Experimental: attached when it was built.
+          if [ -f .artifacts/PinyonShift-Launcher-macos-x86_64.zip ]; then
+            arguments+=(.artifacts/PinyonShift-Launcher-macos-x86_64.zip)
+          fi
+          # The prebuilt assets the payloads pin; their .json sidecars stay
+          # out of the release.
+          for asset in .artifacts/prebuilt/*; do
+            case "$asset" in *.json|'.artifacts/prebuilt/*') ;; *) arguments+=("$asset") ;; esac
+          done
           notes="docs/releases/$version.md"
           if [ -f "$notes" ]; then
             arguments+=(--notes-file "$notes" --title "$(head -n1 "$notes" | sed 's/^#\s*//')")

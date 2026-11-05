@@ -63,6 +63,7 @@ class SdkUpdateReuseTests(unittest.TestCase):
             (tools / "release-common.ps1").write_text(r'''
 function Get-PinyonRepoRoot { $env:PINYON_TEST_ROOT }
 function Get-PinyonReleaseToolchain { Get-Content (Join-Path $env:PINYON_TEST_ROOT 'config.json') -Raw | ConvertFrom-Json }
+function Install-PinyonGit { }
 function Get-PinyonGit { $env:PINYON_TEST_GIT }
 function Resolve-PinyonRexGlueRoot { Join-Path $env:PINYON_TEST_ROOT '.local/rexglue' }
 function Resolve-PinyonLocalPath { param($RelativePath) Join-Path $env:PINYON_TEST_ROOT $RelativePath }

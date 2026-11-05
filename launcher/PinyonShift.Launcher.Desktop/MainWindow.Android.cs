@@ -301,7 +301,8 @@ public partial class MainWindow
         var steps = new List<(string[], string, double, bool)>
         {
             (["android", "install", "--serial", device], "Installing the app over USB.", 5, false),
-            (["android", "push-data", "--serial", device, "--game-root", _installation.GameRoot],
+            (["android", "push-data", "--serial", device, "--game-root", _installation.GameRoot,
+                "--state-root", _installation.StateRoot],
                 "Copying the game files (about 7 GB; an interrupted copy resumes).", 20, false),
         };
         if (ReadAndroidRecord()?.TitleUpdateV4 == true)

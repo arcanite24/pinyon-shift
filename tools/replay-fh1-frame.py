@@ -94,6 +94,9 @@ def replay(args: argparse.Namespace) -> dict[str, object]:
         raise RuntimeError(
             f"replay wrote no result ({process.returncode}):\n{process.stdout}\n{process.stderr}")
     result = json.loads(result_path.read_text(encoding="utf-8"))
+    if process.returncode:
+        result["failure"] = f"replay process exited with code {process.returncode}"
+        return result
     if args.max_differing_words is not None and result["differing_words"] > args.max_differing_words:
         result["failure"] = "front buffer differs from the recording"
     # Replays are deterministic, so a golden replay of the same dump is an
