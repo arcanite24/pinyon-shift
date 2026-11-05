@@ -1,5 +1,6 @@
 #include "head_tracking/head_tracking.h"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cmath>
