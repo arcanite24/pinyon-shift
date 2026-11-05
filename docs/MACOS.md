@@ -398,7 +398,7 @@ and save; QUALITY 60 still fails its performance budget on this M4 Pro.
 
 ## Intel Macs (experimental)
 
-Releases after 0.8.0 also attach `PinyonShift-Launcher-macos-x86_64.zip`, a
+From 0.8.1, releases also attach `PinyonShift-Launcher-macos-x86_64.zip`, a
 launcher for Intel Macs on macOS 13.3 or newer. Setup builds the game for
 x86_64 there (`macos-x86_64` in `tools/pinyon_setup.py`, the `macos-amd64-*`
 CMake presets) with the CPU baseline it finds through `sysctl`: x86-64-v3,

@@ -40,7 +40,7 @@ It does **not** contain the game, its assets, generated translations or a
 prebuilt executable: you build the game from a disc you own.
 
 > **Playable preview.** Expect some rendering bugs and slowdowns. The
-> [0.8.0 release notes](docs/releases/0.8.0.md) list what the latest release
+> [0.8.1 release notes](docs/releases/0.8.1.md) list what the latest release
 > contains and its known limitations.
 
 ## Highlights
@@ -105,8 +105,8 @@ repository's releases.
 `PinyonShiftLauncher`; after the build, **Add to Steam** puts the game in
 Game Mode. The steps are in [Linux and Steam Deck](docs/LINUX.md).
 **On a Mac**, download `PinyonShift-Launcher-macos-arm64.zip`, or on an Intel
-Mac the experimental `PinyonShift-Launcher-macos-x86_64.zip` (releases after
-0.8.0); see [macOS](docs/MACOS.md).
+Mac the experimental `PinyonShift-Launcher-macos-x86_64.zip` (0.8.1 and
+later); see [macOS](docs/MACOS.md).
 
 To install on another drive, make a portable install, change the language, or
 read the launcher's settings, see [Installing and setup](docs/INSTALLING.md).

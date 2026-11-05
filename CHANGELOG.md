@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.1 - 2026-11-05
+
+- Fixed: Windows setup stopped with "Cannot bind argument to parameter
+  'BuildDirectory' because it is an empty string" when it used the
+  prebuilt ShiftGlue kit (#1000).
+- Experimental Intel Mac launcher (`macos-x86_64`, macOS 13.3 or newer),
+  tested only under Rosetta so far.
+
 ## 0.8.0 - 2026-11-04
 
 - Faster first setup: prebuilt ShiftGlue kits, a trimmed LLVM and Linux
