@@ -12,12 +12,12 @@ A developer alpha. The Android build is the same recompiled game, cross-compiled
 ## Requirements
 
 - A Windows PC where the game is already built and plays.
-- About 15 GB free on the PC's install drive. The launcher downloads the pinned Android SDK, NDK and JDK 17 when the PC has none, after you accept the Android SDK license. With Android Studio's SDK already installed, it adds the missing packages to that SDK with its own pinned command-line tools.
+- About 15 GB free on the PC's install drive. The launcher downloads the pinned Android SDK, NDK and JDK 17 when the PC has none, after you accept the Android SDK license. With Android Studio's SDK already installed, it adds the missing packages to that SDK with its own pinned command-line tools. When the release carries a prebuilt app shell (the app, runtime and renderer, nothing from the game), the launcher downloads only the shell, the NDK and platform-tools: no JDK, no SDK manager, and the PC compiles only the game code. The launcher aligns and signs the APK itself, with the same key as before.
 - An arm64 device with an ARMv8.2 CPU (for example, Cortex-A55 or Cortex-A75), Android 13 or later and a Vulkan 1.3 driver, about 8 GB free, on the same network as the PC. A later phone release date alone does not establish the CPU's instruction support.
 - Tuned for Snapdragon 8 Gen 2 or newer (Adreno 740 and up).
 - **Mali, Tensor, Exynos and Dimensity GPUs** need an opt-in on the app's setup screen before the game starts: tick **Allow GPUs without vertex shader stores** (long-press the icon, **Get files from PC**, scroll to Experimental). The setup screen shows a hint when the device has no Qualcomm GPU driver. See [troubleshooting](#troubleshooting).
 
-Tested chips: Snapdragon 8 Gen 2 (Adreno 740) and 8 Elite (Adreno 830) in the table below, and a Pixel 7 Pro (Mali-G710, with the opt-in) at about 43 fps. Every other chip, including Dimensity and Exynos, has not been tested.
+Tested chips: Snapdragon 8 Gen 2 (Adreno 740) and 8 Elite (Adreno 830) in the table below, a Pixel 7 Pro (Mali-G710, with the opt-in) at about 43 fps, and a Galaxy Tab S10 Ultra (Dimensity 9300+, Mali-G720 Immortalis MC12, with the opt-in). On the tablet the race route at the Android defaults with no frame limit runs at a median of 21.7-23.0 ms a frame (43-46 fps), limited by the GPU (21.3-22.3 ms of GPU time a frame), in two runs. Two defaults for Mali GPUs and large screens bring it to about 20 ms in the race's busiest stretch (frames over 33 ms from about 20 to 4-5 a run): a new setup on a Mali GPU starts at SCENE SHADING > COARSE, and on a screen larger than twice the game's output the image is presented at half the display's size and scaled up by the display hardware. Builds before ShiftGlue's two Mali fixes of 2026-11-01 (an oversized bindless set and a doubly ended occlusion query) crash there within a race. Every other chip, including Exynos, has not been tested.
 
 Older devices remain unqualified. The [minimum-requirements audit](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/android/MINIMUM_REQUIREMENTS.md) explains which CPU instructions, Android APIs and Vulkan features the build uses, and what must be tested before lowering these requirements.
 
@@ -43,7 +43,7 @@ python tools/pinyon.py android install
 python tools/pinyon.py android push-data
 ```
 
-`push-data` copies the extracted game into `Android/data/studio.deimos.pinyonshift/files/game/base` and resumes if interrupted. Saves, settings, logs and mods live beside it in `files/state`, laid out as on the PC.
+`push-data` copies the extracted game into `Android/data/studio.deimos.pinyonshift/files/game/base` and resumes if interrupted. It also sends the list of free-roam pipelines the game builds behind the title (written from your disc and DLC on the first push), so new scenery doesn't stop a frame to compile; pass `--state-root` to take it from another PC state. Saves, settings, logs and mods live beside it in `files/state`, laid out as on the PC.
 
 After the game has run once on a device, `python tools/pinyon.py android shader-pack` makes a shader pack for it: it starts the game to the title screen over adb, collects the SPIR-V of every shader the device's pipeline storage names, builds a pack and puts it in the state's shader cache. Later starts load the pack instead of translating those shaders: on the Odin 2 (Adreno 740), 711 shaders, shader translation at start 0.52 to 0.07 s and start to title 2.99 to 2.66 s. The pack belongs to the device and build it was made on; run the command again after updating. Stop the game first; the command refuses while it runs.
 

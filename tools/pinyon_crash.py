@@ -14,9 +14,12 @@ placeholders, refuses to bundle anything that is a game file, a binary, a
 save or a memory dump, writes <state>/reports/PinyonShift-<id>-<time>.zip
 and <state>/reports/pending-report.json, and prints that pending record:
 {"schema", "created_utc", "crash_id", "bundle", "issue_url", "exit_code_hex",
-"graphics_driver", "graphics_memory"}; graphics_driver names the GPU driver the
-crash was in, or is empty; graphics_memory is true when the run's log shows the
-GPU running out of memory.
+"graphics_driver", "graphics_memory", "disc_read_error", "missing_file"};
+graphics_driver names the GPU driver the crash was in, or is empty;
+graphics_memory is true when the run's log shows the GPU running out of
+memory; disc_read_error is true when the title stopped itself on its
+dirty-disc error, and missing_file is the game file whose open failed last
+before it, or empty.
 
 `pending` prints the pending record (or {"pending": false}); `pinyon.py
 launch` removes it at the next start.
@@ -134,6 +137,26 @@ GRAPHICS_MEMORY_FAILURES = (
 def graphics_memory_exhausted(lines: list[str]) -> bool:
     """Whether the runtime log lines show the GPU out of memory."""
     return any(marker in line for line in lines for marker in GRAPHICS_MEMORY_FAILURES)
+
+
+# The title stops itself on purpose (exit 0x80000003) after it asks for the
+# dashboard's dirty-disc message, which it does when a file it needs cannot be
+# opened. #901: the XE mod with UDLC failed to open Soundbanks\Burbles\ (a
+# burble with no name). The open that failed last before it names the file.
+DISC_READ_ERROR = "XamShowDirtyDiscErrorUI called"
+FAILED_OPEN = re.compile(r"\[NtCreateFile\] FAILED: path='(?P<path>[^']*)'")
+
+
+def disc_read_error(lines: list[str]) -> tuple[bool, str]:
+    """Whether the run stopped on the title's dirty-disc error, and the game
+    file whose open failed last before it ("" when the log shows none)."""
+    missing = ""
+    for line in lines:
+        if DISC_READ_ERROR in line:
+            return True, missing
+        if failed := FAILED_OPEN.search(line):
+            missing = failed.group("path")
+    return False, ""
 
 
 def iso_utc(moment: datetime) -> str:
@@ -285,7 +308,8 @@ def issue_detail_lines(details: dict, selected: dict | None, release: dict, sett
 
 def session_log(logs: Path, process_id: int, started: datetime) -> tuple[Path | None, list[dict]]:
     """The event log the crashed process wrote, not whichever was modified
-    last, and its logging.ready and graphics.device.selected events."""
+    last, and its logging.ready, graphics.device.selected and process.shutdown
+    events."""
     if not logs.is_dir():
         return None, []
     candidates = sorted((path for path in logs.glob("*.jsonl") if path.is_file()),
@@ -298,7 +322,8 @@ def session_log(logs: Path, process_id: int, started: datetime) -> tuple[Path | 
                     or parse_utc(str(first.get("utc"))) < started - timedelta(seconds=2)):
                 continue
             events = []
-            wanted = re.compile(r'"event"\s*:\s*"(?:logging.ready|graphics.device.selected)"')
+            wanted = re.compile(r'"event"\s*:\s*"(?:logging.ready|graphics.device.selected'
+                                r'|process.shutdown)"')
             for line in read_text(candidate).splitlines():
                 if not wanted.search(line):
                     continue
@@ -426,6 +451,13 @@ def system_facts() -> dict:
 
 # --- Bundle ------------------------------------------------------------------------
 
+def closed_cleanly(state: Path, process_id: int, started: datetime) -> bool:
+    """Whether the process recorded process.shutdown, which it does once the
+    player's close has finished its saves (#946)."""
+    _, events = session_log(state / "logs", process_id, started)
+    return any(event.get("event") == "process.shutdown" for event in events)
+
+
 def create(state: Path, executable: Path, started: datetime, process_id: int, exit_code: int,
            repository: str = common.REPOSITORY_URL) -> dict:
     executable = executable.resolve()
@@ -482,13 +514,15 @@ def create(state: Path, executable: Path, started: datetime, process_id: int, ex
                          if e.get("event") == "graphics.device.selected"), None)
         runtime_log = state / "logs" / "runtime.log"
         out_of_graphics_memory = False
+        disc_error, missing_file = False, ""
         if logging_ready is not None and runtime_log.is_file() and \
                 runtime_log.stat().st_mtime >= started.timestamp():
             write_sanitized_tail(runtime_log, staging / "runtime-tail.log", 2500, replacements,
                                  started)
-            out_of_graphics_memory = graphics_memory_exhausted(
-                read_text(staging / "runtime-tail.log").splitlines()
-                if (staging / "runtime-tail.log").is_file() else [])
+            tail = (read_text(staging / "runtime-tail.log").splitlines()
+                    if (staging / "runtime-tail.log").is_file() else [])
+            out_of_graphics_memory = graphics_memory_exhausted(tail)
+            disc_error, missing_file = disc_read_error(tail)
         if event_log is not None:
             write_sanitized_tail(event_log, staging / "session-events.jsonl", 1000, replacements)
 
@@ -594,6 +628,8 @@ def create(state: Path, executable: Path, started: datetime, process_id: int, ex
             # Most reports arrive without the ZIP, so the lines that place the
             # crash are in the issue itself.
             *issue_detail_lines(details, selected, release, settings, started),
+            *([f"- Disc read error after a failed open of: `{missing_file or 'unknown'}`"]
+              if disc_error else []),
             "",
             "### Diagnostic report",
             "",
@@ -629,7 +665,8 @@ def create(state: Path, executable: Path, started: datetime, process_id: int, ex
                    "crash_id": fingerprint, "bundle": str(archive), "issue_url": issue_url,
                    "exit_code_hex": exit_hex,
                    "graphics_driver": graphics_driver(details["fault_module"]),
-                   "graphics_memory": out_of_graphics_memory}
+                   "graphics_memory": out_of_graphics_memory,
+                   "disc_read_error": disc_error, "missing_file": missing_file}
         (reports / "pending-report.json").write_bytes(
             (json.dumps(pending, indent=2) + os.linesep).encode("utf-8"))
         return pending

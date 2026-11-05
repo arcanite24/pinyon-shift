@@ -16,14 +16,25 @@ $downloads = Resolve-PinyonLocalPath -RelativePath '.local/downloads'
 Write-PinyonEvent tools 18 'Checking the Windows build environment.' -JsonEvents:$JsonEvents
 $vsRoot = Get-PinyonVisualStudioRoot -AllowMissing
 # Only the hosts of downloads still to come: a provisioned PC builds offline.
-$pending = @(foreach ($name in 'git', 'xz', 'llvm', 'extract_xiso', 'python', 'cmake', 'ninja') {
+# With a prebuilt ShiftGlue kit (TP-3) nothing is cloned, so Git is fetched
+# only if the kit fails and setup falls back to the source tree.
+$kitPinned = $null -ne (Get-PinyonShiftGlueKitEntry)
+$names = @('git', 'xz', 'llvm', 'extract_xiso', 'python', 'cmake', 'ninja') | Where-Object { -not ($kitPinned -and $_ -eq 'git') }
+$pending = @(foreach ($name in $names) {
     $tool = $config.$name
     if (-not (Test-Path -LiteralPath (Join-Path (Join-Path $root $tool.install_path) $tool.executable) -PathType Leaf)) {
         $tool.url
     }
 })
-if ([string]::IsNullOrWhiteSpace($vsRoot)) { $pending += $config.visual_studio.bootstrap_url }
-if (-not (Test-Path -LiteralPath (Join-Path (Resolve-PinyonRexGlueRoot) 'CMakeLists.txt') -PathType Leaf)) {
+# TP-4: with a prebuilt kit and the player's acceptance of Microsoft's
+# license, xwin fetches the Microsoft C++ libraries and the Windows SDK
+# instead of the Build Tools install (Test-PinyonUseMsvcSysroot).
+$useSysroot = Test-PinyonUseMsvcSysroot
+if ($useSysroot) {
+    if ($null -eq (Get-PinyonMsvcSysroot)) { $pending += @($config.msvc_sysroot.xwin.url, 'https://aka.ms/') }
+}
+elseif ([string]::IsNullOrWhiteSpace($vsRoot)) { $pending += $config.visual_studio.bootstrap_url }
+if (-not $kitPinned -and -not (Test-Path -LiteralPath (Join-Path (Resolve-PinyonRexGlueRoot) 'CMakeLists.txt') -PathType Leaf)) {
     $pending += $config.rexglue.repository
 }
 Assert-PinyonDownloadHosts -Uris $pending
@@ -107,7 +118,11 @@ function Invoke-BuildToolsInstaller {
 }
 
 $restartPending = $false
-if ([string]::IsNullOrWhiteSpace($vsRoot)) {
+if ($useSysroot) {
+    Write-PinyonEvent tools 20 'Fetching the Microsoft C++ libraries and the Windows SDK from Microsoft (about 770 MB, once).' -JsonEvents:$JsonEvents
+    Install-PinyonMsvcSysroot -AcceptMicrosoftLicense:($env:PINYON_SHIFT_ACCEPT_MICROSOFT_LICENSE -eq '1')
+}
+elseif ([string]::IsNullOrWhiteSpace($vsRoot)) {
     Write-PinyonEvent tools 20 'Microsoft C++ Build Tools are required. Windows may ask for administrator permission.' -JsonEvents:$JsonEvents
     $bootstrap = Get-BuildToolsBootstrapper
     $restartPending = Invoke-BuildToolsInstaller -Arguments "-Bootstrapper `"$bootstrap`"" `
@@ -115,14 +130,9 @@ if ([string]::IsNullOrWhiteSpace($vsRoot)) {
     $vsRoot = Get-PinyonVisualStudioRoot
 }
 
-Write-PinyonEvent tools 23 'Preparing Git.' -JsonEvents:$JsonEvents
-$gitRoot = [IO.Path]::GetFullPath((Join-Path $root $config.git.install_path))
-$gitExe = Join-Path $gitRoot $config.git.executable
-if (-not (Test-Path -LiteralPath $gitExe -PathType Leaf)) {
-    $archive = Join-Path $downloads "mingit-$($config.git.version).zip"
-    Invoke-PinyonDownload -Uri $config.git.url -Destination $archive -Sha256 $config.git.sha256
-    [void](New-Item -ItemType Directory -Force -Path $gitRoot)
-    Expand-PinyonZip -Archive $archive -Destination $gitRoot
+if (-not $kitPinned) {
+    Write-PinyonEvent tools 23 'Preparing Git.' -JsonEvents:$JsonEvents
+    Install-PinyonGit
 }
 
 Write-PinyonEvent tools 26 'Preparing the pinned LLVM compiler.' -JsonEvents:$JsonEvents
@@ -139,14 +149,20 @@ if (-not (Test-Path -LiteralPath $xzExe -PathType Leaf)) {
 $llvmRoot = [IO.Path]::GetFullPath((Join-Path $root $config.llvm.install_path))
 $llvmExe = Join-Path $llvmRoot $config.llvm.executable
 if (-not (Test-Path -LiteralPath $llvmExe -PathType Leaf)) {
-    $archive = Join-Path $downloads "llvm-$($config.llvm.version).tar.xz"
+    # TP-1: the pinned LLVM is our trimmed repack (tools/repack-toolchain.py),
+    # a zip that lists the tools' other names in pinyon-links.json. A full
+    # LLVM release (.tar.xz) still unpacks as before.
+    $zipped = $config.llvm.url -match '\.zip$'
+    $archive = Join-Path $downloads ("llvm-$($config.llvm.version)" + $(if ($zipped) { '.zip' } else { '.tar.xz' }))
     Invoke-PinyonDownload -Uri $config.llvm.url -Destination $archive -Sha256 $config.llvm.sha256
     $staging = Resolve-PinyonLocalPath -RelativePath ".local/toolchain/llvm-$($config.llvm.version)-staging"
     if (Test-Path -LiteralPath $staging) { Remove-Item -LiteralPath $staging -Recurse -Force }
     [void](New-Item -ItemType Directory -Force -Path $staging)
-    Expand-PinyonTarXz -Archive $archive -Destination $staging -XzPath $xzExe
+    if ($zipped) { Expand-PinyonZip -Archive $archive -Destination $staging }
+    else { Expand-PinyonTarXz -Archive $archive -Destination $staging -XzPath $xzExe }
     $children = @(Get-ChildItem -LiteralPath $staging -Directory)
     if ($children.Count -ne 1) { throw 'The LLVM archive layout is not recognized.' }
+    Install-PinyonToolLinks -Root $children[0].FullName
     if (Test-Path -LiteralPath $llvmRoot) { Remove-Item -LiteralPath $llvmRoot -Recurse -Force }
     Move-Item -LiteralPath $children[0].FullName -Destination $llvmRoot
     Remove-Item -LiteralPath $staging -Recurse -Force
@@ -215,7 +231,8 @@ try {
 catch {
     $kind = $_.Exception.Data['error_kind']
     if ($restartPending) { throw (New-RestartRequiredFailure) }
-    if ($kind -ne 'toolchain-capability') { throw }
+    # A fetched sysroot (TP-4) has no installer to repair it with.
+    if ($kind -ne 'toolchain-capability' -or $useSysroot) { throw }
     Write-PinyonEvent tools 21 'Updating Visual Studio and adding the Windows SDK the build needs. Windows may ask for administrator permission.' -JsonEvents:$JsonEvents
     # The Visual Studio Installer already on the PC can update any edition
     # (Community, Professional, Build Tools); the Build Tools bootstrapper is
@@ -231,9 +248,9 @@ catch {
         throw
     }
 }
-$git = Get-PinyonGit
+$git = if ($kitPinned) { '' } else { Get-PinyonGit }
 foreach ($required in @(
-    @{ Name = 'Git'; Path = $git },
+    $(if (-not $kitPinned) { @{ Name = 'Git'; Path = $git } })
     @{ Name = 'XZ'; Path = $xzExe },
     @{ Name = 'CMake'; Path = $environment.CMake },
     @{ Name = 'Ninja'; Path = $environment.Ninja },

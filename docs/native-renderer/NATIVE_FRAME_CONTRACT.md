@@ -26,8 +26,11 @@ label:first-last ...`. `tools/summarize-fh1-stencil-census.py <file>
 that enable stencil and the draws that may leave a nonzero stencil value
 (the rule the executor uses to decide whether a depth transfer needs its
 stencil-bit passes); censuses written before `stencil_ref_mask_bf` was
-recorded report back-face stencil draws as unknown. The census still runs on the native renderer. The
-records below are historical: they were taken from Xenos (reference)
+recorded report back-face stencil draws as unknown. The full metadata census
+is wired into the retained D3D12 backend. Vulkan's optional ordered
+pipeline-run census does not call its surface/resolve/texture observers;
+do not interpret an empty Vulkan metadata file as a complete frame.
+The records below are historical: they were taken from Xenos (reference)
 rendering, before its removal, of seed `appdata-2026-09-27` with `run-fh1-render-test.py
 --hidden`: the output-paced `fh1-native-race-mode-boundary` route (boot,
 title menus, free roam, event and car-select menus, race, race pause and

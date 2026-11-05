@@ -97,6 +97,10 @@ One trap: with Manual GPU Clock on in the Quick Access menu, Steam can pin the G
 
 **Results.** The earlier 40 s free-roam optimization route at 1x, MSAA off, measured a median 8.35 ms on an M4 Pro Mac mini, with the GPU busy about 67 % of the time. This is a historical result, not a guarantee that every current route holds 120 fps. The M4 Pro is shading-bound, as the Adreno GPUs are, so macOS takes their defaults: fast pixel math, texture signs as specialization constants and untiled predicated tiling. It also turns off MoltenVK's Metal argument buffers. Together these took that route's free-roam GPU frame from 12.3–12.7 to 5.6–5.7 ms ([measurements](gpu-optimizations.md#apple-silicon)). Two more switches pay off there that don't on the RTX 4080: texture gamma through sRGB views (−8 % at 1x, offered as TEXTURE GAMMA FAST) and quads as triangle lists (−5 % at 2x, now the default everywhere).
 
+**Intel Macs (experimental).** The same code builds for x86_64 (`macos-x86_64` in setup, `macos-amd64-*` presets): the x86 paths Windows and Linux use apply, and the 16 KB page offset is Apple silicon only. Under Rosetta on the M4 Pro (2026-11-04) the x86_64 build reached free roam and drew it correctly. No Intel or AMD Mac GPU has run it; their separate video memory is the open question for a renderer that reads many results back. See [docs/MACOS.md](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/MACOS.md#intel-macs-experimental).
+
+**Full-screen drawable.** Every Mac result above was measured with the window hidden. Full screen on a 4K TV in a scaled mode ("looks like 3008 × 1692", 6016 × 3384 backing pixels), the same 1x drive fell from 120 to 63–73 fps with a 28 ms frame p95, though the game's own frame took 8.4 ms: the GPU spent about 3 ms more per frame presenting into the 20-megapixel drawable. A 1280 × 720 window on the same display (2560 × 1440 drawable) held 120. macOS now caps the drawable at 3840 × 2160 pixels (`window_max_pixel_density`, default automatic) and lets the system scale it; the drive holds 120.0 fps with a 9.95 ms p95, and a cap of 1.5 (4512 × 2538) also held 120. Built-in MacBook panels have fewer pixels than that, so they keep full density. At 2x with 4x MSAA the game itself is GPU-bound at 19.5 ms, 51 fps, with or without the cap; flat pixel shaders take that to 11.5 ms, so about 8 ms is shading and the rest raster and sample traffic over about 180 renderings a frame. With the game's 4x surfaces stored at two samples (`fh1_msaa_2x`), 2x holds the 60 limit (59.6 and 60.0 fps, 16.7 ms of GPU), so QUALITY 60 uses 2x MSAA on a Mac. It also lowers peak surfaces from 848 to 584 MiB and Vulkan device memory from 4.1 to 3.9 GiB.
+
 Those measurements use MSAA off and untiled predicated tiling on. QUALITY 60 sets 2x scale, 4x MSAA and untiled predicated tiling off, so the 1x result is not a qualification of that preset. The [qualification procedure](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/MACOS.md#renderer-qualification) uses a pinned seed, all six scale/MSAA combinations and a 60 fps limit, and separates captures from the interval used for CPU, GPU and memory measurements. A successful scripted route alone does not establish a 60 fps budget or correct car geometry.
 
 The 2026-10-18 base-game qualification on that Mac (12 CPU cores, 24 GiB,
@@ -120,7 +124,7 @@ but the original M1 Max failure did not reproduce and a persistent sky tint
 varied between restarts. A fixed 1x/MSAA-off packet frame replayed on Mac
 and Windows with RGB mean absolute errors 1.165/1.120/0.830 out of 255;
 larger local differences remain, so this is not a bit-exact or 2x/4x gate.
-QUALITY 60 still misses its performance budget.
+On 2026-10-18 QUALITY 60 still missed its performance budget; see below for the 2x MSAA fix.
 Fullscreen menu/cvar routes completed, but OS screen capture was denied,
 so visible fullscreen output and native Space behavior remain unqualified.
 

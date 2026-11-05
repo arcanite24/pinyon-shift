@@ -24,6 +24,15 @@ option(PINYON_SHIFT_FROZEN_CODEGEN
 # the host-side tests and tools, which need neither.
 option(PINYON_SHIFT_HOST_TESTS_ONLY
     "Configure only host-side tests and tools, without generated game code" OFF)
+# TP-3 host split: the release's prebuilt host objects are built the same way,
+# without the game (tools/build-host-objects.py).
+option(PINYON_SHIFT_HOST_OBJECTS_ONLY
+    "Configure only the prebuilt host objects, without generated game code" OFF)
+if(PINYON_SHIFT_HOST_OBJECTS_ONLY)
+    set(PINYON_SHIFT_HOST_TESTS_ONLY ON)
+endif()
+set(PINYON_SHIFT_HOST_OBJECTS "" CACHE PATH
+    "Unpacked prebuilt host objects from the release (TP-3); empty compiles them here")
 option(PINYON_SHIFT_RECOMP_IPO
     "Enable interprocedural optimization for generated game code and host" OFF)
 set(PINYON_SHIFT_RECOMP_PGO "OFF" CACHE STRING "Recomp PGO mode: OFF, GENERATE, USE")
@@ -134,6 +143,17 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
     endif()
 endif()
 
+# NN-1.11/NN-3.6: every handheld the Android build targets is ARMv8.2 or
+# later, so atomics compile to LSE instructions instead of LL/SC loops and
+# calls to the __aarch64_* outline helpers, in the SDK and its libraries too
+# (the Android shell's kit is built with the same -march, TP-5).
+if(ANDROID)
+    set(PINYON_SHIFT_ANDROID_MARCH "armv8.2-a" CACHE STRING
+        "-march for every Android target, the SDK and its libraries included")
+    add_compile_options(-march=${PINYON_SHIFT_ANDROID_MARCH})
+    set(REXGLUE_ARM64_MARCH ${PINYON_SHIFT_ANDROID_MARCH})
+endif()
+
 if(REXSDK_DIR)
     # Keep the consumer build's runtime, GPU plugin, and tools inside its own
     # binary tree. ReXGlue's standalone source build retains its pinned out/
@@ -141,15 +161,6 @@ if(REXSDK_DIR)
     set(REXGLUE_OUTPUT_DIRECTORY
         "${CMAKE_CURRENT_BINARY_DIR}/rexglue-artifacts"
         CACHE PATH "ReXGlue artifacts for the Pinyon Shift host build" FORCE)
-    # NN-1.11/NN-3.6: every handheld the Android build targets is ARMv8.2 or
-    # later, so atomics compile to LSE instructions instead of LL/SC loops and
-    # calls to the __aarch64_* outline helpers, in the SDK and its libraries too.
-    if(ANDROID)
-        set(PINYON_SHIFT_ANDROID_MARCH "armv8.2-a" CACHE STRING
-            "-march for every Android target, the SDK and its libraries included")
-        add_compile_options(-march=${PINYON_SHIFT_ANDROID_MARCH})
-        set(REXGLUE_ARM64_MARCH ${PINYON_SHIFT_ANDROID_MARCH})
-    endif()
     add_subdirectory("${REXSDK_DIR}" rexglue-sdk EXCLUDE_FROM_ALL)
     # NN-3.6: calls inside the runtime libraries bind locally instead of
     # through the PLT, as libmain's already do. Nothing interposes on their
@@ -194,19 +205,80 @@ if(REXSDK_DIR)
         target_compile_definitions(rexruntime PRIVATE REXGLUE_TRACE_IMPORTS=1)
     endif()
     message(STATUS "Using ReXGlue SDK from source tree: ${REXSDK_DIR}")
+    set(PINYON_SHIFT_SDK_SOURCE_DIR "${REXSDK_DIR}")
 else()
-    if(REXSDK_VERSION)
-        find_package(rexglue ${REXSDK_VERSION} EXACT QUIET CONFIG)
-    else()
-        find_package(rexglue 0.10.0 EXACT QUIET CONFIG)
-    endif()
-    if(NOT rexglue_FOUND)
+    # TP-3 (docs/TIME_TO_PLAY_BACKLOG.md): the prebuilt ShiftGlue kit
+    # (tools/build-shiftglue-kit.ps1, tools/pinyon_setup.py) instead of the
+    # source tree. It holds the generator, the runtime and graphics backend
+    # with their CMake package, and the few SDK sources and headers the host
+    # compiles itself. It must be built from the pinned ShiftGlue revision.
+    set(PINYON_SHIFT_SHIFTGLUE_KIT "" CACHE PATH "Unpacked prebuilt ShiftGlue kit")
+    if(NOT EXISTS "${PINYON_SHIFT_SHIFTGLUE_KIT}/kit.json")
         message(FATAL_ERROR
-            "ReXGlue SDK 0.10.0 not found. Set REXSDK_DIR to the pinned source tree "
-            "or install the exact SDK package.")
+            "Set REXSDK_DIR to the pinned ShiftGlue source tree, or "
+            "PINYON_SHIFT_SHIFTGLUE_KIT to an unpacked ShiftGlue kit.")
     endif()
-    set(PINYON_SHIFT_REXGLUE_CODEGEN $<TARGET_FILE:rex::rexglue>)
-    set(PINYON_SHIFT_REXGLUE_CODEGEN_DEPENDS rexglue)
+    file(READ "${PINYON_SHIFT_SHIFTGLUE_KIT}/kit.json" _pinyon_kit)
+    file(READ "${CMAKE_CURRENT_SOURCE_DIR}/config/release-toolchain.json" _pinyon_toolchain)
+    string(JSON _pinyon_kit_revision GET "${_pinyon_kit}" shiftglue_revision)
+    string(JSON _pinyon_pinned_revision GET "${_pinyon_toolchain}" rexglue revision)
+    if(NOT _pinyon_kit_revision STREQUAL _pinyon_pinned_revision)
+        message(FATAL_ERROR
+            "The ShiftGlue kit was built from ${_pinyon_kit_revision}, but "
+            "config/release-toolchain.json pins ${_pinyon_pinned_revision}.")
+    endif()
+    set_property(DIRECTORY "${PROJECT_SOURCE_DIR}" APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+        "${PINYON_SHIFT_SHIFTGLUE_KIT}/kit.json")
+    # The kit is on the build host: a cross toolchain's sysroot (sniper, the
+    # NDK) would otherwise re-root the search under itself, for the kit and
+    # for the dependencies its package finds through its own prefix.
+    include("${CMAKE_CURRENT_LIST_DIR}/PinyonShiftKitPackages.cmake")
+    pinyon_shift_use_kit_packages("${PINYON_SHIFT_SHIFTGLUE_KIT}")
+    set(_pinyon_find_root_mode "${CMAKE_FIND_ROOT_PATH_MODE_PACKAGE}")
+    set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE BOTH)
+    find_package(rexglue CONFIG REQUIRED NO_DEFAULT_PATH NO_CMAKE_FIND_ROOT_PATH
+        PATHS "${PINYON_SHIFT_SHIFTGLUE_KIT}")
+    set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE "${_pinyon_find_root_mode}")
+    set(PINYON_SHIFT_SDK_SOURCE_DIR "${PINYON_SHIFT_SHIFTGLUE_KIT}/share/rexglue/source")
+    # The upscaler runtimes, staged as a source build stages them
+    # (rexglue_helpers.cmake). AMD's and NVIDIA's Windows DLLs are vendor
+    # binaries no release ships (docs/LEGAL.md): the kit's copies of the
+    # SDK's fetch modules download them here, pinned and hashed. A
+    # FidelityFX library built from source (Linux, macOS, Android) is in the
+    # kit.
+    foreach(_pinyon_module IN ITEMS rexglue_ffx_api_headers rexglue_dlss)
+        set(_pinyon_module "${PINYON_SHIFT_SHIFTGLUE_KIT}/share/rexglue/cmake/${_pinyon_module}.cmake")
+        if(WIN32 AND EXISTS "${_pinyon_module}")
+            include("${_pinyon_module}")
+        endif()
+    endforeach()
+    set(_pinyon_kit_upscalers "${PINYON_SHIFT_SHIFTGLUE_KIT}/share/rexglue/upscalers")
+    if(REXGLUE_FFX_RUNTIME_DLL)
+        set(REXGLUE_FFX_LICENSE "${_pinyon_kit_upscalers}/fidelityfx/LICENSE.txt")
+    endif()
+    file(GLOB _pinyon_kit_ffx "${_pinyon_kit_upscalers}/fidelityfx/*.dll"
+        "${_pinyon_kit_upscalers}/fidelityfx/*.so" "${_pinyon_kit_upscalers}/fidelityfx/*.dylib")
+    if(_pinyon_kit_ffx)
+        if(WIN32)
+            set(REXGLUE_FFX_RUNTIME_DLL "${_pinyon_kit_ffx}")
+        else()
+            set(REXGLUE_FFX_RUNTIME_LIBRARY "${_pinyon_kit_ffx}")
+        endif()
+        set(REXGLUE_FFX_LICENSE "${_pinyon_kit_upscalers}/fidelityfx/LICENSE.txt")
+    endif()
+    file(GLOB _pinyon_kit_dlss LIST_DIRECTORIES true "${_pinyon_kit_upscalers}/dlss/*")
+    if(_pinyon_kit_dlss)
+        get_filename_component(REXGLUE_DLSS_VERSION "${_pinyon_kit_dlss}" NAME)
+        set(REXGLUE_DLSS_RUNTIME_DIR "${_pinyon_kit_dlss}")
+        set(REXGLUE_DLSS_INCLUDE_DIR "${_pinyon_kit_dlss}")
+    endif()
+    # A cross build's kit (the Android shell, TP-5) holds no generator for
+    # the build host; it passes the host kit's or source tree's instead.
+    set(PINYON_SHIFT_REXGLUE_CODEGEN
+        "${PINYON_SHIFT_SHIFTGLUE_KIT}/bin/rexglue${CMAKE_HOST_EXECUTABLE_SUFFIX}"
+        CACHE FILEPATH "The ReXGlue generator for the build host")
+    set(PINYON_SHIFT_REXGLUE_CODEGEN_DEPENDS "${PINYON_SHIFT_REXGLUE_CODEGEN}")
+    message(STATUS "Using the prebuilt ShiftGlue kit: ${PINYON_SHIFT_SHIFTGLUE_KIT}")
 endif()
 
 # TITLE_UPDATE_V4_BACKLOG: build the FH1 v4 title update from the USA disc.
@@ -342,6 +414,11 @@ elseif(REXGLUE_RECOMP_DEBUG_INFO STREQUAL "line-tables-only")
     list(APPEND REXGLUE_RECOMP_OPTIONS
         $<$<CXX_COMPILER_ID:Clang,AppleClang>:-gline-tables-only>)
 endif()
+# Extra flags for the generated units only, after the ones above so they win
+# (build-time experiments such as -O1; TIME_TO_PLAY_BACKLOG.md TP-6).
+set(PINYON_SHIFT_RECOMP_EXTRA_OPTIONS "" CACHE STRING
+    "Extra compile options for the generated units, appended last")
+list(APPEND REXGLUE_RECOMP_OPTIONS ${PINYON_SHIFT_RECOMP_EXTRA_OPTIONS})
 
 set(_all_generated_sources
     ${PINYON_SHIFT_GENERATED_SOURCES}
@@ -365,7 +442,11 @@ endfunction()
 
 # The entrypoint stamp's depfile records the manifest, included analysis TOMLs,
 # all three game binaries, and the SDK version. The generator writes the stamp
-# only after every entrypoint/module output succeeds.
+# only after every entrypoint/module output succeeds. The generator keeps its
+# own stamp check on: its fingerprint covers the generator binary too, so after
+# build-preview.ps1's bootstrap the first Ninja run of this edge (which Ninja
+# has no log entry for) skips the unchanged modules in seconds instead of
+# translating the game a second time.
 if(NOT PINYON_SHIFT_FROZEN_CODEGEN)
 add_custom_command(
     OUTPUT "${PINYON_SHIFT_GENERATED_DIR}/codegen.build.stamp"
@@ -386,7 +467,7 @@ add_custom_command(
     COMMAND "${PINYON_SHIFT_REXGLUE_CODEGEN}"
         --log-level info
         --log-file "${PINYON_SHIFT_CODEGEN_LOG}"
-        codegen "${PINYON_SHIFT_MANIFEST}" --ignore-stamp ${PINYON_SHIFT_CODEGEN_EXTRA_ARGS}
+        codegen "${PINYON_SHIFT_MANIFEST}" ${PINYON_SHIFT_CODEGEN_EXTRA_ARGS}
     DEPENDS ${PINYON_SHIFT_REXGLUE_CODEGEN_DEPENDS} "${PINYON_SHIFT_MANIFEST}"
     DEPFILE "${PINYON_SHIFT_GENERATED_DIR}/codegen.d"
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
@@ -437,12 +518,10 @@ function(pinyon_shift_attach_rexglue target_name)
         "${CMAKE_CURRENT_SOURCE_DIR}/src"
         "${PINYON_SHIFT_GENERATED_DIR}"
     )
-    # The source-tree helper injects rex_app.cpp into the consumer, while imgui
-    # remains a private SDK dependency. Keep its include local to source builds.
-    if(REXSDK_DIR)
-        target_include_directories(${target_name} PRIVATE
-            "${REXSDK_DIR}/thirdparty/imgui")
-    endif()
+    # The helper injects rex_app.cpp into the consumer, while imgui remains a
+    # private SDK dependency: its headers come from the source tree or the kit.
+    target_include_directories(${target_name} PRIVATE
+        "${PINYON_SHIFT_SDK_SOURCE_DIR}/thirdparty/imgui")
     target_link_libraries(${target_name} PRIVATE rex::runtime)
     target_compile_definitions(${target_name} PRIVATE
         PINYON_SHIFT_CPU_BASELINE="${PINYON_SHIFT_CPU_BASELINE}"
@@ -454,26 +533,152 @@ function(pinyon_shift_attach_rexglue target_name)
         # by the injected rex_app.cpp consumer source.
         set_property(SOURCE "${REXGLUE_SHARE_DIR}/rex_app.cpp" APPEND PROPERTY
             INCLUDE_DIRECTORIES "${CMAKE_CURRENT_BINARY_DIR}/rexglue-sdk/include")
+        set(_pinyon_runtime rexruntime)
+        set(_pinyon_gpu rexgpu-fh1)
+        set(_pinyon_stage_depends ${target_name} rexruntime rexgpu-fh1)
+    else()
+        # The kit's imported libraries; they change only with the kit.
+        set(_pinyon_runtime rex::runtime)
+        set(_pinyon_gpu rex::gpu-fh1)
+        set(_pinyon_stage_depends ${target_name})
+    endif()
 
-        # ReXGlue's target helper copies runtime DLLs only after the host links.
-        # An incremental SDK-only relink would therefore leave older runtime or
-        # graphics backend DLLs next to an otherwise current host. This target
-        # runs on every build (copying only changed files) and makes the
-        # executable's load-time artifacts exact. PinyonStageFile.cmake retries
-        # while antivirus briefly holds a fresh DLL and otherwise names the
-        # locked file and the fix instead of a bare "Error copying file".
-        add_custom_target(${target_name}_stage_rexruntime ALL
-            COMMAND ${CMAKE_COMMAND}
-                -DSOURCE=$<TARGET_FILE:rexruntime>
-                -DDESTINATION=$<TARGET_FILE_DIR:${target_name}>/$<TARGET_FILE_NAME:rexruntime>
-                -P ${PINYON_SHIFT_STAGE_FILE_SCRIPT}
-            COMMAND ${CMAKE_COMMAND}
-                -DSOURCE=$<TARGET_FILE:rexgpu-fh1>
-                -DDESTINATION=$<TARGET_FILE_DIR:${target_name}>/$<TARGET_FILE_NAME:rexgpu-fh1>
-                -P ${PINYON_SHIFT_STAGE_FILE_SCRIPT}
-            DEPENDS ${target_name} rexruntime rexgpu-fh1
-            COMMENT "Staging the current ReXGlue runtime and graphics backend beside ${target_name}"
-            VERBATIM)
+    # ReXGlue's target helper copies runtime DLLs only after the host links.
+    # An incremental SDK-only relink would therefore leave older runtime or
+    # graphics backend DLLs next to an otherwise current host. This target
+    # runs on every build (copying only changed files) and makes the
+    # executable's load-time artifacts exact. PinyonStageFile.cmake retries
+    # while antivirus briefly holds a fresh DLL and otherwise names the
+    # locked file and the fix instead of a bare "Error copying file". Off
+    # Windows it is the only step that puts librexruntime beside the game.
+    add_custom_target(${target_name}_stage_rexruntime ALL
+        COMMAND ${CMAKE_COMMAND}
+            -DSOURCE=$<TARGET_FILE:${_pinyon_runtime}>
+            -DDESTINATION=$<TARGET_FILE_DIR:${target_name}>/$<TARGET_FILE_NAME:${_pinyon_runtime}>
+            -P ${PINYON_SHIFT_STAGE_FILE_SCRIPT}
+        COMMAND ${CMAKE_COMMAND}
+            -DSOURCE=$<TARGET_FILE:${_pinyon_gpu}>
+            -DDESTINATION=$<TARGET_FILE_DIR:${target_name}>/$<TARGET_FILE_NAME:${_pinyon_gpu}>
+            -P ${PINYON_SHIFT_STAGE_FILE_SCRIPT}
+        DEPENDS ${_pinyon_stage_depends}
+        COMMENT "Staging the current ReXGlue runtime and graphics backend beside ${target_name}"
+        VERBATIM)
+endfunction()
+
+# TP-3 host split (docs/TIME_TO_PLAY_BACKLOG.md). Everything that went into
+# the host's objects: the sources and every header they can include, the
+# build files, the compiler, the ShiftGlue revision and whether it is the kit,
+# the variant and other build options, and on Windows the C++ library
+# version. Prebuilt objects are used only when it matches exactly. The CPU
+# baseline is left out: the shared host code is SSE4.1 on every baseline
+# (the TP-3 measurements found no gain from fma there), and the two files
+# that depend on it compile locally.
+function(pinyon_shift_host_fingerprint out_var)
+    file(READ "${PROJECT_SOURCE_DIR}/config/release-toolchain.json" _toolchain)
+    string(JSON _revision GET "${_toolchain}" rexglue revision)
+    get_directory_property(_definitions DIRECTORY "${PROJECT_SOURCE_DIR}" COMPILE_DEFINITIONS)
+    list(FILTER _definitions EXCLUDE REGEX "^PINYON_SHIFT_CPU_BASELINE")
+    get_directory_property(_options DIRECTORY "${PROJECT_SOURCE_DIR}" COMPILE_OPTIONS)
+    set(_kit "source")
+    if(NOT REXSDK_DIR)
+        set(_kit "kit")
+    endif()
+    string(CONCAT _text
+        "system=${CMAKE_SYSTEM_NAME}/${CMAKE_SYSTEM_PROCESSOR}\n"
+        "compiler=${CMAKE_CXX_COMPILER_ID}/${CMAKE_CXX_COMPILER_VERSION}\n"
+        "msvc=$ENV{VCToolsVersion}\n"
+        "shiftglue=${_revision}/${_kit}\n"
+        "config=${CMAKE_BUILD_TYPE}\n"
+        "definitions=${_definitions}\n"
+        "options=${_options}\n"
+        "pgo=${PINYON_SHIFT_RECOMP_PGO}/ipo=${PINYON_SHIFT_RECOMP_IPO}\n")
+    file(GLOB_RECURSE _files LIST_DIRECTORIES false
+        "${PROJECT_SOURCE_DIR}/src/*" "${PROJECT_SOURCE_DIR}/include/*")
+    list(APPEND _files ${PINYON_SHIFT_HOST_SHARED_SOURCES}
+        "${PROJECT_SOURCE_DIR}/CMakeLists.txt"
+        "${PROJECT_SOURCE_DIR}/CMakePresets.json"
+        "${PROJECT_SOURCE_DIR}/cmake/PinyonShiftRexGlue.cmake"
+        "${PROJECT_SOURCE_DIR}/config/release.json")
+    set(_entries)
+    foreach(_file IN LISTS _files)
+        get_filename_component(_path "${_file}" ABSOLUTE BASE_DIR "${PROJECT_SOURCE_DIR}")
+        file(RELATIVE_PATH _name "${PROJECT_SOURCE_DIR}" "${_path}")
+        # The SDK files the host compiles sit in the kit or the source tree.
+        if(_name MATCHES "^\\.\\.")
+            file(RELATIVE_PATH _name "${PINYON_SHIFT_SDK_SOURCE_DIR}" "${_path}")
+            set(_name "sdk/${_name}")
+        endif()
+        file(SHA256 "${_path}" _hash)
+        list(APPEND _entries "${_name}=${_hash}")
+    endforeach()
+    list(REMOVE_DUPLICATES _entries)
+    list(SORT _entries)
+    list(JOIN _entries "\n" _listing)
+    string(SHA256 _fingerprint "${_text}${_listing}")
+    set(${out_var} "${_fingerprint}" PARENT_SCOPE)
+endfunction()
+
+# The shared host code: compiled here into pinyon_shift_host, or the release's
+# prebuilt objects (PINYON_SHIFT_HOST_OBJECTS, unpacked by setup) when their
+# fingerprint matches. They are linked as objects, not an archive: the native
+# replacements in guest_native must override the generated weak definitions,
+# and a linker takes an archive member only for an undefined symbol. With an
+# empty target_name, builds only the objects and their manifest for the
+# release (PINYON_SHIFT_HOST_OBJECTS_ONLY).
+function(pinyon_shift_add_host_objects target_name)
+    pinyon_shift_host_fingerprint(_fingerprint)
+    if(target_name AND PINYON_SHIFT_HOST_OBJECTS)
+        set(_manifest "${PINYON_SHIFT_HOST_OBJECTS}/host-objects.json")
+        set(_prebuilt "")
+        if(EXISTS "${_manifest}")
+            file(READ "${_manifest}" _host)
+            string(JSON _prebuilt GET "${_host}" fingerprint)
+        endif()
+        if(_prebuilt STREQUAL _fingerprint)
+            string(JSON _count LENGTH "${_host}" objects)
+            math(EXPR _last "${_count} - 1")
+            set(_objects)
+            foreach(_index RANGE ${_last})
+                string(JSON _object GET "${_host}" objects ${_index})
+                list(APPEND _objects "${PINYON_SHIFT_HOST_OBJECTS}/${_object}")
+            endforeach()
+            add_library(pinyon_shift_host OBJECT IMPORTED)
+            set_property(TARGET pinyon_shift_host PROPERTY IMPORTED_OBJECTS ${_objects})
+            target_link_libraries(${target_name} PRIVATE pinyon_shift_host)
+            set_property(DIRECTORY "${PROJECT_SOURCE_DIR}" APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_manifest}")
+            message(STATUS "Using ${_count} prebuilt host objects: ${PINYON_SHIFT_HOST_OBJECTS}")
+            return()
+        endif()
+        message(STATUS "The prebuilt host objects don't match this build "
+            "(${_prebuilt} != ${_fingerprint}); compiling the host code here.")
+    endif()
+    add_library(pinyon_shift_host OBJECT ${PINYON_SHIFT_HOST_SHARED_SOURCES})
+    pinyon_shift_apply_recomp_profile(pinyon_shift_host)
+    if(PINYON_SHIFT_RECOMP_IPO)
+        set_property(TARGET pinyon_shift_host PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
+    endif()
+    # What the game target gives these files (pinyon_shift_attach_rexglue,
+    # rexglue_configure_target and CMakeLists.txt), without the generated tree.
+    target_include_directories(pinyon_shift_host PRIVATE
+        "${PROJECT_SOURCE_DIR}"
+        "${PROJECT_SOURCE_DIR}/src"
+        "${PROJECT_SOURCE_DIR}/include"
+        "${PINYON_SHIFT_SDK_SOURCE_DIR}/thirdparty/imgui"
+        "${PINYON_SHIFT_SDK_SOURCE_DIR}/thirdparty/tomlplusplus/include"
+        "${PINYON_SHIFT_SDK_SOURCE_DIR}/thirdparty/renderdoc"
+        "${PINYON_SHIFT_SDK_SOURCE_DIR}")
+    target_link_libraries(pinyon_shift_host PRIVATE rex::runtime rex::gpu-fh1)
+    target_compile_definitions(pinyon_shift_host PRIVATE
+        PINYON_SHIFT_VERSION="${PINYON_SHIFT_VERSION}"
+        REXGLUE_BUILD_CONFIG="$<CONFIG>")
+    rexglue_apply_target_settings(pinyon_shift_host)
+    if(target_name)
+        target_link_libraries(${target_name} PRIVATE pinyon_shift_host)
+    else()
+        # Read by tools/build-host-objects.py after building pinyon_shift_host.
+        file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/host-objects/objects.txt"
+            CONTENT "$<JOIN:$<TARGET_OBJECTS:pinyon_shift_host>,\n>\n")
+        file(WRITE "${CMAKE_BINARY_DIR}/host-objects/fingerprint.txt" "${_fingerprint}\n")
     endif()
 endfunction()
 

@@ -15,6 +15,7 @@
 
 #include "ui/hostui/glyph_atlas.h"
 #include "ui/hostui/menu.h"
+#include "ui/hostui/painter.h"
 #include "ui/hostui/vector_font.h"
 #include "dlc/rally_pace_notes.h"
 
@@ -31,13 +32,7 @@ class Window;
 
 namespace pinyon_shift::hostui {
 
-// A texture sub-rectangle in normalized coordinates.
-struct UvRect {
-  float u0 = 0.0f;
-  float v0 = 0.0f;
-  float u1 = 1.0f;
-  float v1 = 1.0f;
-};
+class Fh1Archive;
 
 // Host-drawn menus over the title (NP-1.3): drawn with the title's own vector
 // fonts and UI textures, rasterized at load from the player's disc, and laid
@@ -49,6 +44,8 @@ struct UvRect {
 // menu takes pad, keyboard and mouse input itself. Everything runs on the UI
 // thread; drawing never runs guest code.
 class HostUi final : public rex::ui::UIDrawer, public rex::ui::WindowInputListener {
+  friend class ScreenPainter;
+
  public:
   // Above the guest's input listeners and below the ImGui XAM dialogs.
   static constexpr size_t kZOrder = 32;
@@ -75,6 +72,31 @@ class HostUi final : public rex::ui::UIDrawer, public rex::ui::WindowInputListen
   // `icon` must outlive the notification.
   void ShowToast(std::string heading, std::string title, std::string detail,
                  rex::ui::ImmediateTexture* icon);
+  // The achievement notifications (AC-3): an unlock slides in with its icon
+  // popping and its gamerscore counting up; a milestone shows a bar; a
+  // banner (a finished category, 100 %) shows a disc texture beside it.
+  struct ToastSpec {
+    enum class Style { kPlain, kAchievement, kLarge, kMilestone, kBanner };
+    Style style = Style::kPlain;
+    std::string heading, title, detail;
+    rex::ui::ImmediateTexture* icon = nullptr;  // must outlive the toast
+    uint32_t gamerscore = 0;  // counted up (kAchievement, kLarge)
+    float progress = -1.0f;   // 0 to 1 (kMilestone)
+    std::string badge;        // Horizon.zip member (kBanner, kLarge)
+    UvRect badge_uv;
+    float badge_aspect = 1.0f;  // width over height of badge_uv
+  };
+  void ShowToast(ToastSpec spec);
+
+  // A small panel over the game for the tracked achievement (AC-4.4), read
+  // on every draw while no menu is open; empty title hides it. Call
+  // HudChanged when it appears or goes.
+  struct TrackChip {
+    std::string title, progress;
+    float fraction = 0.0f;
+    rex::ui::ImmediateTexture* icon = nullptr;
+  };
+  void SetTrackSource(std::function<TrackChip()> source) { track_source_ = std::move(source); }
 
   // Persistent text over the title (mods' HUD labels, NP-11), in the
   // title's 1280x720 layout. The source is read on every draw; call
@@ -129,6 +151,8 @@ class HostUi final : public rex::ui::UIDrawer, public rex::ui::WindowInputListen
     std::vector<rex::ui::ImmediateVertex> vertices;
     std::vector<uint16_t> indices;
     rex::ui::ImmediateTexture* texture = nullptr;
+    bool clipped = false;
+    float clip[4] = {};  // left, top, right, bottom in render-target pixels
   };
 
   struct Text {
@@ -140,6 +164,21 @@ class HostUi final : public rex::ui::UIDrawer, public rex::ui::WindowInputListen
   bool LoadAssets();
   void DrawMenu(rex::ui::UIDrawContext& context);
   void DrawToasts(rex::ui::UIDrawContext& context);
+  struct Toast {
+    ToastSpec spec;
+    std::chrono::steady_clock::time_point shown{};  // set when it first draws
+  };
+  void DrawPlainToast(const Toast& toast, float alpha);
+  void DrawAchievementToast(const Toast& toast, float age, float show_seconds);
+  void DrawTrackChip(rex::ui::UIDrawContext& context);
+  // A painted screen's body (MenuScreen::set_paint).
+  void DrawPainted(MenuScreen& screen);
+  void DrawHelp(const std::vector<HelpEntry>& entries);
+  // The painted screen's pointer target at window pixels, or -1.
+  int HitTarget(float x, float y) const;
+  rex::ui::ImmediateTexture* HorizonTexture(std::string_view member, TextureMode mode);
+  // The batch to append to for `texture` under the current clip.
+  Batch& BatchFor(rex::ui::ImmediateTexture* texture);
   void DrawHud(rex::ui::UIDrawContext& context);
   void DrawRallyPace(rex::ui::UIDrawContext& context);
   void DrawOverlay(rex::ui::UIDrawContext& context);
@@ -172,11 +211,14 @@ class HostUi final : public rex::ui::UIDrawer, public rex::ui::WindowInputListen
   void DrawGradient(float x, float y, float width, float height, uint32_t left_color,
                     uint32_t right_color, rex::ui::ImmediateTexture* texture = nullptr,
                     float skew = 0.0f, UvRect uv = {});
+  // Corner colours clockwise from the top left.
+  void DrawQuad(float x, float y, float width, float height, const uint32_t (&colors)[4],
+                rex::ui::ImmediateTexture* texture, float skew, UvRect uv);
   void Flush();
   // Draws `text` word-wrapped to `width` title pixels from `top`; returns
   // the height used.
   float DrawWrapped(Face face, float title_pixels, std::string_view text, float x, float top,
-                    float width, uint32_t color);
+                    float width, uint32_t color, int max_lines = 0);
   void RemoveScreen(const MenuScreen* screen);
   void RecordLayout(const std::string& title, size_t first_batch, size_t first_vertex);
 
@@ -194,12 +236,8 @@ class HostUi final : public rex::ui::UIDrawer, public rex::ui::WindowInputListen
   // (menus or notifications on screen).
   bool registered_ = false;
   bool drawer_registered_ = false;
-  struct Toast {
-    std::string heading, title, detail;
-    rex::ui::ImmediateTexture* icon = nullptr;
-    std::chrono::steady_clock::time_point shown{};  // set when it first draws
-  };
   std::vector<Toast> toasts_;
+  std::function<TrackChip()> track_source_;
   std::function<std::vector<HudText>()> hud_source_;
   std::function<rally::PaceHud()> rally_pace_source_;
   std::filesystem::path rally_pace_atlas_path_;
@@ -234,6 +272,9 @@ class HostUi final : public rex::ui::UIDrawer, public rex::ui::WindowInputListen
   bool assets_loaded_ = false;
   bool assets_failed_ = false;
   std::optional<VectorFont> fonts_[size_t(Face::kCount)];
+  // The title's East Asian bitmap fonts for what the vector fonts lack, the
+  // console language's first (AC-2.7).
+  std::vector<std::unique_ptr<BitmapFont>> fallback_fonts_;
   std::unique_ptr<rex::ui::ImmediateTexture> white_;
   std::unique_ptr<rex::ui::ImmediateTexture> selection_mask_;
   std::unique_ptr<rex::ui::ImmediateTexture> button_a_;
@@ -241,6 +282,8 @@ class HostUi final : public rex::ui::UIDrawer, public rex::ui::WindowInputListen
   // Our own PlayStation face marks, for when the pad in hand is one.
   std::unique_ptr<rex::ui::ImmediateTexture> button_cross_;
   std::unique_ptr<rex::ui::ImmediateTexture> button_circle_;
+  std::unique_ptr<rex::ui::ImmediateTexture> button_square_;
+  std::unique_ptr<rex::ui::ImmediateTexture> button_triangle_;
 
   // Per-draw state.
   Canvas canvas_;
@@ -253,6 +296,28 @@ class HostUi final : public rex::ui::UIDrawer, public rex::ui::WindowInputListen
     float x0, y0, x1, y1;
   };
   std::vector<RowRect> row_rects_;
+  // A painted screen's pointer targets from the latest draw.
+  struct HitRect {
+    int target;
+    float x0, y0, x1, y1;
+  };
+  std::vector<HitRect> hit_rects_;
+  int hovered_target_ = -1;
+  // A left press on a painted screen, acted on at release.
+  bool pointer_down_ = false;
+  float pointer_down_x_ = 0.0f, pointer_down_y_ = 0.0f;
+  // The clip later draws get (render-target pixels), while one is set.
+  bool clipping_ = false;
+  float clip_[4] = {};
+  // When the top painted screen was first drawn (its animation clock).
+  const MenuScreen* painted_screen_ = nullptr;
+  std::chrono::steady_clock::time_point painted_since_{};
+  // Disc textures painted screens and toasts asked for, by member and mode;
+  // released when the host UI closes with no toast showing.
+  std::unique_ptr<Fh1Archive> horizon_archive_;
+  bool horizon_archive_failed_ = false;
+  std::vector<std::pair<std::string, std::unique_ptr<rex::ui::ImmediateTexture>>>
+      horizon_textures_;
   // Screen and output size of the last recorded layout event.
   std::string layout_key_;
 };
