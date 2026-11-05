@@ -19,7 +19,16 @@ def test_base_and_v4_layers_match_their_own_counts(tmp_path):
             for layer in camera:
                 value = float(layer.get("SpringK") if layer.get("Sprung") == "1" else layer.get("NoiseSeed"))
                 group = round((value % 1 - CAMERA["TAG"]) / CAMERA["TAG_STEP"])
-                assert 1 <= group <= 4
+                assert 1 <= group <= CAMERA["HEAD_Z"]
+                if group >= CAMERA["HEAD_YAW"]:
+                    # Head tracking: cockpit cameras only, and still unless the hook moves it.
+                    assert camera.tag in ("DriverCam", "Hood")
+                    assert float(layer.get("NoiseOutputRangeMin")) == 0.0
+                    assert float(layer.get("NoiseOutputRangeMax")) == 0.0
+            head = [layer for layer in camera
+                    if round((float(layer.get("NoiseSeed", "0")) % 1 - CAMERA["TAG"]) / CAMERA["TAG_STEP"])
+                    >= CAMERA["HEAD_YAW"]]
+            assert len(head) == (6 if camera.tag in ("DriverCam", "Hood") else 0)
 
 
 def test_camera_editor_route_parses():
