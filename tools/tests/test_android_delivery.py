@@ -107,6 +107,9 @@ class BuildTests(unittest.TestCase):
         self.assertIn(r"bin\keytool.exe", self.build)
         self.assertNotIn("-not $haveJdk -and -not $env:JAVA_HOME", self.build)
         self.assertLess(self.build.index("Get-PinyonGit"), self.build.index("'android', 'build'"))
+        # A PC build from the prebuilt kit skips MinGit, so the Android build
+        # installs it itself ("Git is not available", 0.8.x).
+        self.assertLess(self.build.index("Install-PinyonGit"), self.build.index("Get-PinyonGit"))
 
     def test_the_command_line_tools_unpack_past_the_path_limit(self):
         self.assertIn("Remove-PinyonTree -Path $unpack", self.build)

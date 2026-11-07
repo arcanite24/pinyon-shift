@@ -83,8 +83,10 @@ try {
     $pinyon = Join-Path $PSScriptRoot 'pinyon.py'
     $env:PINYON_REXSDK_DIR = Resolve-PinyonRexGlueRoot
     # CMake clones the FidelityFX SDK with git (#810), and most players have
-    # none: use the pinned MinGit the PC build already provisioned.
+    # none: use the pinned MinGit. A PC build from the prebuilt kit does not
+    # install it, so download it here when it is missing.
     if (-not (Get-Command git.exe -ErrorAction SilentlyContinue)) {
+        Install-PinyonGit
         $git = Get-PinyonGit
         $env:PATH = "$(Split-Path $git -Parent);$env:PATH"
     }
