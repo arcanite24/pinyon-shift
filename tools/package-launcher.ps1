@@ -113,6 +113,7 @@ $include = @(
     'tools/native-shader-pack.py',
     'tools/provision-toolchain.ps1', 'tools/release-common.ps1',
     'tools/host-config.ps1', 'tools/set-graphics-experiment.ps1', 'tools/setup-preview.ps1',
+    'tools/copy-disc-executables.py',
     'tools/verify-codegen-log.ps1', 'tools/verify-game.ps1',
     # The optional v4 title update (docs/TITLE_UPDATE_V4_BACKLOG.md TU-2).
     'config/supported-title-updates.json', 'tools/verify-fh1-title-update.py', 'tools/title-update-profile.py',
