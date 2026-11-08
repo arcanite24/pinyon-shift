@@ -47,8 +47,10 @@ Other commands, each printing one JSON object with --json:
                 pinyon_common.py
   prepare-shaders  Vulkan shader preparation (LX-3.3); pinyon_shaders.py
   xe            the Forza Horizon XE mod (XE-1); pinyon_xe.py
+  import-mod    a mod from an FH1 mod of modified game files (FB-9.2); pinyon_game_mod.py
   assets        export the player's own game files (#446); pinyon_assets.py
   radio         custom radio stations (#445); pinyon_radio.py
+  mods          list, switch, order, install and remove mods (FB-9.1); pinyon_mods.py
   android       build, install and run on Android (AP-6.1); pinyon_android.py
   deck          copy a Linux build to a Steam Deck (LX-2.1); pinyon_deck.py
 """
@@ -74,7 +76,9 @@ import pinyon_config  # noqa: E402
 import pinyon_crash  # noqa: E402
 import pinyon_deck  # noqa: E402
 import pinyon_dlc  # noqa: E402
+import pinyon_game_mod  # noqa: E402
 import pinyon_hardware  # noqa: E402
+import pinyon_mods  # noqa: E402
 import pinyon_radio  # noqa: E402
 import pinyon_saves  # noqa: E402
 import pinyon_setup  # noqa: E402
@@ -131,12 +135,16 @@ def prepare_state(state: Path) -> None:
         pending.unlink()
 
 
-def build_mods(state: Path, game: Path, build: Path) -> None:
+def build_mods(state: Path, game: Path, build: Path, rally_ready: bool = False) -> None:
     """Mods' database patches (NP-10.2) and archive members and merges
     (NP-10.1, NP-10.2), rebuilt from the player's files before each start.
-    The first step also installs the built-in optional mods."""
+    The first step also installs the built-in optional mods. With Rally
+    ready, the database patches build on the Rally cache's gamedb.slt: one
+    built on the disc's copy hides the Rally rows (#1024)."""
     patches = [sys.executable, str(ROOT / "tools" / "build-mod-patches.py"), str(state),
                "--game-root", str(game)]
+    if rally_ready:
+        patches += ["--base-overlay", str(state / "cache" / "rally_adapter" / "game")]
     if subprocess.run(patches, stdout=subprocess.DEVNULL).returncode:
         raise LaunchError("could not build the mods' database patches", "mods-failed")
     archives = [sys.executable, str(ROOT / "tools" / "build-mod-archives.py"), str(state),
@@ -283,9 +291,10 @@ def launch(args: argparse.Namespace) -> dict:
     prepare_state(state)
     if not args.skip_shader_preparation and not args.render_test_script:
         prepare_shaders(state, game, build, args.json)
-    build_mods(state, game, build)
-    # v4's own code replaces the base-disc Rally preparation.
+    # v4's own code replaces the base-disc Rally preparation. Rally first:
+    # the mods' database patches build on its gamedb.slt.
     rally_ready = not v4 and not args.render_test_script and prepare_rally(state, game, build)
+    build_mods(state, game, build, rally_ready)
 
     environment = dict(os.environ)
     environment.update({"PINYON_SHIFT_STATE_ROOT": str(state),
@@ -372,8 +381,8 @@ def main(argv: list[str] | None = None) -> int:
     start.add_argument("game_arguments", nargs="*", help="after --, passed to the game")
     modules = {"android": pinyon_android, "assets": pinyon_assets, "config": pinyon_config,
                "crash-report": pinyon_crash, "deck": pinyon_deck, "dlc": pinyon_dlc,
-               "hardware": pinyon_hardware, "import-save": pinyon_saves,
-               "paths": pinyon_common, "prepare-shaders": pinyon_shaders,
+               "hardware": pinyon_hardware, "import-mod": pinyon_game_mod, "import-save": pinyon_saves,
+               "mods": pinyon_mods, "paths": pinyon_common, "prepare-shaders": pinyon_shaders,
                "radio": pinyon_radio, "setup": pinyon_setup, "shortcuts": pinyon_steam,
                "title-update": pinyon_title_update, "xe": pinyon_xe}
     for module in dict.fromkeys(modules.values()):

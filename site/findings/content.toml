@@ -21,10 +21,10 @@ base = """media/db/gamedb.slt"""
 v4 = """update media.zip db/gamedb.slt"""
 name = """gamedb.slt game database"""
 what = """Car, upgrade, wristband, event, track and time-of-day data is a plain SQLite database with 221 tables. It defines 145 active tracks, 85 of them used by events. Car prices (`Data_Car.BaseCost`), upgrade prices (`List_Upgrade*`), event prizes (`Events.CashPrize`), the XP curve (`PlayerLevelDef`) and event car restrictions (`EventRestrictions`) are rows. Lowering car 1496's price (Jaguar XKR-S, 120,000 Cr) to 1,000 makes the showroom offer it for "1,000 Cr or 1 Token". v4 ships a replacement copy in its update `media.zip` and reads only that one: a patched `game:` copy of `media/db/gamedb.slt` has no effect on v4 (its Autoshow kept the stock recommendation), while the same scripts applied to the update's copy and served through a mod's `update/media.zip` take effect. v4's copy (3,208,192 bytes) has the same 16 `IsUnicorn` rows as the disc's."""
-how = """Read-only survey of the tables; a patched database merged in free roam; on v4, an Autoshow purchase route with a `db/*.sql` mod, first patching the disc copy, then the update's copy (#895)."""
+how = """Read-only survey of the tables; a patched database merged in free roam; on v4, an Autoshow purchase route with a `db/*.sql` mod, first patching the disc copy, then the update's copy (#895); on the base game, the `festival_pacing` mod (#491) at its default 0.5x prices on `fh1-pacing-upgrade` from a pinned seed, where every `List_Upgrade*` price at half made Dak's Garage's AUTO UPGRADE from C 400 ask 24,075 Cr (B 500) instead of 46,956 Cr (B 496), the 9% make discount still applied; at the lower prices it chose slightly different parts."""
 confidence = """confirmed"""
-note = """Only the car price, recommendation and `IsUnicorn` edits have been tried in game; the other columns' effects are read from the schema."""
-issue = """#478, #895"""
+note = """Car and upgrade prices, the Autoshow recommendation and `IsUnicorn` edits have been tried in game; payouts, the XP curve and wristband points are read from the schema (`festival_pacing` changes them but no route has finished a race with it yet)."""
+issue = """#478, #491, #895"""
 source = """docs/NATIVE_PORT_BACKLOG.md Where the code stands, NP-10.2; docs/FEATURE_BACKLOG.md FB-12, FB-12.2, FB-12.3, FB-12.16; docs/TITLE_UPDATE_V4_BACKLOG.md What v4 adds"""
 
 [[finding]]
@@ -113,7 +113,7 @@ group = """Cars"""
 base = """media/cars/<id>.zip"""
 v4 = """same"""
 name = """car archive layout"""
-what = """Members use compression method 21: `<id>_lod0.carbin`, `<id>_cockpit.carbin`, per-wheel caliper and rotor `carbin`s, `stripped_*` variants, `.xds` atlases (damage, no damage, lights, interior, digital gauge), `LiveryMasks/*.tga` with `Masks.xml`, `physicsdefinition.bin` and `Physics/MAXData.xml`. The target of a car importer."""
+what = """Members use compression method 21 (stored members also load): `<id>.carbin` (LOD1-5), `<id>_lod0.carbin`, `<id>_cockpit.carbin`, per-wheel caliper and rotor `carbin`s, `stripped_*` variants, `.xds` atlases (damage, no damage, lights, interior, digital gauge), `LiveryMasks/*.tga` with `Masks.xml`, `physicsdefinition.bin` and `Physics/MAXData.xml`. The target of a car importer."""
 how = """Archive listing of one car."""
 confidence = """confirmed"""
 issue = """#496"""
@@ -170,6 +170,17 @@ how = """Seeds from a clone purchase with the mod removed (a placeholder mod kee
 confidence = """confirmed"""
 note = """Re-enabling the mod after a run without it, and whether the title drops the orphan when it next saves, were not tested."""
 source = """docs/REVERSE_ENGINEERING.md@fc1751fe2a38 Custom content"""
+
+[[finding]]
+group = """Cars"""
+base = """media/cars/<new MediaName>.zip, media/zipmanifest.xml"""
+v4 = """not tested"""
+name = """a car with its own model archive"""
+what = """A clone whose `Data_Car.MediaName` names a new archive loads its model from it once `media/zipmanifest.xml` lists that archive. Without the line the Autoshow showed another car's model (a BMW M3) for it. The archive is the source car's with every member renamed from the source's media name to the new one (`JAG_XKRS_12_lod0.carbin` to `PNY_TEST_01_lod0.carbin`, and the `stripped_` twins in lower case). Members stored uncompressed load as well as the disc's method 21 members. The car was bought, shown in the Autoshow and driven in free roam with rewritten models."""
+how = """Buy-car and drive routes from pinned seeds (id 1700 cloned from the XKR-S, `MediaName` set by a `db/` script); with and without the manifest line, which `tools/build-mod-archives.py` now adds for a mod's new archives (2026-11-05)."""
+confidence = """confirmed"""
+issue = """#496"""
+source = """tools/build-mod-archives.py collect_new_archives; docs/MODDING.md New cars from existing models"""
 # --- Upgrades, colours and liveries ---------------------------------------
 
 [[finding]]

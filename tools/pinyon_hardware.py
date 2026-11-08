@@ -6,8 +6,8 @@ every OS.
   pinyon.py hardware [--refresh-hz N] [--json]
 
 It loads the Vulkan loader (libvulkan.so.1 on Linux, vulkan-1.dll on
-Windows; on macOS the MoltenVK the build ships in rexglue-artifacts, or a
-system libvulkan.1.dylib), picks the GPU the game would (a discrete one
+Windows; on macOS the MoltenVK the build ships in rexglue-artifacts or
+vulkan/lib, or a system libvulkan.1.dylib), picks the GPU the game would (a discrete one
 first, then the one with the most memory), and reads its name, memory and
 Vulkan version, the CPU's cores and threads and, where it is cheap, the
 display's refresh rate. It recommends the in-game preset the game's own
@@ -75,9 +75,11 @@ def loader_candidates() -> list[str]:
     if common.MACOS:
         found = []
         for build in (common.build_directory(), common.build_directory(v4=True)):
-            artifacts = build / "rexglue-artifacts"
-            found += [str(artifacts / name) for name in ("libMoltenVK.dylib", "libMoltenVK.1.dylib")
-                      if (artifacts / name).is_file()]
+            # A source build stages MoltenVK in rexglue-artifacts; a build
+            # from the prebuilt kit only in vulkan/lib, beside the loader.
+            for folder in (build / "rexglue-artifacts", build / "vulkan" / "lib"):
+                found += [str(folder / name) for name in ("libMoltenVK.dylib", "libMoltenVK.1.dylib")
+                          if (folder / name).is_file()]
         return found + ["libvulkan.1.dylib", "/usr/local/lib/libvulkan.1.dylib",
                         "/opt/homebrew/lib/libvulkan.1.dylib", "libMoltenVK.dylib"]
     return ["libvulkan.so.1", "libvulkan.so"]

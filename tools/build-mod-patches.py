@@ -9,9 +9,10 @@ its database wins over the game's. Nothing from the disc is distributed: the
 patched copy is built on the player's machine from their files. With no
 scripts enabled the generated mod is removed. Run it after changing mods
 (the launcher runs it before each start); it also brings an installed XE
-mod's mod.toml up to date (pinyon_xe.refresh_manifest). The v4 title update reads its own
-database from update:\\media.zip instead; build-mod-archives.py applies the
-same scripts there.
+mod's mod.toml up to date (pinyon_xe.refresh_manifest). Only mods whose
+game_version accepts the base disc are applied here: v4 reads its own
+database from update:\\media.zip, where build-mod-archives.py applies the
+scripts of the mods made for v4.
 
   build-mod-patches.py <state-root> [--game-root DIR]
 """
@@ -32,6 +33,9 @@ ROOT = Path(__file__).resolve().parents[1]
 GENERATED = "zz-db-patches"
 # Mods these tools write; never a base for another generated file.
 GENERATED_MODS = ("zz-db-patches", "zz-archive-patches")
+# Image SHA-256 prefixes the mod host checks game_version against.
+BASE_EXECUTABLE = "DB40DF605ADE49A6"
+V4_EXECUTABLE = "74B033805AB1BCAA"
 
 
 def enabled_mods(config: Path) -> list[str]:
@@ -51,23 +55,34 @@ def set_enabled_mods(config: Path, mods: list[str]) -> None:
     config.write_text(text, encoding="utf-8", newline="\n")
 
 
-def effective_game_file(state: Path, mods: list[str], game_root: Path, relative: str) -> Path:
+def _tree_file(root: Path, relative: str) -> Path | None:
+    """root/relative matched as the host matches it, ignoring case."""
+    current = root
+    for part in relative.split("/"):
+        if not current.is_dir():
+            return None
+        current = next((c for c in current.iterdir() if c.name.lower() == part.lower()),
+                       current / part)
+    return current if current.is_file() else None
+
+
+def effective_game_file(state: Path, mods: list[str], game_root: Path, relative: str,
+                        overlay: Path | None = None) -> Path:
     """The file the title opens at `relative`: the earliest enabled mod's
     whole-file replacement under game/ (as the host matches it, ignoring
-    case), otherwise the player's own copy. A total conversion such as the
-    XE mod replaces gamedb.slt and zipmanifest.xml, and generated patches
-    must build on its files, not on the disc's."""
+    case), then the base overlay's copy, otherwise the player's own copy.
+    A total conversion such as the XE mod replaces gamedb.slt and
+    zipmanifest.xml, and generated patches must build on its files, not on
+    the disc's. The overlay is the prepared Rally cache (cache/rally_adapter/
+    game): its gamedb.slt carries the Rally rows, and a generated patch
+    built on the disc's copy would hide them (#1024)."""
     for mod in mods:
         if mod in GENERATED_MODS:
             continue
-        current = state / "mods" / mod / "game"
-        for part in relative.split("/"):
-            if not current.is_dir():
-                break
-            current = next((c for c in current.iterdir() if c.name.lower() == part.lower()),
-                           current / part)
-        if current.is_file():
-            return current
+        if (found := _tree_file(state / "mods" / mod / "game", relative)) is not None:
+            return found
+    if overlay is not None and (found := _tree_file(overlay, relative)) is not None:
+        return found
     return game_root / relative
 
 
@@ -244,47 +259,107 @@ def shares_save(state: Path, mod: str) -> bool:
     return re.search(r"^shares_save[ \t]*=[ \t]*true[ \t]*(#.*)?$", text, re.MULTILINE) is not None
 
 
-def database_scripts(state: Path, mods: list[str]) -> list[tuple[str, Path]]:
-    """(mod, script) for every enabled mod's db/*.sql, in load order."""
+def _mod_options():
+    if str(Path(__file__).resolve().parent) not in sys.path:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import mod_options  # noqa: PLC0415
+    return mod_options
+
+
+def _read_manifest(state: Path, mod: str) -> dict | None:
+    """A mod's mod.toml, or None when it cannot be read."""
+    import tomllib  # noqa: PLC0415
+    try:
+        return tomllib.loads((state / "mods" / mod / "mod.toml").read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError):
+        return None
+
+
+def made_for(state: Path, mod: str, executable: str) -> bool:
+    """mod.toml's game_version accepts the executable as the mod host reads
+    it (src/mod/mod_host.cpp): one prefix or a list, either a prefix of the
+    other; empty or absent means any build, a list with a non-string entry
+    none. A mod.toml this cannot read counts as made for any build, as it
+    counts as having no options."""
+    manifest = _read_manifest(state, mod)
+    if manifest is None:
+        return True
+
+    def matches(game: str) -> bool:
+        return not game or executable.startswith(game) or game.startswith(executable)
+
+    games = manifest.get("game_version", "")
+    if isinstance(games, list):
+        return all(isinstance(g, str) for g in games) and any(matches(g) for g in games)
+    return matches(games if isinstance(games, str) else "")
+
+
+def option_values(state: Path, mod: str) -> dict[str, str] | None:
+    """The values of a mod's options (tools/mod_options.py), or None for a mod
+    without [[option]] tables, whose scripts run exactly as written. A mod.toml
+    this cannot read counts as having none, as before options existed."""
+    manifest = _read_manifest(state, mod)
+    if manifest is None:
+        return None
+    tables = manifest.get("option")
+    if not isinstance(tables, list) or not tables or not all(isinstance(t, dict) for t in tables):
+        return None
+    options = _mod_options()
+    return options.chosen(state, mod, options.declared(manifest))
+
+
+def database_scripts(state: Path, mods: list[str], executable: str) -> list[tuple[str, Path]]:
+    """(mod, script) for the db/*.sql of every enabled mod made for the
+    executable, in load order. The mod host rejects the others, so their
+    scripts must not change that build's database either."""
     scripts = []
     for mod in mods:
-        if mod in GENERATED_MODS:
+        if mod in GENERATED_MODS or not made_for(state, mod, executable):
             continue
         for script in sorted((state / "mods" / mod / "db").glob("*.sql")):
             scripts.append((mod, script))
     return scripts
 
 
-def apply_scripts(database: Path, scripts: list[tuple[str, Path]]) -> list[dict]:
-    """Run the scripts on a database file in place; returns what was applied."""
+def apply_scripts(state: Path, database: Path, scripts: list[tuple[str, Path]]) -> list[dict]:
+    """Run the scripts on a database file in place; returns what was applied.
+    A mod with options has its {{key}} placeholders filled with the state's
+    chosen values first."""
+    values = {mod: option_values(state, mod) for mod in dict.fromkeys(m for m, _ in scripts)}
     applied = []
     connection = sqlite3.connect(database)
     try:
         for mod, script in scripts:
-            connection.executescript(script.read_text(encoding="utf-8"))
-            applied.append({"mod": mod, "script": script.name, "sha256": sha256(script)})
+            text = script.read_text(encoding="utf-8")
+            entry = {"mod": mod, "script": script.name, "sha256": sha256(script)}
+            if values[mod] is not None:
+                # Only a mod with options: its {{key}} placeholders take the chosen values.
+                text = _mod_options().fill(text, values[mod], f"{mod}/db/{script.name}")
+                entry["options"] = values[mod]
+            connection.executescript(text)
+            applied.append(entry)
         connection.commit()
     finally:
         connection.close()
     return applied
 
 
-def build(state: Path, game_root: Path) -> dict:
+def build(state: Path, game_root: Path, overlay: Path | None = None) -> dict:
     config = state / "config" / "pinyon_shift.toml"
     mods = [m for m in enabled_mods(config) if m != GENERATED]
-    scripts = database_scripts(state, mods)
+    scripts = database_scripts(state, mods, BASE_EXECUTABLE)
     target = state / "mods" / GENERATED
     if not scripts:
         if target.exists():
             remove_written_directory(target)
         set_enabled_mods(config, mods)
         return {"patched": False, "mods": mods}
-    base = effective_game_file(state, mods, game_root, "media/db/gamedb.slt")
+    base = effective_game_file(state, mods, game_root, "media/db/gamedb.slt", overlay)
     database = target / "game" / "media" / "db" / "gamedb.slt"
     staging = database.with_suffix(".building")
     database.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(base, staging)
-    applied = apply_scripts(staging, scripts)
+    applied = apply_scripts(state, staging, scripts)
     if database.is_file() and sha256(database) == sha256(staging):
         staging.unlink()
     else:
@@ -304,6 +379,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("state_root", type=Path)
     parser.add_argument("--game-root", type=Path, default=ROOT / ".local" / "game" / "base")
+    parser.add_argument("--base-overlay", type=Path,
+                        help="a game/ tree the title reads before the player's own files "
+                             "and after mods' (the prepared Rally cache)")
     args = parser.parse_args()
     (args.state_root / "mods").mkdir(parents=True, exist_ok=True)
     installed = install_builtin_mods(args.state_root.resolve())
@@ -317,7 +395,8 @@ def main() -> int:
     assert spec.loader
     spec.loader.exec_module(pinyon_xe)
     xe_refreshed = pinyon_xe.refresh_manifest(args.state_root.resolve())
-    result = build(args.state_root.resolve(), args.game_root.resolve())
+    result = build(args.state_root.resolve(), args.game_root.resolve(),
+                   args.base_overlay.resolve() if args.base_overlay else None)
     result["builtin_installed"] = installed
     result["builtin_enabled"] = enabled
     result["xe_manifest_refreshed"] = xe_refreshed

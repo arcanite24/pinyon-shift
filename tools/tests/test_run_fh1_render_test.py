@@ -990,6 +990,7 @@ class Fh1RenderTestRunnerTests(unittest.TestCase):
             "fh1-rally-hub-entry", "fh1-rally-hub-resume", "fh1-rally-hub-retire",
             "fh1-rally-hub-resume-first",
             "fh1-rally-car-database",
+            "fh1-pacing-pause", "fh1-pacing-upgrade",
         ):
             self.assertTrue(MODULE.parse_scenario(scenarios / f"{name}.fh1test")[0])
 

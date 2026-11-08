@@ -40,7 +40,7 @@ It does **not** contain the game, its assets, generated translations or a
 prebuilt executable: you build the game from a disc you own.
 
 > **Playable preview.** Expect some rendering bugs and slowdowns. The
-> [0.8.1 release notes](docs/releases/0.8.1.md) list what the latest release
+> [0.8.2 release notes](docs/releases/0.8.2.md) list what the latest release
 > contains and its known limitations.
 
 ## Highlights
@@ -116,7 +116,7 @@ If something goes wrong, see [Troubleshooting](docs/TROUBLESHOOTING.md).
 
 - The USA retail disc, serial `MS-2505`, title ID `4D5309C9`.
 - Windows 10 or 11, x64; x86-64 Linux, including SteamOS on the Steam
-  Deck; or macOS 13 or newer on Apple silicon (Intel Macs experimental).
+  Deck; or macOS 13.3 or newer on Apple silicon (Intel Macs experimental).
 - A GPU with Vulkan 1.3. NVIDIA is tested; AMD and Intel are not yet
   qualified.
 - A CPU with 4 cores for Low-spec 60. The Steam Deck holds 60 fps at 1x; other

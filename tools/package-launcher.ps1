@@ -83,6 +83,7 @@ $include = @(
     'config/supported-dlc.json', 'tools/manage-fh1-dlc.py', 'tools/manage-dlc.ps1', 'tools/prepare-fh1-rally.py', 'tools/patch-fh1-archive.py',
     'config/rexglue', 'include', 'mods_src', 'src', 'tests/config', 'tests/native_renderer',
     'tests/save', 'tests/ui', 'tests/dlc', 'tests/mod', 'tests/telemetry',
+    'tests/head_tracking',
     'tests/camera_tuning_tests.cpp',
     'tools/fh1_archive_extract.cpp', 'tools/fh1_texture_import.cpp', 'tools/thread_sampler.cpp', 'tools/vram_balloon.cpp',
     'tools/extract-fh1-shader-corpus.py', 'tools/build-fh1-gpu-prewarm.py',
@@ -91,12 +92,14 @@ $include = @(
     'config/performance/symbol-order-base.txt', 'config/performance/symbol-order-v4.txt',
     'tools/build-preview.ps1', 'tools/create-crash-report.ps1', 'tools/install-build-tools.ps1',
     'tools/launch-preview.ps1', 'tools/prepare-rexglue.ps1', 'tools/prefetch-setup.ps1',
-    'tools/build-mod-patches.py', 'tools/build-mod-archives.py', 'tools/install-sample-mod.py',
+    'tools/build-mod-patches.py', 'tools/build-mod-archives.py', 'tools/mod_options.py', 'tools/install-sample-mod.py',
     'tools/pinyon.py', 'tools/pinyon_android.py', 'tools/apk_sign.py', 'tools/build-android.ps1',
     # pinyon.py's other commands and the launchers' content panels: the XE mod,
-    # asset export (#446) and custom radio stations (#445).
-    'tools/pinyon_xe.py', 'tools/manage-xe.ps1', 'tools/pinyon_assets.py', 'tools/fh1_audio_decode.cpp',
+    # mod import (FB-9.2), asset export (#446), custom radio stations (#445) and the
+    # mod manager (FB-9.1).
+    'tools/pinyon_xe.py', 'tools/manage-xe.ps1', 'tools/pinyon_game_mod.py', 'tools/pinyon_assets.py', 'tools/fh1_audio_decode.cpp',
     'tools/pinyon_radio.py', 'tools/manage-radio.ps1', 'tools/build-fh1-radio.py',
+    'tools/pinyon_mods.py', 'tools/manage-mods.ps1',
     # Linux, the Steam Deck and macOS (docs/LINUX.md, docs/MACOS.md).
     'tools/pinyon_setup.py', 'tools/pinyon_steam.py', 'tools/pinyon_deck.py', 'config/steam',
     # The launcher backends of pinyon.py on every OS: DLC, title update, saves,
@@ -110,6 +113,7 @@ $include = @(
     'tools/native-shader-pack.py',
     'tools/provision-toolchain.ps1', 'tools/release-common.ps1',
     'tools/host-config.ps1', 'tools/set-graphics-experiment.ps1', 'tools/setup-preview.ps1',
+    'tools/copy-disc-executables.py',
     'tools/verify-codegen-log.ps1', 'tools/verify-game.ps1',
     # The optional v4 title update (docs/TITLE_UPDATE_V4_BACKLOG.md TU-2).
     'config/supported-title-updates.json', 'tools/verify-fh1-title-update.py', 'tools/title-update-profile.py',

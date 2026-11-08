@@ -1,5 +1,13 @@
 name = "hidden_cars"
 version = "1.1.0"
+title = "Hidden cars"
+description = """
+Lets you buy four player cars the game ships but never sells: the intro
+Corrado and the showcase Mini, 500 Abarth and 205 T16.
+
+Bought cars live in the modded copy of your save. Paint editing and full
+garage support for these cars are still being checked."""
+url = "https://github.com/arcanite24/pinyon-shift/blob/dev/docs/HIDDEN_CARS.md"
 abi = 1
 # Lists only the audited hidden player-car variants (#484, #669).
 # Bought cars live in the modded profile, not the player's own save.

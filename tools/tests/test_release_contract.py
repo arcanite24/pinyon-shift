@@ -472,6 +472,18 @@ catch { [Console]::Error.Write($_.Exception.Message); exit 2 }
         for shipped in ("host-config.ps1", "set-graphics-experiment.ps1", "verify-codegen-log.ps1", "prepare-fh1-rally.py", "patch-fh1-archive.py", "fh1-strings.py"):
             self.assertIn(shipped, package_script)
 
+    def test_launcher_payload_ships_every_script_a_shipped_script_runs(self):
+        # 0.8.0 shipped setup-preview.ps1 without copy-disc-executables.py,
+        # so every player's setup stopped at the disc (#1014).
+        package = (ROOT / "tools/package-launcher.ps1").read_text(encoding="utf-8")
+        block = package.split("$include = @(", 1)[1].split("\n)", 1)[0]
+        include = set(re.findall(r"'([^']+)'", block))
+        for shipped in sorted(i for i in include if i.startswith("tools/") and i.endswith(".ps1")):
+            text = (ROOT / shipped).read_text(encoding="utf-8")
+            for name in re.findall(r"Join-Path \$PSScriptRoot '([\w.-]+\.(?:py|ps1))'", text):
+                if (ROOT / "tools" / name).is_file():
+                    self.assertIn("tools/" + name, include, f"{shipped} runs {name}")
+
     def test_launcher_payload_ships_the_android_build(self):
         # The launcher's Build Android APK action runs build-android.ps1, which
         # runs pinyon.py; pinyon.py imports pinyon_android, which reads the

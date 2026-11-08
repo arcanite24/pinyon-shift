@@ -87,7 +87,7 @@ One trap: with Manual GPU Clock on in the Quick Access menu, Steam can pin the G
 
 ## macOS on Apple silicon
 
-**Build.** Command Line Tools clang for arm64 with a macOS 13 target, and a MoltenVK that ShiftGlue builds and bundles. The generated code is the same C++: VMX operations reach NEON through SIMDe (byte shuffles become `tbl`), FPCR replaces MXCSR, and `std::fma` is one instruction. Guest functions are weak thunks rather than aliases, because Mach-O has no overridable alias. Setup from the disc image to a built game takes about 18–20 minutes on an M4 Pro.
+**Build.** Command Line Tools clang for arm64 with a macOS 13.3 deployment target, and a MoltenVK that ShiftGlue builds and bundles. The generated code is the same C++: VMX operations reach NEON through SIMDe (byte shuffles become `tbl`), FPCR replaces MXCSR, and `std::fma` is one instruction. Guest functions are weak thunks rather than aliases, because Mach-O has no overridable alias. Setup from the disc image to a built game takes about 18–20 minutes on an M4 Pro.
 
 **16 KB pages.** One host page holds four guest pages. The write-watch code took a host page's protection from its first guest page, so a committed page next to an uncommitted one faulted (SIGBUS in free roam, runs 2–4). Using the union of the four guest pages' access fixed it. The GPU's shared-memory tracking also used host pages, so a CPU write beside the 4 KB exposure resolve discarded it and free roam was overexposed and flashed (luma 171.5 against 114.7 on Windows); it now tracks 4 KB pages and keeps GPU-written pages a write did not touch (111.9).
 

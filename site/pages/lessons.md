@@ -222,6 +222,7 @@ A faster clock exposed one more console assumption: the simulation steps on the 
 - **A host page query is not free.** Checking a guest pointer against the host mapping (`VirtualQuery` on Windows) cost about 100 µs a call on the Ryzen 7 5800X. The tracked achievement's collectible count made about 450 such checks every two seconds, a 17-40 ms title-thread spike, and a cheat helper made eight every frame. Caching readable pages for the length of one pass removed the spike, and asking the per-frame question only until it was answered cut the title thread's median from 4.3 to 3.1 ms a frame (one tracked-achievement free-roam run each). Time the safety checks, not just the work they guard.
 - **Never quote one GPU's saving for another.** The same switch saved 8 % on one GPU and nothing on the next.
 - **Hide the window to find a present stall.** On a laptop where one GPU renders and another drives the display, a GeForce 930MX stalled for about 600 ms every seven frames while its GPU sat idle. Frame counters, draw counts and cache misses looked normal. Running the same route with the window hidden removed the stalls, so presenting was the cause; timing each Vulkan call in the presenter and the recorder found none that blocked, which put the wait below the API. Sampling `nvidia-smi` (clock, state, utilization) during the run showed the GPU idle in the stalls, ruling out throttling. Check the window before the renderer, and a second GPU before either ([old laptop](performance.md#an-old-laptop)).
+- **A generated file must build on every layer it hides.** The base-disc Rally adapter serves its own `gamedb.slt` with the Rally rows, and the database patch that mods produce was built from the disc's copy and loaded ahead of it. Any database mod, even a script that changed nothing, then hid Rally, and starting a championship exhausted guest memory (#1024). A no-op mod reproduced it, which pointed at the layering rather than the cars the mod unlocked. Prepare the lower layer first and build the generated file on it.
 
 ## Follow title-update data independently
 
@@ -250,7 +251,11 @@ it was most of the time (TP-1 to TP-7 in
   the source tree as the developer path. Under a cross toolchain (a
   sysroot, the NDK), find the package with `NO_CMAKE_FIND_ROOT_PATH` and
   `CMAKE_FIND_ROOT_PATH_MODE_PACKAGE BOTH`, or CMake re-roots the search,
-  and the package's own dependencies, inside the sysroot.
+  and the package's own dependencies, inside the sysroot. `BOTH` still
+  searches the sysroot first, so also set `<Package>_DIR` for every
+  package the kit ships: the Steam Runtime sysroot has its own SDL3,
+  whose static library is not position-independent, and 0.8.0 and 0.8.1
+  Linux builds linked it and failed with "recompile with -fPIC" (#1001).
 - **Trim the compiler.** The build called 13 of LLVM's tools; one clang
   binary with its other names as links took Windows LLVM from 4.0 GB to
   264 MB.

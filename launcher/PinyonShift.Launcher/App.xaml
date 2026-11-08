@@ -48,6 +48,40 @@
             <Setter Property="FontFamily" Value="Bahnschrift, Segoe UI"/>
             <Setter Property="Foreground" Value="{StaticResource FogBrush}"/>
         </Style>
+        <!-- Focus rings for keyboard use only: WPF shows a FocusVisualStyle when focus
+             arrives from the keyboard, not after a mouse click (an IsKeyboardFocused
+             trigger is also true after a click, which outlined the clicked button). -->
+        <Style x:Key="FocusRing">
+            <Setter Property="Control.Template">
+                <Setter.Value>
+                    <ControlTemplate>
+                        <Border CornerRadius="8" BorderBrush="{StaticResource FogBrush}" BorderThickness="2"
+                                SnapsToDevicePixels="True"/>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="PrimaryFocusRing">
+            <Setter Property="Control.Template">
+                <Setter.Value>
+                    <ControlTemplate>
+                        <Border CornerRadius="10" BorderBrush="{StaticResource FogBrush}" BorderThickness="2"
+                                SnapsToDevicePixels="True"/>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="LinkFocusRing">
+            <Setter Property="Control.Template">
+                <Setter.Value>
+                    <ControlTemplate>
+                        <Border CornerRadius="6" BorderBrush="{StaticResource LineStrongBrush}" BorderThickness="1"
+                                SnapsToDevicePixels="True"/>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <!-- The big call to action. -->
         <Style x:Key="PrimaryButton" TargetType="Button">
             <Setter Property="FontFamily" Value="Bahnschrift SemiBold"/>
@@ -58,7 +92,7 @@
             <Setter Property="Padding" Value="32,0"/>
             <Setter Property="Height" Value="54"/>
             <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="FocusVisualStyle" Value="{StaticResource PrimaryFocusRing}"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
@@ -72,9 +106,6 @@
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
                                 <Setter TargetName="Shell" Property="Opacity" Value="0.85"/>
-                            </Trigger>
-                            <Trigger Property="IsKeyboardFocused" Value="True">
-                                <Setter TargetName="Shell" Property="BorderThickness" Value="2"/>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter TargetName="Shell" Property="Background" Value="#2B3A30"/>
@@ -98,7 +129,7 @@
             <Setter Property="Padding" Value="20,0"/>
             <Setter Property="Height" Value="38"/>
             <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="FocusVisualStyle" Value="{StaticResource FocusRing}"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
@@ -113,10 +144,6 @@
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
                                 <Setter TargetName="Shell" Property="Opacity" Value="0.75"/>
-                            </Trigger>
-                            <Trigger Property="IsKeyboardFocused" Value="True">
-                                <Setter TargetName="Shell" Property="BorderBrush" Value="{StaticResource FogBrush}"/>
-                                <Setter TargetName="Shell" Property="BorderThickness" Value="2"/>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter TargetName="Shell" Property="Opacity" Value="0.4"/>
@@ -151,9 +178,6 @@
                             <Trigger Property="IsPressed" Value="True">
                                 <Setter TargetName="Shell" Property="Opacity" Value="0.8"/>
                             </Trigger>
-                            <Trigger Property="IsKeyboardFocused" Value="True">
-                                <Setter TargetName="Shell" Property="BorderBrush" Value="{StaticResource FogBrush}"/>
-                            </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter TargetName="Shell" Property="Opacity" Value="0.4"/>
                                 <Setter Property="Cursor" Value="Arrow"/>
@@ -170,7 +194,7 @@
             <Setter Property="FontSize" Value="12"/>
             <Setter Property="Foreground" Value="{StaticResource MutedBrush}"/>
             <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="FocusVisualStyle" Value="{StaticResource LinkFocusRing}"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
@@ -180,9 +204,6 @@
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
-                            </Trigger>
-                            <Trigger Property="IsKeyboardFocused" Value="True">
-                                <Setter TargetName="Shell" Property="Background" Value="{StaticResource SurfaceHoverBrush}"/>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter Property="Opacity" Value="0.4"/>
