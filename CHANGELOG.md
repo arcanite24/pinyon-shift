@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.8.2 - 2026-11-07
+
+- Fixed: Windows setup from a disc image stopped on a missing
+  `copy-disc-executables.py` (#1014).
+- Fixed: Linux builds from the prebuilt kit failed to link with
+  "recompile with -fPIC" (#1001).
+- Fixed: the Android build stopped with "Git is not available".
+- Fixed: starting a Rally championship with a database mod ran out of
+  memory on the base game (#1024).
+- Fixed: the macOS launcher's hardware check found no Vulkan GPU in kit
+  builds; Apple silicon builds target macOS 13.3 for Xcode 16 (#918).
+- New: a Mods panel in the launcher with mod options (#878), the festival
+  pacing mod (#879), opentrack head tracking (#817), field of view up to
+  200 % (#927) and `pinyon.py import-mod` (#917).
+
 ## 0.8.1 - 2026-11-05
 
 - Fixed: Windows setup stopped with "Cannot bind argument to parameter
