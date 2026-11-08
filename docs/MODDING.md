@@ -626,6 +626,16 @@ earliest enabled mod in the load order that ships one is the base, recorded as
 `base` in `patches.json`. Archive members and merges likewise start from a
 mod's replacement archive or `zipmanifest.xml` when one is enabled.
 
+On the base disc with owned Rally ready, the launcher prepares Rally first
+and the scripts apply to the Rally cache's database
+(`cache/rally_adapter/game/media/db/gamedb.slt`), which carries the Rally
+rows; a mod's own database still comes before it. Before 0.8.2 the patch
+started from the disc's copy, so any enabled database mod (such as
+`hidden_cars`) hid the Rally rows, and starting a championship from F6 >
+HORIZON RALLY ran the game out of memory (#1024). Archive mods that replace a
+member Rally also ships (`gamemodes.zip`, the string tables) are not yet
+built on the Rally copies.
+
 The v4 title update doesn't read that file: it opens its own
 `db/gamedb.slt` from the update's `media.zip` on `update:`, which shadows
 any `game:` database. When the update is installed,

@@ -55,23 +55,34 @@ def set_enabled_mods(config: Path, mods: list[str]) -> None:
     config.write_text(text, encoding="utf-8", newline="\n")
 
 
-def effective_game_file(state: Path, mods: list[str], game_root: Path, relative: str) -> Path:
+def _tree_file(root: Path, relative: str) -> Path | None:
+    """root/relative matched as the host matches it, ignoring case."""
+    current = root
+    for part in relative.split("/"):
+        if not current.is_dir():
+            return None
+        current = next((c for c in current.iterdir() if c.name.lower() == part.lower()),
+                       current / part)
+    return current if current.is_file() else None
+
+
+def effective_game_file(state: Path, mods: list[str], game_root: Path, relative: str,
+                        overlay: Path | None = None) -> Path:
     """The file the title opens at `relative`: the earliest enabled mod's
     whole-file replacement under game/ (as the host matches it, ignoring
-    case), otherwise the player's own copy. A total conversion such as the
-    XE mod replaces gamedb.slt and zipmanifest.xml, and generated patches
-    must build on its files, not on the disc's."""
+    case), then the base overlay's copy, otherwise the player's own copy.
+    A total conversion such as the XE mod replaces gamedb.slt and
+    zipmanifest.xml, and generated patches must build on its files, not on
+    the disc's. The overlay is the prepared Rally cache (cache/rally_adapter/
+    game): its gamedb.slt carries the Rally rows, and a generated patch
+    built on the disc's copy would hide them (#1024)."""
     for mod in mods:
         if mod in GENERATED_MODS:
             continue
-        current = state / "mods" / mod / "game"
-        for part in relative.split("/"):
-            if not current.is_dir():
-                break
-            current = next((c for c in current.iterdir() if c.name.lower() == part.lower()),
-                           current / part)
-        if current.is_file():
-            return current
+        if (found := _tree_file(state / "mods" / mod / "game", relative)) is not None:
+            return found
+    if overlay is not None and (found := _tree_file(overlay, relative)) is not None:
+        return found
     return game_root / relative
 
 
@@ -333,7 +344,7 @@ def apply_scripts(state: Path, database: Path, scripts: list[tuple[str, Path]]) 
     return applied
 
 
-def build(state: Path, game_root: Path) -> dict:
+def build(state: Path, game_root: Path, overlay: Path | None = None) -> dict:
     config = state / "config" / "pinyon_shift.toml"
     mods = [m for m in enabled_mods(config) if m != GENERATED]
     scripts = database_scripts(state, mods, BASE_EXECUTABLE)
@@ -343,7 +354,7 @@ def build(state: Path, game_root: Path) -> dict:
             remove_written_directory(target)
         set_enabled_mods(config, mods)
         return {"patched": False, "mods": mods}
-    base = effective_game_file(state, mods, game_root, "media/db/gamedb.slt")
+    base = effective_game_file(state, mods, game_root, "media/db/gamedb.slt", overlay)
     database = target / "game" / "media" / "db" / "gamedb.slt"
     staging = database.with_suffix(".building")
     database.parent.mkdir(parents=True, exist_ok=True)
@@ -368,6 +379,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("state_root", type=Path)
     parser.add_argument("--game-root", type=Path, default=ROOT / ".local" / "game" / "base")
+    parser.add_argument("--base-overlay", type=Path,
+                        help="a game/ tree the title reads before the player's own files "
+                             "and after mods' (the prepared Rally cache)")
     args = parser.parse_args()
     (args.state_root / "mods").mkdir(parents=True, exist_ok=True)
     installed = install_builtin_mods(args.state_root.resolve())
@@ -381,7 +395,8 @@ def main() -> int:
     assert spec.loader
     spec.loader.exec_module(pinyon_xe)
     xe_refreshed = pinyon_xe.refresh_manifest(args.state_root.resolve())
-    result = build(args.state_root.resolve(), args.game_root.resolve())
+    result = build(args.state_root.resolve(), args.game_root.resolve(),
+                   args.base_overlay.resolve() if args.base_overlay else None)
     result["builtin_installed"] = installed
     result["builtin_enabled"] = enabled
     result["xe_manifest_refreshed"] = xe_refreshed

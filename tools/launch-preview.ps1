@@ -145,24 +145,6 @@ if (-not ($RenderTestScript -or $ShaderCaptureDir -or $DiscShaderCorpusDir -or $
     $stagedNativePipelineCache = Join-Path $resolvedStateRoot 'cache'
 }
 
-# Mods' database patches (NP-10.2) are applied to a copy of the player's own
-# gamedb.slt before each start, so they follow the enabled mods. The same
-# step installs the project's built-in optional mods (the immersive camera).
-& (Get-PinyonPython) (Join-Path $PSScriptRoot 'build-mod-patches.py') $resolvedStateRoot `
-    --game-root $resolvedGameRoot | Out-Null
-if ($LASTEXITCODE -ne 0) { throw 'Could not build the mods'' database patches.' }
-# Mods' single archive members (NP-10.1) and key merges (NP-10.2), rebuilt
-# into copies of the player's archives with zipmanifest.xml to match; the
-# archive extractor decompresses members that merges edit.
-$archiveArguments = @('--game-root', $resolvedGameRoot)
-$archiveExtractor = Join-Path $resolvedBuildDirectory 'pinyon_shift_fh1_archive_extract.exe'
-if (Test-Path -LiteralPath $archiveExtractor -PathType Leaf) {
-    $archiveArguments += @('--archive-extractor', $archiveExtractor)
-}
-& (Get-PinyonPython) (Join-Path $PSScriptRoot 'build-mod-archives.py') $resolvedStateRoot `
-    @archiveArguments | Out-Null
-if ($LASTEXITCODE -ne 0) { throw 'Could not build the mods'' archive members.' }
-
 # Verify owned Rally and its generated cache before normal play. Diagnostic
 # scenarios retain their private overlays; no probe flag is needed by players.
 $verifiedRallyEntry = $false
@@ -176,6 +158,31 @@ if (-not $TitleUpdateV4 -and ($VerifyRally -or -not ($RenderTestScript -or $Shad
         $verifiedRallyEntry = (ConvertFrom-Json -InputObject ($rallyResult -join "`n")).entry_ready -eq $true
     }
 }
+
+# Mods' database patches (NP-10.2) are applied to a copy of the player's own
+# gamedb.slt before each start, so they follow the enabled mods. The same
+# step installs the project's built-in optional mods (the immersive camera).
+# Rally is prepared first: with Rally ready, the patches build on its
+# gamedb.slt, which carries the Rally rows; one built on the disc's copy
+# would hide them and starting a championship ran out of memory (#1024).
+$patchArguments = @('--game-root', $resolvedGameRoot)
+if ($verifiedRallyEntry) {
+    $patchArguments += @('--base-overlay', (Join-Path $resolvedStateRoot 'cache/rally_adapter/game'))
+}
+& (Get-PinyonPython) (Join-Path $PSScriptRoot 'build-mod-patches.py') $resolvedStateRoot `
+    @patchArguments | Out-Null
+if ($LASTEXITCODE -ne 0) { throw 'Could not build the mods'' database patches.' }
+# Mods' single archive members (NP-10.1) and key merges (NP-10.2), rebuilt
+# into copies of the player's archives with zipmanifest.xml to match; the
+# archive extractor decompresses members that merges edit.
+$archiveArguments = @('--game-root', $resolvedGameRoot)
+$archiveExtractor = Join-Path $resolvedBuildDirectory 'pinyon_shift_fh1_archive_extract.exe'
+if (Test-Path -LiteralPath $archiveExtractor -PathType Leaf) {
+    $archiveArguments += @('--archive-extractor', $archiveExtractor)
+}
+& (Get-PinyonPython) (Join-Path $PSScriptRoot 'build-mod-archives.py') $resolvedStateRoot `
+    @archiveArguments | Out-Null
+if ($LASTEXITCODE -ne 0) { throw 'Could not build the mods'' archive members.' }
 
 $savedRallyPrepared = $env:PINYON_SHIFT_RALLY_PREPARED
 $savedStateRoot = $env:PINYON_SHIFT_STATE_ROOT

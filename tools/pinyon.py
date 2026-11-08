@@ -135,12 +135,16 @@ def prepare_state(state: Path) -> None:
         pending.unlink()
 
 
-def build_mods(state: Path, game: Path, build: Path) -> None:
+def build_mods(state: Path, game: Path, build: Path, rally_ready: bool = False) -> None:
     """Mods' database patches (NP-10.2) and archive members and merges
     (NP-10.1, NP-10.2), rebuilt from the player's files before each start.
-    The first step also installs the built-in optional mods."""
+    The first step also installs the built-in optional mods. With Rally
+    ready, the database patches build on the Rally cache's gamedb.slt: one
+    built on the disc's copy hides the Rally rows (#1024)."""
     patches = [sys.executable, str(ROOT / "tools" / "build-mod-patches.py"), str(state),
                "--game-root", str(game)]
+    if rally_ready:
+        patches += ["--base-overlay", str(state / "cache" / "rally_adapter" / "game")]
     if subprocess.run(patches, stdout=subprocess.DEVNULL).returncode:
         raise LaunchError("could not build the mods' database patches", "mods-failed")
     archives = [sys.executable, str(ROOT / "tools" / "build-mod-archives.py"), str(state),
@@ -287,9 +291,10 @@ def launch(args: argparse.Namespace) -> dict:
     prepare_state(state)
     if not args.skip_shader_preparation and not args.render_test_script:
         prepare_shaders(state, game, build, args.json)
-    build_mods(state, game, build)
-    # v4's own code replaces the base-disc Rally preparation.
+    # v4's own code replaces the base-disc Rally preparation. Rally first:
+    # the mods' database patches build on its gamedb.slt.
     rally_ready = not v4 and not args.render_test_script and prepare_rally(state, game, build)
+    build_mods(state, game, build, rally_ready)
 
     environment = dict(os.environ)
     environment.update({"PINYON_SHIFT_STATE_ROOT": str(state),

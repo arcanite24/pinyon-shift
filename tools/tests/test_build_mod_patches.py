@@ -121,6 +121,47 @@ class BuildModPatchesTests(unittest.TestCase):
                 self.assertEqual([(1496, 1000), (2164, 400000)], connection.execute(
                     "select Id, BaseCost from Data_Car order by Id").fetchall())
 
+    def test_patches_the_rally_overlay_database_below_mods_replacements(self):
+        # #1024: the prepared Rally cache ships gamedb.slt with the Rally rows.
+        # A patch built on the disc's copy hid them, and starting a
+        # championship ran the guest out of memory.
+        with tempfile.TemporaryDirectory() as directory:
+            game, state = self.make(Path(directory))
+            overlay = state / "cache" / "rally_adapter" / "game"
+            rally = overlay / "media" / "db" / "gamedb.slt"
+            rally.parent.mkdir(parents=True)
+            with closing(sqlite3.connect(rally)) as connection:
+                connection.execute("create table Data_Car (Id integer, BaseCost integer)")
+                connection.execute("insert into Data_Car values (1496, 120000)")
+                connection.execute("create table Rally (Id integer)")
+                connection.commit()
+            result = MODULE.build(state, game, overlay)
+            self.assertEqual(rally.as_posix(), result["base"])
+            patched = state / "mods" / MODULE.GENERATED / "game" / "media" / "db" / "gamedb.slt"
+            with closing(sqlite3.connect(patched)) as connection:
+                self.assertEqual(1000, connection.execute(
+                    "select BaseCost from Data_Car where Id = 1496").fetchone()[0])
+                self.assertEqual(0, connection.execute("select count(*) from Rally").fetchone()[0])
+            # Without Rally ready the disc's copy stays the base.
+            self.assertEqual((game / "media/db/gamedb.slt").as_posix(),
+                             MODULE.build(state, game)["base"])
+            # A mod's own whole database (the XE mod) still comes first.
+            replaced = state / "mods" / "plain" / "game" / "media" / "db" / "gamedb.slt"
+            replaced.parent.mkdir(parents=True)
+            replaced.write_bytes(rally.read_bytes())
+            self.assertEqual(replaced.as_posix(), MODULE.build(state, game, overlay)["base"])
+
+    def test_launchers_prepare_rally_before_the_database_patches(self):
+        tools = Path(__file__).parents[1]
+        preview = (tools / "launch-preview.ps1").read_text(encoding="utf-8")
+        self.assertLess(preview.index("prepare-fh1-rally.py"), preview.index("build-mod-patches.py"))
+        self.assertIn("'--base-overlay', (Join-Path $resolvedStateRoot 'cache/rally_adapter/game')",
+                      preview)
+        launcher = (tools / "pinyon.py").read_text(encoding="utf-8")
+        launch = launcher.split("def launch(", 1)[1]
+        self.assertLess(launch.index("prepare_rally(state, game, build)"),
+                        launch.index("build_mods(state, game, build, rally_ready)"))
+
     def test_reads_the_dlc_enabled_mods_hide(self):
         with tempfile.TemporaryDirectory() as directory:
             _, state = self.make(Path(directory))
