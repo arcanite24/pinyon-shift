@@ -8,9 +8,9 @@ finishes, event prizes and car-make loyalty bonuses, wristband points, and
 how quickly driver levels come. At the defaults everything costs half and
 pays twice.
 
-Plays the modded copy of your save. DLC cars and parts keep their prices, and
-a save that already has XP keeps the level it had. Base game only for now: it
-has not been tried on the title update v4 build."""
+Plays the modded copy of your save. Works on the base game and the title
+update v4 build. DLC cars and parts and the Rally Expansion's points keep
+their values, and a save that already has XP keeps the level it had."""
 url = "https://github.com/arcanite24/pinyon-shift/issues/491"
 abi = 1
 # Festival pacing pack (#491): two factors filled into db/*.sql
@@ -18,9 +18,10 @@ abi = 1
 # {{rewards}} multiplies payouts and wristband points and divides the XP per
 # driver level. A database mod, so it plays the modded profile; Stock is the
 # mod off, or both at 1x.
-# Base build only until it is tried on v4; build-mod-archives.py leaves its
-# scripts out of v4's database too.
-game_version = "DB40DF605ADE49A6"
+# No game_version: the scripts only touch tables both databases share (the
+# disc's gamedb.slt and v4's own in update:\media.zip), so build-mod-patches.py
+# and build-mod-archives.py apply them to each. v4's Rally tables
+# (RallyScoring, RallyWristbandLevels) are left alone.
 
 [[option]]
 key = "prices"
