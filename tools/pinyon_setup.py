@@ -18,8 +18,8 @@ The disc is read in place and never changed. Its files are checked one by
 one against config/supported-extracted-ms-2505.json while they are copied out,
 so nothing that differs from the supported dump reaches the build.
 
-This module keeps to Python 3.9 syntax: macOS ships Python 3.9, which only
-provisions the pinned Python and hands over to it (MAC-3.1).
+This module keeps to Python 3.9 syntax: macOS ships Python 3.9, which starts
+setup and hands over to a compatible Python (MAC-3.1).
 """
 
 from __future__ import annotations
@@ -302,9 +302,37 @@ def tool_path(item: dict) -> Path:
     return ROOT / item["install_path"] / item["executable"]
 
 
+HOMEBREW_PYTHON_DIRS = (Path('/opt/homebrew/bin'), Path('/usr/local/bin'),
+                        Path('/opt/homebrew/opt/python/libexec/bin'),
+                        Path('/usr/local/opt/python/libexec/bin'))
+
+
+def homebrew_python() -> Path | None:
+    """Find a working Homebrew Python with the standard library setup needs."""
+    machine = platform.machine().lower()
+    machine = 'arm64' if machine in ('arm64', 'aarch64') else machine
+    probe = ("import hashlib, platform, sys, tomllib; "
+             "assert sys.version_info >= (3, 11) and hasattr(hashlib, 'file_digest'); "
+             "print(platform.machine().lower())")
+    for directory in HOMEBREW_PYTHON_DIRS:
+        candidates = [directory / 'python3', *sorted(directory.glob('python3.[0-9]*'), reverse=True)]
+        for candidate in candidates:
+            if not candidate.is_file():
+                continue
+            try:
+                result = subprocess.run([str(candidate), '-c', probe], capture_output=True,
+                                        text=True, timeout=5)
+                arch = result.stdout.strip()
+                arch = 'arm64' if arch in ('arm64', 'aarch64') else arch
+                if result.returncode == 0 and arch == machine:
+                    return candidate
+            except (OSError, subprocess.TimeoutExpired):
+                continue
+    return None
+
+
 def provision_python(progress: Progress, config: dict, name: str) -> Path:
-    """The pinned Python (3.13) when the running one cannot run the build's
-    scripts, which need tomllib (3.11)."""
+    """Choose a compatible Python or provision the pinned one (3.13)."""
     tools = platform_tools(config, name)
     item = tools.get("python")
     if sys.version_info >= (3, 11) and (item is None or name.startswith("linux")):
@@ -312,11 +340,16 @@ def provision_python(progress: Progress, config: dict, name: str) -> Path:
     if item is None:
         raise SetupError("Python 3.11 or newer is needed", "tools")
     executable = tool_path(item)
-    if not executable.is_file():
-        progress("tools", 2, "Downloading Python")
-        archive = download(item, progress, "Python")
-        unpack(archive, ROOT / item["install_path"])
-        archive.unlink()
+    if executable.is_file():
+        return executable
+    if name.startswith('macos'):
+        homebrew = homebrew_python()
+        if homebrew is not None:
+            return homebrew
+    progress("tools", 2, "Downloading Python")
+    archive = download(item, progress, "Python")
+    unpack(archive, ROOT / item["install_path"])
+    archive.unlink()
     return executable
 
 

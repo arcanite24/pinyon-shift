@@ -414,10 +414,12 @@ def pinned_python() -> Path | None:
 
 if __name__ == "__main__":
     # macOS's /usr/bin/python3 is 3.9: setup runs on it, but the DLC, title
-    # update and save tools hash with hashlib.file_digest (3.11). Once setup
-    # has provisioned the pinned Python, every command runs on that.
+    # update and save tools hash with hashlib.file_digest (3.11). Use the
+    # provisioned Python or a compatible Homebrew Python when available.
     if sys.version_info < (3, 11) and not os.environ.get("PINYON_SHIFT_PINNED_PYTHON"):
         pinned = pinned_python()
+        if pinned is None and sys.platform == "darwin":
+            pinned = pinyon_setup.homebrew_python()
         if pinned is not None:
             os.environ["PINYON_SHIFT_PINNED_PYTHON"] = "1"
             os.execv(str(pinned), [str(pinned), str(Path(__file__).resolve()), *sys.argv[1:]])
