@@ -1,5 +1,7 @@
 import importlib.util
 import io
+import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -17,6 +19,27 @@ SPEC.loader.exec_module(MODULE)
 
 
 class PinyonLauncherTests(unittest.TestCase):
+    def test_setup_starts_without_tomllib(self):
+        # Simulate the system Python on macOS before setup provisions Python.
+        with tempfile.TemporaryDirectory() as directory:
+            Path(directory, "sitecustomize.py").write_text(
+                "import sys\n"
+                "class NoTomllib:\n"
+                "    def find_spec(self, fullname, path=None, target=None):\n"
+                "        if fullname == 'tomllib':\n"
+                "            raise ModuleNotFoundError(\"No module named 'tomllib'\")\n"
+                "sys.meta_path.insert(0, NoTomllib())\n", encoding="utf-8")
+            env = {**os.environ, "PYTHONPATH": directory}
+            result = subprocess.run([sys.executable, str(MODULE_PATH), "setup", "--help"],
+                                    env=env, capture_output=True, text=True)
+            self.assertEqual(0, result.returncode, result.stderr)
+            self.assertIn("usage:", result.stdout)
+
+    def test_mods_explains_that_setup_needs_to_run_on_old_python(self):
+        with mock.patch.object(MODULE.pinyon_mods.sys, "version_info", (3, 9)):
+            with self.assertRaisesRegex(MODULE.pinyon_common.CommandError, "run setup first"):
+                MODULE.pinyon_mods.run(None)
+
     def test_default_build_directory_follows_the_host(self):
         with mock.patch.object(MODULE, "WINDOWS", False), \
                 mock.patch.object(MODULE.platform, "system", return_value="Linux"), \

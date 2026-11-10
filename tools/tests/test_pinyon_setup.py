@@ -20,6 +20,60 @@ import pinyon_steam  # noqa: E402
 SECTOR = 2048
 
 
+class PythonProvisioningTests(unittest.TestCase):
+    def test_keeps_previously_provisioned_python(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            pinned = root / 'bin/python3'
+            pinned.parent.mkdir()
+            pinned.touch()
+            config = {'posix': {'macos-arm64': {'python': {
+                'install_path': str(root), 'executable': 'bin/python3'}}}}
+            with patch.object(pinyon_setup, 'homebrew_python', side_effect=AssertionError('searched Homebrew')):
+                self.assertEqual(pinned, pinyon_setup.provision_python(
+                    pinyon_setup.Progress(False), config, 'macos-arm64'))
+
+    def test_uses_compatible_homebrew_python_before_downloading(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            homebrew = root / 'python3'
+            homebrew.symlink_to(sys.executable)
+            config = {'posix': {'macos-arm64': {'python': {
+                'install_path': str(root / 'pinned'), 'executable': 'bin/python3'}}}}
+            with patch.object(pinyon_setup, 'HOMEBREW_PYTHON_DIRS', (root,)), \
+                    patch.object(pinyon_setup, 'download', side_effect=AssertionError('downloaded Python')):
+                self.assertEqual(homebrew, pinyon_setup.provision_python(
+                    pinyon_setup.Progress(False), config, 'macos-arm64'))
+
+    def test_rejects_old_or_wrong_architecture_homebrew_python(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            old = root / 'python3'
+            old.write_text('#!/bin/sh\nexit 1\n')
+            old.chmod(0o755)
+            other = root / 'python3.12'
+            other.write_text('#!/bin/sh\necho x86_64\n')
+            other.chmod(0o755)
+            with patch.object(pinyon_setup, 'HOMEBREW_PYTHON_DIRS', (root,)), \
+                    patch.object(pinyon_setup.platform, 'machine', return_value='arm64'):
+                self.assertIsNone(pinyon_setup.homebrew_python())
+
+    def test_downloads_pinned_python_when_homebrew_is_unavailable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            archive = root / 'python.tar.gz'
+            archive.touch()
+            item = {'install_path': str(root / 'pinned'), 'executable': 'bin/python3'}
+            config = {'posix': {'macos-arm64': {'python': item}}}
+            with patch.object(pinyon_setup, 'homebrew_python', return_value=None), \
+                    patch.object(pinyon_setup, 'download', return_value=archive) as download, \
+                    patch.object(pinyon_setup, 'unpack') as unpack:
+                self.assertEqual(root / 'pinned/bin/python3', pinyon_setup.provision_python(
+                    pinyon_setup.Progress(False), config, 'macos-arm64'))
+                download.assert_called_once()
+                unpack.assert_called_once()
+
+
 def make_image(path: Path, files: dict, offset: int = 0x2080000) -> None:
     """A tiny XDVDFS image: a root directory with files and one folder."""
     entries = []  # (name, sector, size, attributes)

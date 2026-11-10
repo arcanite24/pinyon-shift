@@ -49,9 +49,11 @@ python3 tools/pinyon.py setup --iso ~/Downloads/forza-horizon.iso
 python3 tools/pinyon.py launch
 ```
 
-The `python3` that comes with the Command Line Tools is enough: `setup`
-downloads a pinned Python for itself, and pinned CMake and Ninja, each
-checked by SHA-256, into `.local/toolchain`.
+The `python3` that comes with the Command Line Tools is enough to start setup.
+Setup uses an existing provisioned Python or a compatible Homebrew Python
+(3.11 or newer for the Mac's architecture); if neither is available, it
+downloads a pinned Python. It also downloads pinned CMake and Ninja. Downloads
+are checked by SHA-256 and stored in `.local/toolchain`.
 
 ## Where things live
 

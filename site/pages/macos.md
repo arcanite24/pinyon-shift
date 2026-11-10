@@ -23,6 +23,10 @@ A native build for Apple silicon. The game's Vulkan renderer runs on Metal throu
 4. Choose your disc image, confirm ownership and choose **Verify and build**.
 5. Choose **Play**. Press **F6** in game for settings.
 
+Setup uses its previously downloaded Python or a compatible Homebrew Python
+3.11 or newer; otherwise it downloads a pinned Python. No separate Python
+installation is required.
+
 On the M4 Pro Mac mini, full screen on a 120 Hz 4K TV with the frame-rate
 limits off, a 40 s free-roam drive (2026-11-01) held 120 fps at 1x, with
 MSAA off or 4x. At 2x it averaged about 82 fps with MSAA off and 51 fps

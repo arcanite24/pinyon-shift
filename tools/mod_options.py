@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import json
 import re
-import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -102,6 +101,7 @@ def declared(manifest: dict) -> list[Option]:
 
 
 def read_declared(mod: Path) -> list[Option]:
+    import tomllib  # Python 3.11; setup can start on the system's older Python.
     try:
         manifest = tomllib.loads((mod / "mod.toml").read_text(encoding="utf-8"))
     except (OSError, tomllib.TOMLDecodeError) as error:
