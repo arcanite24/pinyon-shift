@@ -35,7 +35,6 @@ import re
 import shutil
 import sys
 import tempfile
-import tomllib
 import zipfile
 from pathlib import Path, PurePosixPath
 
@@ -73,6 +72,7 @@ def config_path(state: Path) -> Path:
 
 
 def read_manifest(directory: Path) -> tuple[dict, str | None]:
+    import tomllib  # Python 3.11; setup can start on the system's older Python.
     try:
         text = (directory / "mod.toml").read_text(encoding="utf-8")
     except OSError:
@@ -423,6 +423,8 @@ def remove(state: Path, name: str) -> None:
 
 
 def run(args: argparse.Namespace) -> dict:
+    if sys.version_info < (3, 11):
+        raise common.CommandError("Mods need Python 3.11 or newer; run setup first")
     state = common.state_root(args.state_root)
     command = args.mods_command
     notes = {}
