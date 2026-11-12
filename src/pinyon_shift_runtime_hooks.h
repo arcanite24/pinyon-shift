@@ -33,6 +33,10 @@ void PinyonShiftObserveGuestFileOpen(std::string_view guest_path);
 // The title's render thread has finished a frame (its VdSwap call): the
 // simulation step gate (#381) counts steps against these.
 void PinyonShiftNoteTitleSwap();
+// The title's render thread waits for a step (its frame function's idle
+// path; frame_object its r31, newest_step its r22): the step gate counts the
+// simulation's lead from the step it drew, and releases a held step.
+void PinyonShiftNoteRenderIdle(uint32_t frame_object, uint32_t newest_step);
 
 // Called on the guest thread when the player picks SETTINGS in the pause menu;
 // the handler must hand the work to the UI thread and return at once.

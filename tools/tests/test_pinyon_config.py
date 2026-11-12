@@ -60,13 +60,27 @@ SCENARIOS = [
      [("Reset", {}), ("Restore", {})]),
     ("preset_name", "pinyon_shift_config_schema = 29\n",
      [("Apply", {"Preset": "experimental_2x", "ResolutionScale": "4"})]),
+    # VR's render size is its own setting (xr_render_scale): the flat
+    # resolution stays, and a file that never had VR on gets no VR lines.
+    ("vr_on_then_off", "pinyon_shift_config_schema = 29\n",
+     [("Apply", {"ResolutionScale": "3", "Vr": "true", "VrScale": "2x4"}), ("Get", {}),
+      ("Apply", {"Vr": "false"}), ("Get", {})]),
+    ("vr_off_writes_nothing", "pinyon_shift_config_schema = 29\n",
+     [("Apply", {"ResolutionScale": "2", "Vr": "false", "VrHud": "false"})]),
+    # The HUD hidden in VR: written with VR on, kept once written, and
+    # ignored for a file that never had VR on.
+    ("vr_hud_hidden", "pinyon_shift_config_schema = 29\n",
+     [("Apply", {"Vr": "true", "VrScale": "2x3", "VrHud": "false"}), ("Get", {}),
+      ("Apply", {"Vr": "false", "VrHud": "true"}), ("Get", {}),
+      ("Apply", {"VrHud": "false"}), ("Get", {})]),
 ]
 
 PYTHON_OPTIONS = {"ResolutionScale": "--resolution-scale", "OutputScaling": "--output-scaling",
                   "GamePreset": "--game-preset", "RenderFps": "--render-fps",
                   "TreasureMap": "--treasure-map", "Anisotropy": "--anisotropy",
                   "PostEffect": "--post-effect", "DisableBloom": "--disable-bloom",
-                  "PresentationFps": "--presentation-fps", "Preset": "--preset"}
+                  "PresentationFps": "--presentation-fps", "Preset": "--preset",
+                  "Vr": "--vr", "VrScale": "--vr-scale", "VrHud": "--vr-hud"}
 
 
 def run_python(state: Path, action: str, options: dict) -> dict:
@@ -149,6 +163,50 @@ class ConfigCommandTests(unittest.TestCase):
             text = (state / "config/pinyon_shift.toml").read_text(encoding="utf-8")
             self.assertIn("pinyon_shift_dlc_treasure_map = true", text)
             self.assertIn("pinyon_shift_config_schema = 29", text)
+
+    def test_vr_keeps_the_flat_resolution_and_writes_only_when_used(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory)
+            config = state / "config/pinyon_shift.toml"
+            on = run_python(state, "apply", {"ResolutionScale": "3", "Vr": "true",
+                                             "VrScale": "2x4"})
+            self.assertTrue(on["settings"]["vr"])
+            self.assertEqual(on["settings"]["vr_scale"], "2x4")
+            self.assertEqual(on["settings"]["resolution_scale"], 3)
+            text = config.read_text(encoding="utf-8")
+            self.assertIn('xr_render_scale = "2x4"', text)
+            self.assertIn("draw_resolution_scale_x = 3", text)
+            off = run_python(state, "apply", {"Vr": "false"})
+            self.assertFalse(off["settings"]["vr"])
+            # Turning VR off leaves the player at the flat resolution they had.
+            self.assertEqual(off["settings"]["resolution_scale"], 3)
+            self.assertIn("xr_enabled = false", config.read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory)
+            run_python(state, "apply", {"ResolutionScale": "2", "Vr": "false"})
+            text = (state / "config/pinyon_shift.toml").read_text(encoding="utf-8")
+            self.assertNotIn("xr_enabled", text)
+            self.assertNotIn("xr_render_scale", text)
+
+    def test_vr_hud_hidden_is_written_with_vr_on_and_kept(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory)
+            config = state / "config/pinyon_shift.toml"
+            self.assertTrue(run_python(state, "get", {})["settings"]["vr_hud"])
+            # Without VR on, the choice is not written.
+            run_python(state, "apply", {"Vr": "false", "VrHud": "false"})
+            self.assertNotIn("xr_hud_panel", config.read_text(encoding="utf-8"))
+            hidden = run_python(state, "apply", {"Vr": "true", "VrHud": "false"})
+            self.assertFalse(hidden["settings"]["vr_hud"])
+            self.assertIn("xr_hud_panel = false", config.read_text(encoding="utf-8"))
+            # VR off keeps the choice for the next time VR is on; the option
+            # alone (VR on in the file) writes it too.
+            run_python(state, "apply", {"Vr": "false"})
+            self.assertFalse(run_python(state, "get", {})["settings"]["vr_hud"])
+            run_python(state, "apply", {"Vr": "true"})
+            shown = run_python(state, "apply", {"VrHud": "true"})
+            self.assertTrue(shown["settings"]["vr_hud"])
+            self.assertIn("xr_hud_panel = true", config.read_text(encoding="utf-8"))
 
     def test_restore_without_a_backup_fails_as_json(self):
         with tempfile.TemporaryDirectory() as directory:

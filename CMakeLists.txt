@@ -41,6 +41,7 @@ set(PINYON_SHIFT_HOST_SOURCES
     src/hud_toggle.cpp
     src/auto_start.cpp
     src/head_tracking/head_tracking.cpp
+    src/vr/vr_camera.cpp
     src/guest_native/guest_native.cpp
     src/guest_native/crt_math.cpp
     src/guest_native/lzx_decoder.cpp
@@ -300,7 +301,6 @@ add_executable(pinyon_shift_overlay_device_tests EXCLUDE_FROM_ALL
 target_include_directories(pinyon_shift_overlay_device_tests PRIVATE src)
 target_link_libraries(pinyon_shift_overlay_device_tests PRIVATE rex::runtime)
 
-# Every host-side test, for CI (PINYON_SHIFT_HOST_TESTS_ONLY) and local runs.
 add_executable(pinyon_shift_camera_tuning_tests tests/camera_tuning_tests.cpp)
 target_include_directories(pinyon_shift_camera_tuning_tests PRIVATE src)
 add_executable(pinyon_shift_head_tracking_tests EXCLUDE_FROM_ALL
@@ -311,6 +311,12 @@ if(WIN32)
     target_link_libraries(pinyon_shift_head_tracking_tests PRIVATE ws2_32)
 endif()
 
+add_executable(pinyon_shift_vr_tests EXCLUDE_FROM_ALL
+    tests/vr/vr_camera_test.cpp src/vr/vr_camera.cpp)
+target_include_directories(pinyon_shift_vr_tests PRIVATE src)
+target_link_libraries(pinyon_shift_vr_tests PRIVATE rex::runtime)
+
+# Every host-side test, for CI (PINYON_SHIFT_HOST_TESTS_ONLY) and local runs.
 add_custom_target(pinyon_shift_host_tests)
 add_dependencies(pinyon_shift_host_tests
     pinyon_shift_camera_tuning_tests
@@ -331,6 +337,7 @@ add_dependencies(pinyon_shift_host_tests
     pinyon_shift_overlay_device_tests
     pinyon_shift_fh1_edram_tiles_tests
     pinyon_shift_head_tracking_tests
+    pinyon_shift_vr_tests
     pinyon_shift_mod_hello_telemetry)
 if(TARGET pinyon_shift_shader_override_tests)
     add_dependencies(pinyon_shift_host_tests pinyon_shift_shader_override_tests)
