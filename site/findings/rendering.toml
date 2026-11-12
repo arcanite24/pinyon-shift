@@ -260,6 +260,7 @@ what = """Selecting the game's own `NonTiling` value for the `TilingScenario` re
 how = """Hook on the tiling-scenario load selecting NonTiling; captures on Vulkan and D3D12."""
 confidence = """confirmed"""
 negative = true
+note = """Not the end of the question (2026-11-12). Another FH1 port reports that the missing world's command lists are recorded only for the three-tile pass, and that replaying them in the one-tile pass, with their tiling window, scissor and target packets dropped, restores it. Not verified here. Our host single pass (`fh1_untile_predicated_tiling`) already skips the later tiles' draws at decode, so a game-side single pass would add only the decode of those tiles (NN-2.2 bounded it at 0.36 ms) and the title's recording of them; see the Lessons page for the desktop measurement."""
 source = """docs/ANDROID_ODIN_BACKLOG.md Predicated tiling rendered once"""
 
 [[finding]]

@@ -33,6 +33,8 @@ The scripted race (`fh1-race-sync`) is the heaviest route. Measured over its bus
 
 At a 60 fps limit, 2x with MSAA holds a 16.66 ms median (p95 17.04 ms).
 
+The 120 limit hides little. With the limit at 240 from the race start, vsync off, 2x with MSAA ran 8.1-9.8 ms a frame in 400-frame windows of 5,200-7,100 draws (median about 8.5 ms, 118 fps; two runs, 2026-11-12). The frame is CPU-bound: the draw recorder thread is busy 7.5-8.2 ms of it, about 1.2 µs a draw, and the GPU commands thread spends about 1.9 ms waiting on the game's GPU-to-CPU callbacks, time the recorder still needs. Lowering the GPU's work therefore leaves the frame time unchanged on this PC.
+
 At 3x with full 4x MSAA, the Vulkan depth-alias optimization saves a median 1.092 ms of executor GPU time on this RTX 4080, range 0.798–1.321 ms across 12 disjoint in-run blocks in both toggle orders. It is enabled automatically; MSAA-off and two-host-sample storage keep their existing path. The advanced setting `fh1_shared_depth_alias = false` in `pinyon_shift.toml` restores the previous path. [Conditions and image checks](renderer.md#edram-and-resolves).
 
 ## The title update build
