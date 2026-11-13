@@ -209,6 +209,19 @@ source = """src/pinyon_shift_runtime_hooks.cpp (car_dynamics, QueueCarTelemetry)
 
 # ------------------------------------------------ Activities and collectibles
 
+
+[[finding]]
+group = """Car dynamics"""
+base = """sub_82D46EF8, sub_82D3A528, sub_82D38A68, sub_82D1E268, sub_82D0C078"""
+v4 = """sub_82E08FF8, sub_82DFC608, sub_82DFAB90, sub_82DE01B0, sub_82DCDEE0"""
+name = """per-body physics step and its two paths"""
+what = """The physics-world step calls `sub_82D46EF8(world, body, dt, ..., r6)` once per car body per simulation tick: 8.33 ms steps at 120 fps on the desktop, one 16.67 ms step a frame at 60 fps on the Deck (so there are no substeps to drop). A car's `ICarDynamics` (car+0x2D90) is body+0xAD0. The step clears bit 1 of byte body+2731, runs `sub_82D0C078(body)`, then takes one of two paths on the word at body+2756: zero runs the full dynamics step `sub_82D3A528` (the 77-function subtree under it is most of physics); non-zero runs the light step `sub_82D38A68` only if the byte at body+20520 (read by `sub_82D1E268`) is set, otherwise nothing. The player's body always takes the full step; AI bodies move between the two during a race (2 to 6 of 7 on the full step on the Deck). The word is written from many places, so it is a state, not a simple flag. Running the AI bodies' full step on alternate ticks with the summed dt (staggered) skipped 9 % of body steps on the Deck, about 0.7 full steps a frame, and changed no thread's CPU beyond the A/A spread (simulation thread +0.1 ms, workers within noise); the physics harness still passed on desktop and Deck (AI mean distance +2.0 % and -1.6 %)."""
+how = """`pinyon_shift_physics_body_probe` (src/guest_native/car_physics.cpp) logging bodies, calls, path and dt each second beside the car vector; `pinyon_shift_physics_ai_step_interval` in-run A/B on the Deck and `tools/physics-behaviour.py` on the sustained race (2026-11-13)."""
+confidence = """confirmed"""
+negative = true
+note = """The AI lower-rate step is kept default-off; it does not reach #1071's 0.5 ms gate because few AI bodies take the full step at once."""
+source = """GitHub issue #1071 P1; src/guest_native/car_physics.cpp"""
+
 [[finding]]
 group = """Activities and collectibles"""
 base = """0x832FEE8C, sub_828A52F0"""

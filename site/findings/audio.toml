@@ -226,6 +226,18 @@ source = """docs/NEAR_NATIVE_RESEARCH.md NN-4.6"""
 
 # --------------------------------------------------- Speech and ambience banks
 
+
+[[finding]]
+group = """Mixer and output"""
+base = """sub_82FBE908, sub_8300D580"""
+v4 = """sub_8307F9B8, sub_830CE6C0"""
+name = """room reverb unit and its pass-through"""
+what = """FMOD's SFX reverb unit reads through a DSP read callback, `sub_82FBE908(unit, in, out, samples, channels)`. With no input it returns at once. When the unit's channel mask (+36) leaves the input's channels out, it copies the input to the output (FMOD's own bypass) and resets the reverb when the mask changed (+1908); otherwise it runs the reverb `sub_8300D580` on the state at +312. The reverb is about a fifth of FMOD's mixer thread in a race on the Deck. Taking the copy path on every call (`pinyon_shift_fmod_reverb=false`) took 0.28-0.31 ms of CPU a frame off the four FMOD threads on the Deck LCD in an in-run A/B, under #1071's 0.5 ms gate, so the reverb stays on by default."""
+how = """Deck call graph; the replacement in src/guest_native/fmod_reverb.cpp toggled every 240 frames on `fh1-race-sustained`, FMOD threads' CPU from `perf_thread_cpu` (2026-11-13). Whether the mix sounds drier was not listened to."""
+confidence = """confirmed"""
+negative = true
+source = """GitHub issue #1071 P5; src/guest_native/fmod_reverb.cpp"""
+
 [[finding]]
 group = """Speech and ambience banks"""
 v4 = """same"""

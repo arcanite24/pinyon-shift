@@ -978,6 +978,18 @@ source = """docs/NEXT_LEVEL_RESEARCH.md NL-5"""
 # Light glows
 # ---------------------------------------------------------------------------
 
+
+[[finding]]
+group = """Frame structure and views"""
+base = """sub_8244F280, sub_82444E60, sub_82439B70, sub_82447490"""
+v4 = """sub_8247E940"""
+name = """where the render thread's scene submission goes"""
+what = """On the Deck in a race, 96 % of the render thread's guest work is under the deferred-command drain `sub_82450160`, and there in two presentation-view passes: `CPresentationView` slot 11 (`sub_8244F280`, 56 %; mostly `sub_823F3CF8` and `sub_823ECFB0`, with the free-roam scene walk `sub_82DC1CB0` > `sub_82D65608` among them) and slot 13 (`sub_82444E60`, 42 %; the world view, with `CTrackPresentation` slot 75 `sub_82439B70` at 23 % of the thread). Car presentation (`CCarPresentation` slot 106, `sub_82447490`) is 9 % and procedural models 6 %. The render thread is about 8 ms of CPU a frame on the Deck."""
+how = """Deck call graph of the sustained race (see "guest CPU by subsystem in a sustained race" on the threads page), class names from RTTI vtables."""
+confidence = """probable"""
+note = """`sub_82444E60` has no v4 mapping from `tools/map-fh1-v4-addresses.py`."""
+source = """GitHub issue #1071 P2; .local/leads/deck-cg (local)"""
+
 [[finding]]
 group = """Light glows"""
 name = """light glow sprites"""
