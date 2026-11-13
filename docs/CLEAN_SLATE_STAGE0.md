@@ -141,6 +141,43 @@ $py = '.local/codex-cs/round2/analysis-venv/Scripts/python.exe'
   --output .local/codex-cs/round3/ctx-net-census.json
 ```
 
+### CS-0.2: observed indirect targets as call contracts (#1070, 2026-11-12)
+
+**Gate FAIL; CS-2 stays rejected.** Issue #1070 reopened CS-2 with a
+speculative design: guard each indirect call with the targets a probe
+build observed and send a guard miss, or a site the probe never saw, to a
+conservative clone of the callee. `tools/cs/ctx-speculative-census.py`
+models that. An observed site calls one of its observed targets. An
+unobserved site calls an opaque fallback that reads and writes every slot
+but feeds no return demand into the fast bodies. The 1,758 functions the
+probe entered with no guest caller (thread entries, callbacks) keep full
+return demand. Everything else is `ctx-exact-census.py`'s parser,
+contracts and solver, unchanged.
+
+The probe summary (`.local/re/probe/race-summary.json`, base race) gives
+observed targets for 17,360 of the 48,101 unresolved call sites; the other
+30,741 fall back. Return demand stays ALL for 2,095 summaries instead of
+76,800. The Odin instruction profile and matched `libmain.so` that weighted
+Round 3 are no longer on disk. So this reports a source-level proxy, with
+each function's slot accesses weighted by its probe entry count:
+
+| Contracts | Dead slot writes | Reads already available | Share of weighted lines |
+| --- | ---: | ---: | ---: |
+| Round 3 (conservative) | 7.32 G | 341.3 G | 1.23 % + 57.1 % |
+| Speculative | 10.64 G | 342.4 G | 1.78 % + 57.3 % |
+
+The host compiler already keeps most available reads in registers, which
+is why Round 3 counted on the AArch64 binary. What matters is the
+difference: the speculative contracts make 4.4 G more accesses removable,
+0.73 % of the weighted lines. Scaling Round 3's measured 0.903 % by the
+ratio of removable accesses (1.0125) gives about 0.91 %. Adding the whole
+difference to it gives at most about 1.6 %, against the 15 % gate. Observed
+targets narrow return demand, but the dead publications they expose are a
+small part of the traffic. The proxy counts each line once per entry,
+ignoring branches, in both modes. The 268 functions with native overrides
+come from the desktop build's objects (`llvm-nm`), since the shipped
+Android library is v4.
+
 ### CS-1 deterministic scheduling probe
 
 The Round 3 desktop experiment serializes guest execution with one permit.
