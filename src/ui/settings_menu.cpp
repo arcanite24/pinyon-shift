@@ -987,6 +987,13 @@ std::unique_ptr<MenuScreen> SettingsPages::Graphics() {
   rows.push_back(Setting("REFLECTION UPDATES",
                          {{"FULL", {{"pinyon_shift_fh1_env_map_rate", "1"}}},
                           {"QUARTER", {{"pinyon_shift_fh1_env_map_rate", "0.25"}}}}));
+  // How often the HUD and the rest of the interface update (#1071): HALF
+  // runs the interface's update on every other frame, which took 0.5-0.7 ms
+  // of CPU a frame off the simulation thread on the Steam Deck; the minimap
+  // still draws every frame.
+  rows.push_back(Setting("HUD UPDATES",
+                         {{"FULL", {{"pinyon_shift_ui_update_interval", "1"}}},
+                          {"HALF", {{"pinyon_shift_ui_update_interval", "2"}}}}));
   // FH1's three predicated tiles drawn as one pass (the same image, about
   // 3 ms a frame cheaper on the Odin); a change rebuilds the renderer
   // between frames.

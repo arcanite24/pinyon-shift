@@ -49,6 +49,9 @@ set(PINYON_SHIFT_HOST_SOURCES
     src/guest_native/retire_code.cpp
     src/guest_native/fmod_stereo.cpp
     src/guest_native/fmod_dsp.cpp
+    src/guest_native/car_physics.cpp
+    src/guest_native/ui_update.cpp
+    src/guest_native/fmod_reverb.cpp
     src/guest_native/fmod_output.cpp
     src/guest_native/reference_verify.cpp
     src/guest_native/region_oracle.cpp
