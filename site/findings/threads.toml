@@ -413,6 +413,18 @@ source = """site/pages/recompiler.md Native regions"""
 
 [[finding]]
 group = """Hot functions"""
+base = """sub_82D2F348, sub_82D21DB0"""
+v4 = """sub_82DF1478, sub_82DE3D10, sub_82E10560, sub_82CCC368, sub_82DCD8D0, sub_82E04258, sub_82DFB4A0"""
+name = """no hot tyre model in a v4 race"""
+what = """On the Odin at the 60 fps limit the physics-world step `sub_82E10560` and the job workers `sub_82CCC368` together are 5.2 % of process cycles, about 1.4 ms of CPU a frame, spread flat: the hottest leaf (`sub_82DCD8D0`) is 12.8 % of it, the next `sub_82E04258` 9.8 % and `sub_82DFB4A0` 7.4 %, and the top 20 leaves cover 76 %. The tyre model (`sub_82DF1478`, base `sub_82D2F348`) is 0.01 % of the process and `sub_82DE3D10` (base `sub_82D21DB0`, the largest NN-5.1 specialisation) does not show. A native tyre model alone could save microseconds a frame, far under #1071's 0.5 ms gate; a gain from physics needs the whole car step (about 85 % of the world step is under `sub_82E08FF8` > `sub_82DFC608`) written natively."""
+how = """The Odin call graph cg1071a (0.8.2 v4 Release, `fh1-race-sustained` from the race-moving capture, `simpleperf --call-graph fp`, 2026-11-12), leaf and inclusive shares under the two physics roots; base addresses mapped with `tools/map-fh1-v4-addresses.py`."""
+confidence = """confirmed"""
+negative = true
+issue = """#1071"""
+source = """GitHub issue #1071 P1; .local/leads/odin-cg/cg1071a (local)"""
+
+[[finding]]
+group = """Hot functions"""
 base = """sub_825A6208, sub_82450160, sub_823ED888, sub_823E40D8"""
 name = """render and simulation call chains"""
 what = """In race call graphs the render thread's time runs through `sub_825A6208`, then the render thread frame `sub_8259F3E8`, then `sub_82450160`; the simulation thread's runs through `sub_823ED888`, then `sub_823E40D8`. The roles of `sub_82450160` and `sub_823E40D8` are not known."""

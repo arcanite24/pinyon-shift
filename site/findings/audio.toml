@@ -174,6 +174,18 @@ source = """docs/NEAR_NATIVE_RESEARCH.md NN-4.3; site/pages/lessons.md"""
 
 [[finding]]
 group = """Mixer and output"""
+base = """sub_82FB76C0, sub_82FBE908, sub_82FAE0B8"""
+v4 = """sub_83078858, sub_8307F9B8, sub_8306F2E8, sub_83075D18"""
+name = """where FMOD's mixer thread goes in a v4 race"""
+what = """On the Odin (v4, stereo output) FMOD's mixer thread (`sub_83075D18`) is 8.5 % of process cycles, about 2.4 ms of CPU a frame. By leaf: the DSP connection mix `sub_83078858` (base `sub_82FB76C0`) 30 %, the room reverb's read callback `sub_8307F9B8` (base `sub_82FBE908`) 18 %, `sub_830C49D8` 9 %, `sub_83008610` 8 %, `sub_831653D0` 6 %, and the matrix mix `sub_8306F2E8` only 3.5 % now that the output is stereo. The connection mix's own time has no hot arithmetic: its loops clear and copy each connection's buffer (output channels × frames floats a call, the clears and copies run as host `memset`/`memcpy`) and, when a level ramp ends, repack every level of the connection to half precision. Removing that work means changing how FMOD's graph buffers are owned, not translating a unit; the reverb (0.3 ms on the Deck with it bypassed) is recorded under "room reverb unit and its pass-through"."""
+how = """The Odin call graph cg1071a (0.8.2 v4 Release, `fh1-race-sustained`, `simpleperf --call-graph fp`, 2026-11-12), samples under the mixer thread root split by their last guest frame; loop structure of the connection mix from its generated code."""
+confidence = """probable"""
+note = """The shares are measured; reading the connection mix's own time as buffer clears and copies is probable (the host frames below its leaf samples are its own body)."""
+issue = """#1071"""
+source = """GitHub issue #1071 P5; .local/leads/odin-cg/cg1071a (local)"""
+
+[[finding]]
+group = """Mixer and output"""
 base = """sub_83002C20, sub_82FFB3F8, sub_82FD7228, sub_82FD6940, sub_82FD7240, sub_82FD6F30, sub_82FD7210, sub_82FD6820, sub_82FD5AF0"""
 v4 = """sub_830C3DA8, sub_830BC540, sub_830982E0, sub_830979F8, sub_830982F8, sub_83097FE8, sub_830982C8, sub_830978D8, sub_83096BA8"""
 name = """FMOD XMA codec"""

@@ -742,7 +742,7 @@ name = """engine side of the display lists"""
 what = """The engine calls the list executor from `824167F8` and `82417060`, reached from `CProceduralModels` vtable slot 41 (`82417BC0`) and from `824365B0`. `824168B0` writes float constants as register writes in the calling segment (2.0 % of the render thread). It is D3D's generic dirty-constant flush, not a list-specific step: nine functions call it, each from two sites (vertex and pixel constants): `823EA3E0`, `82408B70`, `8240DC70`, `82415F68`, `82416380`, `82416A00`, `829EBD50`, `829EC928` and `829F6B18`. It ran 23.45 million times in a desktop race, 1,805 a presented frame. The only `LOAD_ALU_CONSTANT` emitter, `82411BD0`, loads static shader tables. The command stream has six `PM4_INDIRECT_BUFFER` store sites, with four owners, three producers and four context roots."""
 how = """Reverse engineering of the generated code; command-buffer lineage census; thread-sampler profile; callers and call counts from the generated code and the probe build (NL-2.3, 12,992 presents)."""
 confidence = """probable"""
-note = """The static-table reading is confirmed by NN-0.10's source census (see "shader constant sources"). For scale, `82411BD0` ran 264 times a presented frame in a desktop race, called from `82411C80` (156 a frame). `824168B0`'s arguments: r3 the device (+48 the last dword written, +52 the buffer end), r4 a 64-bit dirty mask read from bit 63 down, r5 the first register index, r6 16-byte-aligned source constants; it pads with type-2 NOP packets to 16-byte alignment, writes one type-0 header, copies 64 bytes per set bit, and calls `824679E8` (v4 `82497230`) when the buffer is full (NN-0.8 bench)."""
+note = """The static-table reading is confirmed by NN-0.10's source census (see "shader constant sources"). For scale, `82411BD0` ran 264 times a presented frame in a desktop race, called from `82411C80` (156 a frame). `824168B0`'s arguments: r3 the device (+48 the last dword written, +52 the buffer end), r4 a 64-bit dirty mask read from bit 63 down, r5 the first register index, r6 16-byte-aligned source constants; it pads with type-2 NOP packets to 16-byte alignment, writes one type-0 header, copies 64 bytes per set bit, and calls `824679E8` (v4 `82497230`) when the buffer is full (NN-0.8 bench). Its single-register twin `82415EA8` (v4 `82445E58`) writes one dword a mask bit as type-0 packets, one per run of set bits, with no padding; both call `824679E8` when a run does not fit. Native versions of the two (#1071 P2) matched the original packets on all 27 million calls of a desktop race, but saved only about 20 ns a call in place, and were removed (Lessons)."""
 source = """docs/DESKTOP_RENDERER_BACKLOG.md DR-0.4, Where it stands; docs/PERFORMANCE_BACKLOG.md PB-3.1; docs/NEAR_NATIVE_RESEARCH.md NN-2.3, NN-0.10"""
 
 [[finding]]
@@ -989,6 +989,29 @@ how = """Deck call graph of the sustained race (see "guest CPU by subsystem in a
 confidence = """probable"""
 note = """`sub_82444E60` has no v4 mapping from `tools/map-fh1-v4-addresses.py`."""
 source = """GitHub issue #1071 P2; .local/leads/deck-cg (local)"""
+
+[[finding]]
+group = """Frame structure and views"""
+base = """sub_824400B0, sub_82441488, sub_82DDD040, sub_8243FD70, sub_82441048, sub_824412D0, sub_82449068, sub_82440C10, sub_8243FF70, sub_824413A8, sub_8243FDD0, sub_8243FA20, 0x834ABB08, 0x832B8ADC"""
+v4 = """sub_824701B8, sub_82471590, sub_82E9F610, 0x835A1488, 0x833A45CC"""
+name = """per-draw pass culling"""
+what = """For each mesh of a model part that the scene walk submits (`sub_82440CF8`), `sub_824400B0(renderer, item, pass list)` decides which passes draw it and returns whether any did. Pass ids: shadow cascades 0-5, light passes 6-8, views 9-14, 15 and up, and 24 the light-shadow pass. Per pass it combines the item's flags, its bounding sphere (`sub_8243FD70`), a six-plane frustum test of its box (`sub_82441048`: 0 outside, 1 inside, 2 crossing), the pass's extra planes (`sub_824412D0`), a containment test (`sub_82449068`), a distance level-of-detail choice (`sub_82440C10`, from the distance to the item's oriented box, `sub_8243FF70`), the cascade mask (`sub_824413A8`, the cascade count at `0x832B8ADC`) and a view test (`sub_8243FDD0`); view 9 selects a light probe through `sub_8243FA20`. A drawn item gets a 20-byte record {object, 0, 0.0, value, 0} pushed by `sub_82441488` onto one or more of the pass's five buckets (begin, end, capacity vectors at `[renderer+13844] + (pass × 5 + bucket) × 16`). For the light-shadow pass `sub_82DDD040` widens each cascade's depth range by the box's corners. View settings are read through the holder at `0x834ABB08`. On the Deck it is about 10 % of the render thread, most of it the translated code's own overhead."""
+how = """Field accesses and call sequences in the generated code; a native version (src/guest_native/scene_cull.cpp) that plans the pushes and depth ranges and is compared with the original's recorded pushes and range calls on every call (`pinyon_shift_guest_native_verify=1`, desktop race, 2026-11-13): 10,602,630 calls, one difference (two pushes against one, a float boundary), native 2.14 s against 4.47 s."""
+confidence = """confirmed"""
+issue = """#1071"""
+source = """src/guest_native/scene_cull.cpp; GitHub issue #1071 P2"""
+
+[[finding]]
+group = """Frame structure and views"""
+base = """sub_8243EE58, sub_824414E8, sub_8243EE18, sub_82B52C18, sub_8243F328, sub_82448BA0, sub_82448C20, sub_8243F9A0, sub_8243EB10"""
+v4 = """sub_8246EF60, sub_824715F0, sub_8246EF20, sub_82EEC158, sub_8246F430"""
+name = """procedural model culling"""
+what = """The procedural models cull their instances per pass in `sub_8243EE58(models, pass point, …)`: for each instance it resolves the model (`sub_8243F328`, fast path through the reference's +8), tests its box or sphere against the pass (`sub_82448BA0`, `sub_82448C20`, `sub_8243F9A0`), checks the distance range (`sub_8243EB10`), and for a visible one pushes a record {0, reference, 0.0, value, flag << 24} with `sub_824414E8` and marks the pass in the model (`sub_8243EE18`: a byte at +76 + pass, +54 set, a count at +108). A virtual call at slot +48 receives the pass point and slot +20 gives the bucket mask; `sub_82B52C18` stores the selected probe at model+60. Bounds can be null, so the box is read only when a test needs it. It runs on the render thread and on other threads. On the Deck it is about 6 % of the render thread."""
+how = """Field accesses and call sequences in the generated code; a native version (src/guest_native/scene_cull.cpp) compared with the original's recorded pushes, marks, ranges and probe stores on every call of a desktop race (2026-11-13): 15,683,301 calls, no difference, native 1.47 s against 5.23 s. On the v4 build (`fh1-race-sync`): 6,080,047 calls, no difference, and 5,433,541 pass-culling calls, no difference."""
+confidence = """confirmed"""
+note = """With this and the pass culling native (`pinyon_shift_native_scene_cull`), the Deck LCD render thread used 0.64 ± 0.37 and 0.35 ± 0.31 ms less a frame in two in-run A/B races of 8,300 frames (every 240 frames from frame 4,600), against an A/A run of +0.18 ± 0.34 ms; process CPU did not resolve. It is the Linux desktop default."""
+issue = """#1071"""
+source = """src/guest_native/scene_cull.cpp; GitHub issue #1071 P2"""
 
 [[finding]]
 group = """Light glows"""
