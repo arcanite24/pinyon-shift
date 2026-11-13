@@ -15,6 +15,11 @@ base = ["82D4E2E0"]
 v4 = ["82E10560"]
 
 [[group]]
+name = "audio logic"
+base = ["82BAF5C8"]
+v4 = []
+
+[[group]]
 name = "scene"
 base = ["825A6208"]
 v4 = []
@@ -36,13 +41,15 @@ class SubsystemCpuTests(unittest.TestCase):
                 # v4 root on a worker thread
                 "Guest 82CCC368 -1/3;__start;sub_82E10560;sub_82DE3D10 200\n"
                 "Guest 825A6320 -1/4;__start;sub_825A6208;sub_8259F3E8 400\n"
+                # matched by the thread's start address alone
+                "Guest 82BAF5C8 -1/6;__start;sub_82BAD518 110\n"
                 "GPU Commands -1/5;__start;rex::Decode 999\n",
                 encoding="utf-8")
             self.run_tool(str(path / "p.folded"), "--groups", str(path / "groups.toml"),
                           "--seconds", "1", "--output", str(path / "r.json"))
             report = json.loads((path / "r.json").read_text(encoding="utf-8"))
         shares = {g["name"]: round(g["share"]) for g in report["groups"]}
-        self.assertEqual(shares, {"physics": 50, "scene": 40, "other: Guest 8255AE10": 10})
+        self.assertEqual(shares, {"physics": 45, "scene": 36, "audio logic": 10, "other: Guest 8255AE10": 9})
 
     def test_sampler_drops_waits_and_sleeping_threads(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -221,15 +221,22 @@ simpleperf's `stackcollapse.py --tid` output from an Android recording:
   --process pinyon_shift.exe --thread "Guest " --interval-us 4000 --output .local/thread-samples/race
 python tools/subsystem-cpu.py .local/thread-samples/race --from-s 78 --to-s 110 --fps 120
 
-# Android: record with --call-graph fp, then fold
-python <ndk>/simpleperf/stackcollapse.py -i perf.data --tid > odin.folded
+# Android: record with --call-graph fp (the NDK's simpleperf pushed to
+# /data/local/tmp), cache the unstripped libraries, then fold
+adb shell /data/local/tmp/simpleperf record --app studio.deimos.pinyonshift --call-graph fp -f 1000 --duration 30 -o /data/local/tmp/cg.data
+python <ndk>/simpleperf/binary_cache_builder.py -i perf.data -lib out/build/android-arm64-v4
+python <ndk>/simpleperf/stackcollapse.py -i perf.data --tid --symfs binary_cache > odin.folded
 python tools/subsystem-cpu.py odin.folded --seconds 30
 ```
 
 Use a route that drives: `fh1-race-sync` reaches the moving race only in its
 last two seconds, so most of it is the grid and countdown, where physics is
 under 5 %. Guest threads that are busy in guest code but use almost no cycles
-(a guest-side sleep) are left out and named. The measured split is in the
+(a guest-side sleep) are left out and named. A group's root also matches a
+thread that starts at it, for threads whose entry is not a frame of their
+stacks (the audio logic, the presentation worker). The installed APK's
+libraries must be the ones in the build directory, or the stacks have no
+guest names. The measured split is in the
 "guest CPU by subsystem in a sustained race" record (issue #1071).
 
 ## Escalate only when the trace calls for it

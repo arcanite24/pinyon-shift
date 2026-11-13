@@ -152,7 +152,7 @@ Probe mods found the launch-option flags, the Treasure Map's reveal path and the
 
 `pinyon_shift_thread_sampler` samples every guest thread and maps the samples to guest functions; on Android, `simpleperf record --call-graph fp` does the same with call chains. A function's share of a thread is often the first hint of what it is: the render thread's idle loop and the LZX decoder were both found this way ([Threads and frame loop](game-threads.md)).
 
-`tools/subsystem-cpu.py` adds those samples up by subsystem (physics, scene submission, simulation, audio, crowd), from root functions listed in `config/performance/subsystems.toml` for both builds. A sample counts for the first group with a root on its stack. In a sustained desktop race, scene submission took 36 % of the guest CPU and physics 10 % ([Threads and frame loop](game-threads.md)).
+`tools/subsystem-cpu.py` adds those samples up by subsystem (physics, scene submission, simulation, audio, crowd), from root functions listed in `config/performance/subsystems.toml` for both builds. A sample counts for the first group with a root on its stack or started on its thread. In a sustained race, scene submission took 36 % of the guest CPU on the desktop and 24 % on the Odin, and physics 10 % and 7 % ([Threads and frame loop](game-threads.md)).
 
 ### The probe build
 

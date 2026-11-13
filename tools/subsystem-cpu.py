@@ -10,7 +10,7 @@ Reads either
 and splits the guest threads' CPU into the subsystems named in
 config/performance/subsystems.toml: a sample belongs to the first group with
 one of its root functions anywhere on its stack, otherwise to "other" under
-its guest thread.
+its guest thread. A root also matches a thread that starts there.
 
 Thread-sampler input: samples whose leaf is a kernel wait are dropped. Each
 remaining sample stands for the wall time since its thread's previous sample
@@ -70,7 +70,12 @@ def guest_functions(frames: list[str]) -> list[str]:
 
 
 def classify(functions: list[str], thread: str, groups) -> str:
+    # A root also matches the guest thread's start address, which is not
+    # always a frame of its stacks.
     present = set(functions)
+    match = THREAD_ROLE.match(thread)
+    if match:
+        present.add(match.group(1)[6:].upper())
     for name, roots in groups:
         if present & roots:
             return name

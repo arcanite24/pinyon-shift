@@ -19,10 +19,28 @@ base = ["82D4E2E0", "82D4A000", "82D3A528", "82D46EF8", "82B8ED78", "82D18D60", 
 v4 = ["82E10560", "82E0C0F8", "82DFC608", "82E08FF8", "82C4D3C8", "82DDACA8", "82DF7448", "82E0FC50", "82E05920"]
 
 [[group]]
-name = "audio"
+name = "FMOD mixer"
 note = "FMOD threads (threads: FMOD threads)"
 base = ["82FB4AF8"]
 v4 = ["83075D18"]
+
+[[group]]
+name = "game audio logic"
+note = "CAudioThread: CAudioEngine::Update, the car audio models and the FMOD Event System update, once a rendered frame (threads: other guest threads)"
+base = ["82BAF5C8"]
+v4 = ["82C6DD70"]
+
+[[group]]
+name = "procedural geometry"
+note = "vegetation, models and characters built on their own thread (threads: other guest threads)"
+base = ["82E217A0"]
+v4 = ["82EE37A0"]
+
+[[group]]
+name = "presentation worker"
+note = "second producer of D3D segments and draws, the render thread's deferred-command drain (threads: other guest threads)"
+base = ["82589AE8"]
+v4 = ["826000A0"]
 
 [[group]]
 name = "scene submission"
