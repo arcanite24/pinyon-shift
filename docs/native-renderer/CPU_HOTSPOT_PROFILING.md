@@ -206,6 +206,32 @@ time: `gpu_thread_idle_ns` (ring buffer empty, waiting for the title),
 submission worker's `gpu_submission_busy_ns` and the thread's CPU time as
 `fh1_gpu_thread_cpu_time_ns` (scheduler-tick resolution, so use means).
 
+## Guest CPU by subsystem
+
+`tools/subsystem-cpu.py` splits the guest threads' CPU into the subsystems
+named in `config/performance/subsystems.toml` (physics, scene submission,
+simulation, audio, crowd; base and v4 roots). A sample goes to the first
+group with one of its roots on the stack, the rest to "other" by guest
+thread. It reads a thread-sampler directory or a folded-stacks file, such as
+simpleperf's `stackcollapse.py --tid` output from an Android recording:
+
+```powershell
+# Every guest thread, then a driving window of fh1-race-sustained
+.\out\build\win-amd64-release\pinyon_shift_thread_sampler.exe `
+  --process pinyon_shift.exe --thread "Guest " --interval-us 4000 --output .local/thread-samples/race
+python tools/subsystem-cpu.py .local/thread-samples/race --from-s 78 --to-s 110 --fps 120
+
+# Android: record with --call-graph fp, then fold
+python <ndk>/simpleperf/stackcollapse.py -i perf.data --tid > odin.folded
+python tools/subsystem-cpu.py odin.folded --seconds 30
+```
+
+Use a route that drives: `fh1-race-sync` reaches the moving race only in its
+last two seconds, so most of it is the grid and countdown, where physics is
+under 5 %. Guest threads that are busy in guest code but use almost no cycles
+(a guest-side sleep) are left out and named. The measured split is in the
+"guest CPU by subsystem in a sustained race" record (issue #1071).
+
 ## Escalate only when the trace calls for it
 
 Use PIX timing capture when the sampled trace points to D3D12 submission,

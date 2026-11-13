@@ -1,0 +1,37 @@
+# Guest subsystems for tools/subsystem-cpu.py (#1071). A sample belongs to
+# the first group, in file order, with one of its roots anywhere on the
+# stack; the rest are reported as "other" by guest thread. Roots are guest
+# function addresses, base and v4 together (mapped with
+# tools/map-fh1-v4-addresses.py; the v4 column is checked when a profile of
+# that build is read). Put narrower groups first: the crowd runs on the
+# render thread, physics on the simulation thread.
+
+[[group]]
+name = "crowd"
+note = "trackside procedural crowd step (objects: trackside procedural crowd)"
+base = ["82E08A00"]
+v4 = ["82ECAB38"]
+
+[[group]]
+name = "physics"
+note = "physics-world step, physics islands job, job-worker burst chain, and the worker job 82D4D9D0 > 82D43818 (threads: job worker threads)"
+base = ["82D4E2E0", "82D4A000", "82D3A528", "82D46EF8", "82B8ED78", "82D18D60", "82D35390", "82D4D9D0", "82D43818"]
+v4 = ["82E10560", "82E0C0F8", "82DFC608", "82E08FF8", "82C4D3C8", "82DDACA8", "82DF7448", "82E0FC50", "82E05920"]
+
+[[group]]
+name = "audio"
+note = "FMOD threads (threads: FMOD threads)"
+base = ["82FB4AF8"]
+v4 = ["83075D18"]
+
+[[group]]
+name = "scene submission"
+note = "render thread frame below its loop (threads: render thread)"
+base = ["825A6208"]
+v4 = ["8261E178"]
+
+[[group]]
+name = "simulation (not physics)"
+note = "main simulation loop, after physics is taken out (threads: main thread runs the simulation)"
+base = ["823ED888"]
+v4 = ["8241D948"]
