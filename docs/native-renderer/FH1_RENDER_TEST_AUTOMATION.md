@@ -263,6 +263,7 @@ except the resolve read-back, which is on by default.
 | `--fh1_debug_skip_draws=<first>-<last>[,<first>-<last>...]` | Skips those draw indices in every frame: bisect a replayed frame for the draw that causes a fault, keeping a known contributor skipped with a second range |
 | `--fh1_debug_null_fetch=<draw>:<slot>` | That draw binds a null texture for that fetch constant (logged as "completely invalid"), to tell texture faults from shader math |
 | `--perf_critical_path_trace=true` | Correlated title/PM4/submission/present trace |
+| `--pinyon_shift_physics_trace=N` | Every N frames, every car in the world's car vector (speed, rpm, gear, throttle, brake, steer, driver type) as one `fh1.physics_trace` event; read with `tools/physics-behaviour.py` (see below) |
 
 The executor logs its skip counters, memory (`FH1 native executor memory
 MB`) and transfer statistics every 600 swaps. With
@@ -272,6 +273,44 @@ guest CPU can observe; this is how the game's saved car thumbnails get real
 images. Completed `32_FLOAT` resolves of at most 4 KiB also use the native
 readback queue for CPU exposure reads (`fh1_readback_small_float_resolves`).
 At scales above 1x, both paths first write the guest-size GPU copy.
+
+## Physics behaviour harness
+
+A native replacement of the car physics (issue #1071) has to drive like the
+translated code closely enough for play, not bit for bit. Run a route with
+`--game-argument=--pinyon_shift_physics_trace=6`, then:
+
+```powershell
+python tools/physics-behaviour.py summary .local/runs/accel/result.json
+python tools/physics-behaviour.py compare .local/runs/translated/result.json .local/runs/native/result.json
+```
+
+`summary` reports the player's 0-60 and 0-100 km/h times from the first
+sample with the throttle pressed at a standstill (the game ramps it to full
+over about 0.2 s), each car's distance (integrated speed) and top speed, the
+AI cars' mean distance, the order by distance, and the race time when the run
+finished one. Time comes from the route's `# clock-hz`, or from the host time
+in each sample when the route has none. Race samples (game mode 3, or 20 for
+v4 Rally) are kept when the run has any; free roam before them has the
+traffic in the same vector. `compare` fails on the player's times or race
+time moving more than 2 % or the AI mean distance more than 3 %; single cars
+and the order are listed, and gated only with `--strict`.
+
+Routes and two runs of the same Release build (multivac, RTX 4080,
+2026-11-12), which set those tolerances:
+
+| Route and seed | Run A | Run B |
+| --- | --- | --- |
+| `fh1-physics-accel` on `acc9-stock` (stock R34, free roam, full throttle) | 0-100 5.82 s | 5.79 s |
+| `fh1-race-sustained` on `appdata-2026-09-27-winwarm` (player full throttle, seven AI) | 0-100 4.99 s, AI mean 1,580.8 m | 4.98 s, 1,604.5 m (+1.5 %) |
+| `fh1-rally-stage-ai` on a `create-rally-stage-seed.py --autopilot` seed (route 1, AI drives) | 171.26 s, 0-100 5.20 s | 171.22 s, 5.18 s |
+
+In the sustained race, single AI cars moved by up to 4.1 % between the two
+runs and swapped places, and the player's distance (no steering) by 2.8 %,
+from thread timing; that is why they are not gates. #1019 measured the stock
+R34 at 5.3 s from position captures every 0.1 s timed from frame 1100; the
+speed field read here gives 5.8 s from the throttle press, so compare runs
+measured the same way only.
 
 ## Frame dumps and offline replay
 

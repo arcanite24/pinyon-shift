@@ -152,6 +152,8 @@ Probe mods found the launch-option flags, the Treasure Map's reveal path and the
 
 `pinyon_shift_thread_sampler` samples every guest thread and maps the samples to guest functions; on Android, `simpleperf record --call-graph fp` does the same with call chains. A function's share of a thread is often the first hint of what it is: the render thread's idle loop and the LZX decoder were both found this way ([Threads and frame loop](game-threads.md)).
 
+`tools/subsystem-cpu.py` adds those samples up by subsystem (physics, scene submission, simulation, audio, crowd), from root functions listed in `config/performance/subsystems.toml` for both builds. A sample counts for the first group with a root on its stack. In a sustained desktop race, scene submission took 36 % of the guest CPU and physics 10 % ([Threads and frame loop](game-threads.md)).
+
 ### The probe build
 
 A sampler sees where time goes; the probe build counts what happens. `PINYON_SHIFT_RECOMP_PROBE=ON` generates the game a second time into `.local/generated-probe` with a counter at every function entry and a per-thread record of every indirect call's target (`rex/ppc/probe.h`). When a scripted route completes, the runtime writes `logs/probe.json` into the run's state directory, and one script reads any number of them:
@@ -174,6 +176,8 @@ python tools/run-fh1-render-test.py config/render-tests/fh1-free-roam.fh1test --
 The runner copies the seed into a private directory for each run, takes captures at fixed frames and reports the route's events. Two runs that differ in one cvar or one probe give an A/B pair; the car LOD and draw-distance records on [World and tracks](game-world.md) are such pairs, and most of them are negative.
 
 On a phone, thermal drift makes two separate runs hard to compare, so a toggle is flipped every few hundred frames inside one run instead.
+
+A change meant to keep behaviour rather than pixels, such as a native replacement of the car physics, is compared by how the cars drive. `--pinyon_shift_physics_trace=6` records every car's speed, engine, gear and controls, and `tools/physics-behaviour.py compare` checks the player's 0-100 km/h time, a race's or Rally stage's time, and the AI field's mean distance. Two runs of the same build are not identical: in a sustained race, single AI cars moved by up to 4 % and swapped places, while the 0-100 time held within 0.5 % and the AI's Rally stage time within 0.05 s. So the gates are those aggregates, at 2 % and 3 %, and single cars are only listed ([FH1_RENDER_TEST_AUTOMATION.md](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/native-renderer/FH1_RENDER_TEST_AUTOMATION.md#physics-behaviour-harness)).
 
 ## Mapping base addresses to the title update
 
