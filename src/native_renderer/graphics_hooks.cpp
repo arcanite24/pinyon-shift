@@ -42,10 +42,10 @@ REXCVAR_DEFINE_DOUBLE(pinyon_shift_fh1_env_map_rate, REX_PLATFORM_ANDROID ? 0.25
     .range(0.0, 1.0)
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
 REXCVAR_DEFINE_STRING(pinyon_shift_fh1_scene_size, "", "Pinyon Shift",
-                      "Experimental, base game only (#1069): render the whole frame at "
-                      "<width>x<height> (for example 960x540) through the title's own "
-                      "one-tile scenario, at most 2x MSAA. The static world (road, terrain) "
-                      "is not drawn in this mode")
+                      "Experimental, base game only (#1069, #1070): render the scene at "
+                      "<width>x<height> (for example 960x540; width in steps of 80, height in "
+                      "steps of 45) by scaling the title's tiling bands; the presenter scales "
+                      "the frame up. The exposure and glare chain still differs from 720p")
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 REXCVAR_DEFINE_BOOL(pinyon_shift_fh1_shadows, !REX_PLATFORM_ANDROID, "Pinyon Shift",
                     "Draw the sun's shadows. Off sets the render scenarios' "
@@ -333,11 +333,11 @@ void PinyonShiftGpuFenceWait(PPCRegister& r3) {
 
 namespace {
 
-// pinyon_shift_fh1_scene_size (#1069). The title's tiling scenarios are
-// static records 1232 bytes apart: a vtable, the screen width and height,
-// the MSAA mode (0 1x, 1 2x, 2 4x), the tile count, two words, a zero and
-// one {left, top, right, bottom} rect a tile. The race uses "4xMSAA":
-// 1280x720 in three 1280-wide bands of 256, 256 and 208 rows.
+// pinyon_shift_fh1_scene_size (#1069, #1070). The title's tiling scenarios
+// are static records 1232 bytes apart: a vtable, the screen width and
+// height, the MSAA mode (0 1x, 1 2x, 2 4x), the tile count, two words, a
+// zero and one {left, top, right, bottom} rect a tile. The race uses
+// "4xMSAA": 1280x720 in three 1280-wide bands of 256, 256 and 208 rows.
 uint32_t g_scene_width = 0;
 uint32_t g_scene_height = 0;
 
@@ -346,8 +346,13 @@ void ResizeScene(rex::memory::Memory* memory) {
   if constexpr (pinyon_shift::fh1::kTitleUpdateV4) return;
   const std::string& size = REXCVAR_GET(pinyon_shift_fh1_scene_size);
   uint32_t width = 0, height = 0;
-  if (size.empty() || std::sscanf(size.c_str(), "%ux%u", &width, &height) != 2 || !width ||
-      !height || width > 1280 || height > 720) {
+  if (size.empty() || std::sscanf(size.c_str(), "%ux%u", &width, &height) != 2) return;
+  // Whole EDRAM tiles across, and band rows (256 and 512 scaled) that stay
+  // whole multiples of 8: a width in steps of 80, a height in steps of 45.
+  if (!width || !height || width > 1280 || height > 720 || width % 80 || height % 45) {
+    REXLOG_WARN("[scene] scene size {} needs a width in steps of 80 and a height in steps of 45, "
+                "at most 1280x720; scene size unchanged",
+                size);
     return;
   }
   static constexpr uint32_t kRecord[] = {1280, 720, 2, 3, 1, 3, 0, 0, 0, 1280, 256,
@@ -365,33 +370,28 @@ void ResizeScene(rex::memory::Memory* memory) {
     REXLOG_WARN("[scene] 4xMSAA tiling scenario not found; scene size unchanged");
     return;
   }
-  // "Small2xMSAA" (the fourth record, 1232 bytes apart) is the title's own
-  // reduced scene: 1280x720 screen, one 2x MSAA tile of 1120x584, and the
-  // world view clamps its viewport to that tile. Point the 4x, 2x and
-  // no-MSAA scenarios at the same single tile, sized to the cvar.
+  auto* graphics = rex::system::kernel_state()->emulator()->graphics_system();
+  if (!graphics) return;
+  // Keep the 4x, 2x and no-MSAA scenarios' bands and scale their rows: the
+  // static world's command lists are recorded for the 720p bands, and the
+  // GPU decoder rewrites their window offset and scissor to the scaled
+  // bands (set_fh1_scene_size). The one-tile path drops the world.
   constexpr uint32_t kStride = 1232;
-  const auto* small = memory->TranslateVirtual<const uint32_t*>(found + 3 * kStride);
-  uint32_t small_words[12];
-  for (size_t i = 0; i < std::size(small_words); ++i) small_words[i] = rex::byte_swap(small[i]);
-  REXLOG_INFO("[scene] Small2xMSAA record: {} {} {} {} {} {} {} | {} {} {} {}", small_words[0],
-              small_words[1], small_words[2], small_words[3], small_words[4], small_words[5],
-              small_words[6], small_words[7], small_words[8], small_words[9], small_words[10]);
-  if (small_words[0] != 1280 || small_words[1] != 720 || small_words[3] != 1 ||
-      small_words[9] != 1120 || small_words[10] != 584) {
-    REXLOG_WARN("[scene] Small2xMSAA record not as expected; scene size unchanged");
-    return;
-  }
   for (uint32_t record = 0; record < 3; ++record) {
     auto* words = memory->TranslateVirtual<uint32_t*>(found + record * kStride);
-    const uint32_t msaa = std::min(rex::byte_swap(words[2]), small_words[2]);
-    for (size_t i = 0; i < 11; ++i) words[i] = rex::byte_swap(small_words[i]);
-    words[2] = rex::byte_swap(msaa);
-    words[9] = rex::byte_swap(width);
-    words[10] = rex::byte_swap(height);
+    const uint32_t tiles = std::min<uint32_t>(rex::byte_swap(words[3]), 3);
+    for (uint32_t tile = 0; tile < tiles; ++tile) {
+      uint32_t* rect = words + 7 + tile * 4;
+      rect[2] = rex::byte_swap(width);
+      for (uint32_t k : {1u, 3u}) {
+        rect[k] = rex::byte_swap(rex::byte_swap(rect[k]) * height / 720);
+      }
+    }
   }
+  graphics->set_fh1_scene_size(width, height);
   g_scene_width = width;
   g_scene_height = height;
-  REXLOG_INFO("[scene] tiling scenarios at {:08X} set to one {}x{} tile", found - 4, width,
+  REXLOG_INFO("[scene] tiling scenarios at {:08X}: bands scaled to {}x{}", found - 4, width,
               height);
 }
 
