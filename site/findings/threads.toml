@@ -26,6 +26,16 @@ source = """docs/NATIVE_PORT_BACKLOG.md NP-3.8; docs/PERFORMANCE_BACKLOG.md Budg
 
 [[finding]]
 group = """Thread map"""
+base = """825A6208, 8255AE10, 82D4E2E0, 82C0C8C8, 82FB4AF8"""
+name = """guest CPU by subsystem in a sustained race"""
+what = """While driving with seven AI cars at 120 fps (simulation 112 steps a second), the guest threads are busy about 1.38 cores in all, not counting `82E4B2D0`, which shows as busy but uses almost no cycles (a guest-side sleep). By wall-time samples: scene submission on the render thread (`825A6208` and below) about 36 %, the simulation thread about 30 % (`823E40D8` and `823E3218` 15 and 13 % of it, `82E71F90` 9 %), FMOD's mixer about 10 %, `82BAF5C8` 8 %, and physics (the physics-world step `82D4E2E0` on the simulation thread plus the job workers at `82C0C8C8`) about 11-14 %, about 1.5 ms of CPU a simulation step. Physics runs in large bursts outside the race: about 7 G cycles a second across the workers for two seconds while the event loads, and 37 % of the guest CPU in the festival before it. During the race intro (grid, countdown) physics is under 5 %."""
+how = """Thread sampler (`tools/thread_sampler.cpp`) over every guest thread, 4 ms interval, on `fh1-race-sustained` (RelWithDebInfo, RTX 4080 desktop, 2026-11-12); windows chosen from the route's capture times; samples whose leaf is a kernel wait excluded."""
+confidence = """confirmed"""
+note = """Desktop shares, where none of these threads sets the frame (the GPU commands decoder does). Particles and crowds were not separated: their updates are not named and run inside the render and simulation threads' unnamed work."""
+source = """GitHub issue #1070 item 5 follow-up; .local/thread-samples/guest-sustained-1 (local)"""
+
+[[finding]]
+group = """Thread map"""
 base = """825A6320, sub_825A6208, sub_8259F3E8"""
 v4 = """8261E318, sub_826164D0"""
 name = """render thread"""
