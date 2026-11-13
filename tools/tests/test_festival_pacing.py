@@ -77,6 +77,15 @@ class FestivalPacingTests(unittest.TestCase):
             self.assertIn(table, changed)
         self.assertGreater(len([t for t in changed if t.startswith("List_Upgrade")]), 20)
 
+    def test_runs_on_both_builds(self):
+        # No game_version: the database steps apply it to the disc's
+        # database and to v4's own copy, and the mod host loads it on both.
+        import tomllib
+        manifest = tomllib.loads((MOD / "mod.toml").read_text(encoding="utf-8"))
+        self.assertNotIn("game_version", manifest)
+        # v4-only tables keep their values (the Rally Expansion's scoring).
+        self.assertFalse({t for t, _ in tables()} & {"RallyScoring", "RallyWristbandLevels"})
+
 
 if __name__ == "__main__":
     unittest.main()
