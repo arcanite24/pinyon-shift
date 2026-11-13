@@ -840,6 +840,16 @@ std::unique_ptr<MenuScreen> SettingsPages::Graphics() {
   // memory), and 30 fps, the console's own rate and half the CPU work of 60.
   // The other presets set those four back to the desktop defaults, so
   // leaving ULTRA LOW does not keep them.
+  // The scene's tiles in one pass cost the RTX 4080 about 1.1 ms a frame at
+  // a 240 limit, where the GPU decoder sets the frame (so PERFORMANCE 120
+  // keeps them tiled), but took 2.5-3 ms of CPU a frame off the Steam
+  // Deck's GPU recorder and submission threads at 60 (#1071), so the other
+  // presets keep it on on Linux.
+#if defined(__linux__)
+  static constexpr const char* kSinglePassScene = "true";
+#else
+  static constexpr const char* kSinglePassScene = "false";
+#endif
   const auto preset = [](const char* scale, const char* effect, const char* msaa_off,
                          const char* fps,
                          std::vector<std::pair<std::string, std::string>> extra = {}) {
@@ -855,7 +865,7 @@ std::unique_ptr<MenuScreen> SettingsPages::Graphics() {
         {"pinyon_shift_fh1_render_fps_limit", fps},
         {"pinyon_shift_fh1_shadows", "true"},
         {"pinyon_shift_fh1_env_map_rate", "1"},
-        {"fh1_untile_predicated_tiling", "false"},
+        {"fh1_untile_predicated_tiling", kSinglePassScene},
         {"vulkan_texture_max_size", "0"}};
     for (auto& [name, value] : extra) {
       const auto it = std::find_if(values.begin(), values.end(),
@@ -882,7 +892,8 @@ std::unique_ptr<MenuScreen> SettingsPages::Graphics() {
        {"BALANCED 40", preset("1", "\"bilinear\"", "true", "40", cheapest)},
        // The reference desktop (Ryzen 7 5800X, RTX 4080) holds the 120 limit
        // in the race at 1x (8.3 ms median) and runs it at 9.5 ms at 3x.
-       {"PERFORMANCE 120", preset("1", "\"fsr\"", "true", "120")},
+       {"PERFORMANCE 120",
+        preset("1", "\"fsr\"", "true", "120", {{"fh1_untile_predicated_tiling", "false"}})},
 #if defined(__APPLE__)
        // 2x with 4X MSAA averaged 51 fps on an M4 Pro (19.5 ms of GPU a
        // frame), so a Mac stores the game's 4x surfaces with two samples:

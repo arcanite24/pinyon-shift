@@ -23,7 +23,7 @@ You need your ISO of the USA retail disc (`MS-2505`), about 45 GB free and a cha
 
 Everything installs under `~/.local/share/PinyonShift`. SteamOS needs no unlocking, password or developer mode.
 
-The race and free roam hold 60 fps at 1x within the Deck's default 15 W limit. Leave **Manual GPU Clock** off in the Performance settings: with it on, Steam can pin the GPU at 200 MHz and the game drops to about 10 fps.
+The race and free roam hold 60 fps at 1x within the Deck's default 15 W limit. Linux draws the scene's three tiles in one pass (**SINGLE-PASS SCENE** in the graphics settings, on in every preset but PERFORMANCE 120), which takes 2.5-3 ms of CPU a frame off the Deck in a race. Leave **Manual GPU Clock** off in the Performance settings: with it on, Steam can pin the GPU at 200 MHz and the game drops to about 10 fps.
 
 ## Linux PCs
 

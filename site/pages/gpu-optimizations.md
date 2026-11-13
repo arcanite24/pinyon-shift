@@ -166,6 +166,7 @@ Tile-based mobile GPUs pay for each rendering: on the Adreno 830 one costs 24–
 | EDRAM clears folded into the next rendering's load | 8 Elite | renderings about 280 to 210; frame −1.6 to −2.6 ms, GPU −0.5 ms |
 | The three predicated scene bands drawn once ("single-pass scene") | Odin | 4x 32.0 to 29.2 ms; 1x 28.3 to 25.4 ms; no seam in captures |
 | | Desktop 3x | within noise |
+| | Steam Deck LCD, race at the 60 limit, 1x with 4x MSAA (four in-run A/Bs, #1071) | CPU a frame: GPU recorder −1.5 to −2.0 ms, submission −1.1 to −1.25 ms, decoder +0.1 to +0.9 ms, render thread −0.4 to −0.9 ms; on by default on Linux |
 | Draws that write nothing skipped (about 120 a frame) | Desktop | within noise |
 
 Dropped: store-op tuning (only about 8 depth stores a frame qualified); trimming render areas (the Adreno driver already skips untouched tiles); forcing Turnip's on-chip GMEM path (50–56 ms against 29–32); skipping attachment barriers at 3x (noise).
