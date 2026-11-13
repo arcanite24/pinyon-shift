@@ -4,7 +4,11 @@
 Reads config/rexglue/analysis/*.toml and writes config/rexglue/analysis-v4/
 with every guest address remapped by tools/map-fh1-v4-addresses.py.
 Comments and ordering are kept. Manually researched addresses come from
-config/rexglue/analysis-v4/overrides.toml ([module] tables of "base" = v4).
+config/rexglue/analysis-v4/overrides.toml ([module] tables of "base" = v4);
+facts about code that exists only in v4, or whose base entries are marked
+base-only, go in config/rexglue/analysis-v4/v4-additions.toml, never in the
+generated files. When anything is unmapped, unclassified or mismatched the
+port writes nothing (--force writes it anyway, for inspection only).
 An entry whose address cannot be mapped is written commented out with an
 `# UNMAPPED` marker and listed in the report; the command then exits 1, so a
 v4 build never silently loses a hook.
@@ -58,6 +62,8 @@ ADDRESS_LISTS = frozenset({
     "fixed_fp_mode_functions",
     "single_precision_functions",
     "reference_functions",
+    "oracle_regions",
+    "native_regions",
 })
 # Tables every key of which is a guest function address.
 ADDRESS_TABLES = frozenset({"rexcrt"})
@@ -330,7 +336,11 @@ def main() -> int:
     parser.add_argument("--source", type=Path, default=ROOT / "config/rexglue/analysis")
     parser.add_argument("--output", type=Path, default=ROOT / "config/rexglue/analysis-v4")
     parser.add_argument("--check", action="store_true",
-                        help="write nothing when anything is unmapped, unclassified or mismatched")
+                        help="the default: write nothing when anything is unmapped, unclassified or "
+                             "mismatched (kept for older scripts)")
+    parser.add_argument("--force", action="store_true",
+                        help="write the files even when the port failed, to inspect them; never commit "
+                             "such a port (an unclassified key keeps its base value)")
     args = parser.parse_args()
     overrides_path = args.output / "overrides.toml"
     overrides_doc = tomllib.loads(overrides_path.read_text(encoding="utf-8")) if overrides_path.is_file() else {}
@@ -351,7 +361,7 @@ def main() -> int:
                               thunks=name == "main-xex.toml")
     check_overrides(report, native_declarations(ROOT))
     failed = report["unmapped"] or report.get("unclassified") or report.get("override_mismatch")
-    if not failed or not args.check:
+    if not failed or args.force:
         args.output.mkdir(parents=True, exist_ok=True)
         for name, text in texts.items():
             (args.output / name).write_text(text, encoding="utf-8", newline="\n")
