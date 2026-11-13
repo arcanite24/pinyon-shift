@@ -266,21 +266,23 @@ source = """docs/ANDROID_ODIN_BACKLOG.md Predicated tiling rendered once"""
 [[finding]]
 group = """Render targets and EDRAM"""
 base = """0x832A4860 (table), sub_82472758, sub_823EF560, sub_82C3EFE0, sub_82456C88, sub_823E9B38, sub_82C3EFF8, sub_82C3F028"""
+v4 = """0x833901F8 (table)"""
 name = """tiling scenario table"""
 what = """The scene's tiling modes are five static records, 1,232 bytes apart from `0x832A4860`: a vtable, the screen width and height, the MSAA mode (0 1x, 1 2x, 2 4x), the tile count, two words, a zero, then one {left, top, right, bottom} rectangle a tile. In order they are `4xMSAA` (1280x720, three 1280-wide bands of 256, 256 and 208 rows; the race), `2xMSAA` (two bands, 0-512 and 512-720), `NonTiling` (1x, one 1280x720 tile), `Small2xMSAA` (2x, one 1120x584 tile on a 1280x720 screen) and `SplitScreen_NonTiling2xMSAA` (one 1280x368 tile). The `TilingScenario` render setting picks one by name (strings from `0x8223BC68`). Small functions read the fields: width `sub_82472758`, height `sub_823EF560`, MSAA `sub_82C3EFE0`, tile count `sub_82456C88`, the rectangles `sub_823E9B38`, and one tile's width and height `sub_82C3EFF8` and `sub_82C3F028`. The renderer keeps the current record at +9272 and seven render-target sets of 264 bytes per scenario (`sub_824676A0`)."""
 how = """Static reads of the records and their accessors; rewriting records at launch (`pinyon_shift_fh1_scene_size`) and capturing the race."""
 confidence = """confirmed"""
-note = """v4 addresses not mapped; the experiment finds the record by its contents."""
+note = """The v4 table was found by the same record contents in the patched image (2026-11-12); its accessors are not mapped. The scene-size setting finds the record by its contents on both versions."""
 source = """src/native_renderer/graphics_hooks.cpp ResizeScene; GitHub issues #1069 and #1070"""
 
 [[finding]]
 group = """Render targets and EDRAM"""
 base = """0x832295B0 (table), sub_8257C220, 0x8257C39C, sub_82A40F28, sub_82A410E8"""
+v4 = """0x8330C830 (table), 0x825F227C"""
 name = """screen texture table"""
 what = """The full-screen render textures (`FrontBuffer_0` and `_1`, `WorldRender`, `ScratchBuffer`, `ShadowMask`, `WorldDepth`, `Bloom`, `MapRender` and many `Shared` entries) come from a static table of 41 entries of 44 bytes at `0x832295B0`. An entry holds a flag byte (set: the size is a divisor of the screen), width and height (or the divisors), the format at +0x14, a parent index at +0x1C (`0x29` when the entry owns its memory, otherwise the entry it aliases), a placed-at-the-end flag at +0x20 and the name at +0x28. `sub_8257C220` copies the table into 52-byte renderer slots from renderer+416, writes the 1280x720 screen size to renderer+408 and +412, sizes relative entries as `(screen / divisor + 31) & ~31` (a divisor of 1 takes the screen size unrounded), and builds each D3D texture header at the slot's +2132 with `sub_82A40F28` (`sub_82A410E8` for cube maps); both paths rejoin at `0x8257C39C`. Entries 24 and 25 alias the front buffers; entry 40 is the map."""
 how = """Static reads of the table and builder; a hook at `0x8257C39C` that logged every entry and rewrote the header sizes."""
 confidence = """confirmed"""
-note = """v4 addresses not mapped."""
+note = """v4: the hook site was mapped by tools/port-fh1-v4-analysis.py; the builder's instructions from its entry to 48 past the hook match the base ones except the table address, one renderer flag byte (+0xDDD becomes +0xDE1) and one data address, and the table's 41 entries are identical apart from pointers, so the slot offsets the hook uses (+440, 52 bytes, +2108) hold on v4 (2026-11-12, image comparison)."""
 source = """src/native_renderer/graphics_hooks.cpp PinyonShiftScreenTextureMade; GitHub issue #1069"""
 
 [[finding]]
@@ -300,7 +302,7 @@ name = """the static world's lists carry the 720p bands' window"""
 what = """The command lists that draw the static world (road, terrain, rails, start gantry) are recorded once for the 720p bands and replayed in each tile. Each replay sets the band's own window offset (`PA_SC_WINDOW_OFFSET`, rows -256 and -512) and window scissor (rows 0-256, 256-512 and 512-720, 1280 wide) inside the list, while the viewport comes from the frame (it scales with the scene). With the `4xMSAA`, `2xMSAA` and `NonTiling` records' bands scaled to 960x540, the game's per-frame draws take the scaled bands (-192 and -384; rows 192, 384 and 540, 960 wide) but these lists keep the 720p values, so their draws fall outside the smaller tiles and the world disappears. Rewriting exactly those 720p values to the scaled bands as the GPU decoder reads them (only while a surface of the scene's pitch is bound: the 256 and 512 rows also occur in 512x512 and 1024x1024 targets) restores the world at 960x540. About 1,000 of 4,100 draws a race frame come from such lists."""
 how = """A one-frame log of every draw's target, window and viewport registers and its indirect buffer (decoder), 720p against 960x540; then the rewrite in the decoder (`set_fh1_scene_size`, SDK) and race captures."""
 confidence = """confirmed"""
-note = """The frame at 960x540 then matches 720p in geometry, but its exposure and glare differ (darker, no sun glare): the small luminance chain resolves 160x96, 64x32 and 32x32 at 720p and 128x80 and 32x32 at 960x540, so one of its passes still assumes the 720p size (see "passes with a fixed 1280x720 size"). UHD 620: 15.6 % less GPU time than tiled 720p (Lessons page)."""
+note = """The frame at 960x540 then matches 720p in geometry, but its exposure and glare differ (darker, no sun glare): the small luminance chain resolves 160x96, 64x32 and 32x32 at 720p and 128x80 and 32x32 at 960x540, so one of its passes still assumes the 720p size (see "passes with a fixed 1280x720 size"). With the host's single-pass scene (`fh1_untile_predicated_tiling`, the Android and Mac default) the 960x540 race keeps the 720p exposure and only its sun glare is a little stronger (desktop race captures, 2026-11-12). UHD 620: 15.6 % less GPU time than tiled 720p (Lessons page)."""
 source = """GitHub issue #1070; thirdparty/shiftglue-sdk src/graphics/command_processor.cpp Fh1SceneWindowRegister; src/native_renderer/graphics_hooks.cpp ResizeScene"""
 
 [[finding]]

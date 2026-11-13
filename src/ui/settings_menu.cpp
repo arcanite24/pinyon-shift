@@ -942,6 +942,14 @@ std::unique_ptr<MenuScreen> SettingsPages::Graphics() {
     };
   }
   rows.push_back(std::move(resolution));
+  // The game's own scene at 960x540 instead of 1280x720 (its tiling bands
+  // scaled, the decoder rewriting the static world's window registers); the
+  // presenter scales the frame up, and RESOLUTION SCALE multiplies either.
+  // UHD 620: 15.6 % less GPU time than tiled 720p (#1070). Exposure and sun
+  // glare still differ a little from 720p. Applies at the next start.
+  rows.push_back(Setting("SCENE RESOLUTION",
+                         {{"720P", {{"pinyon_shift_fh1_scene_size", "\"\""}}},
+                          {"540P", {{"pinyon_shift_fh1_scene_size", "\"960x540\""}}}}));
   // anisotropic_override holds the Xenos filter: 3, 4 and 5 are 4x, 8x, 16x;
   // -1 keeps what each of the game's textures asks for.
   rows.push_back(Setting("ANISOTROPIC FILTERING",

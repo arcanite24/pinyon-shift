@@ -42,7 +42,7 @@ REXCVAR_DEFINE_DOUBLE(pinyon_shift_fh1_env_map_rate, REX_PLATFORM_ANDROID ? 0.25
     .range(0.0, 1.0)
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
 REXCVAR_DEFINE_STRING(pinyon_shift_fh1_scene_size, "", "Pinyon Shift",
-                      "Experimental, base game only (#1069, #1070): render the scene at "
+                      "Experimental (#1069, #1070): render the scene at "
                       "<width>x<height> (for example 960x540; width in steps of 80, height in "
                       "steps of 45) by scaling the title's tiling bands; the presenter scales "
                       "the frame up. The exposure and glare chain still differs from 720p")
@@ -342,8 +342,6 @@ uint32_t g_scene_width = 0;
 uint32_t g_scene_height = 0;
 
 void ResizeScene(rex::memory::Memory* memory) {
-  // The screen texture hook (0x8257C39C) is mapped in the base build only.
-  if constexpr (pinyon_shift::fh1::kTitleUpdateV4) return;
   const std::string& size = REXCVAR_GET(pinyon_shift_fh1_scene_size);
   uint32_t width = 0, height = 0;
   if (size.empty() || std::sscanf(size.c_str(), "%ux%u", &width, &height) != 2) return;
