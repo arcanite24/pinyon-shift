@@ -23,7 +23,7 @@ The Android package you build holds the game translated from your disc. Keep it 
 
 ## Native code that replaces the game's
 
-Some of the game's translated code runs as native code instead: hand-written functions, hooks, and replacements of libraries linked into the game such as FMOD Ex. That code is written independently, to a contract we documented from our own analysis and checked against the translated original, using our own or published, licensed algorithms. The repository never holds the game's functions rewritten statement by statement, data copied from the executable, or a middleware product's own algorithms beyond its public documentation. Code that must match the original exactly is generated on your machine from your own copy, like the rest of the translation.
+Some of the game's translated code runs as native code instead: hand-written functions, hooks, native versions of whole subsystems, and replacements of libraries linked into the game such as FMOD Ex. That code is written from our own analysis of what the original takes, returns and changes, and checked against the translated original. A clean-room version may compute differently where the check allows it. The repository doesn't hold transcriptions of disassembly or decompiler output, which would copy the executable's expression, or data copied from the executable: tables the code needs are read from your own copy.
 
 ## Licence
 

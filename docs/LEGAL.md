@@ -20,34 +20,20 @@ Do not commit or redistribute:
 ## Native replacements of game and library code
 
 Pinyon Shift replaces some of the title's translated code with native code:
-`src/guest_native`, hooks, and replacements of the libraries linked into
-the game (XDK libraries and middleware such as FMOD Ex). The repository may
-hold a replacement only when it is independently authored:
+`src/guest_native`, hooks, native versions of game subsystems (physics,
+particles, crowds and others), and replacements of the libraries linked into
+the game (XDK libraries and middleware such as FMOD Ex). Any of these may be
+hand-written, from a single function to a whole subsystem, and may compute
+differently from the original where the result is checked.
 
-- It implements a contract documented from our own analysis: what the
-  function takes, returns and changes in guest state, recorded in
-  `site/findings`, and checked by comparing its results with the translated
-  original within a stated tolerance.
-- Its algorithm is our own or comes from a published source under a
-  compatible licence: standard signal-processing filters, codecs, maths, or an
-  open-source library listed in `THIRD_PARTY_NOTICES.md`.
-
-The repository must not hold:
-
-- a game or library function rewritten statement by statement from its
-  instructions, its disassembly or a decompiler's output. Such a hand
-  translation is derived from the executable like the generated source above;
-- constant tables, coefficients or other data copied from the executable. A
-  replacement that needs them reads them from the player's own files at
-  build or run time;
-- a middleware product's own algorithms reproduced beyond what its public
-  documentation and the published literature define. Middleware is
-  replaced at its documented API boundary.
-
-When a replacement must keep the original's exact arithmetic, it is produced
-at build time from the player's own executable, for example by a
-code-generator option or a specialised translation of that function. It
-then stays in the generated tree, which is never committed.
+Write them from our own analysis: what the code takes, returns and changes in
+guest state, recorded in `site/findings`, and checked against the translated
+original (lockstep verification or a stated tolerance). Committing a
+statement-by-statement transcription of disassembly or decompiler output
+copies the executable's expression and is a copyright risk; a clean-room
+version written from that analysis is fine. Constant tables and other data
+the code needs are game data: read them from the player's own files at build
+or run time instead of committing them.
 
 ## Upscaler and frame generation runtimes
 
