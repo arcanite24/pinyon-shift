@@ -34,7 +34,7 @@ interior_resume = false
 # every PINYON_GUEST_NATIVE replacement, including those reached only through
 # function pointers today; tools/port-fh1-v4-analysis.py checks it.
 direct_calls_bypass_thunk = true
-host_overridden_functions = [0x82438EA8, 0x8245DBE0, 0x827DAA40, 0x82A6D7D8, 0x82D46EF8, 0x82E71F90, 0x82F86498, 0x82FBE908,
+host_overridden_functions = [0x82438EA8, 0x8243EE18, 0x8243EE58, 0x824400B0, 0x82441488, 0x824414E8, 0x8245DBE0, 0x827DAA40, 0x82A6D7D8, 0x82B52C18, 0x82D46EF8, 0x82DDD040, 0x82E71F90, 0x82F86498, 0x82FBE908,
     0x82FC7A00, 0x830A86F8, 0x830A96A8, 0x830AF230, 0x830B0570, 0x830B06C8,
     0x830B08B0, 0x830B0A38, 0x830B5260, 0x830B6500, 0x830B6510, 0x830F2210]
 
