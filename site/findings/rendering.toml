@@ -260,8 +260,49 @@ what = """Selecting the game's own `NonTiling` value for the `TilingScenario` re
 how = """Hook on the tiling-scenario load selecting NonTiling; captures on Vulkan and D3D12."""
 confidence = """confirmed"""
 negative = true
-note = """Not the end of the question (2026-11-12). Another FH1 port reports that the missing world's command lists are recorded only for the three-tile pass, and that replaying them in the one-tile pass, with their tiling window, scissor and target packets dropped, restores it. Not verified here. Our host single pass (`fh1_untile_predicated_tiling`) already skips the later tiles' draws at decode, so a game-side single pass would add only the decode of those tiles (NN-2.2 bounded it at 0.36 ms) and the title's recording of them; see the Lessons page for the desktop measurement."""
+note = """Not the end of the question (2026-11-12). Another FH1 port reports that the missing world's command lists are recorded only for the three-tile pass, and that replaying them in the one-tile pass, with their tiling window, scissor and target packets dropped, restores it. Partly confirmed here (2026-11-12, "one-tile scenes run at a smaller size, without the static world"): any one-tile record drops it, and a three-tile record at another size draws no world. Our host single pass (`fh1_untile_predicated_tiling`) already skips the later tiles' draws at decode, so a game-side single pass would add only the decode of those tiles (NN-2.2 bounded it at 0.36 ms) and the title's recording of them; see the Lessons page for the desktop measurement."""
 source = """docs/ANDROID_ODIN_BACKLOG.md Predicated tiling rendered once"""
+
+[[finding]]
+group = """Render targets and EDRAM"""
+base = """0x832A4860 (table), sub_82472758, sub_823EF560, sub_82C3EFE0, sub_82456C88, sub_823E9B38, sub_82C3EFF8, sub_82C3F028"""
+name = """tiling scenario table"""
+what = """The scene's tiling modes are five static records, 1,232 bytes apart from `0x832A4860`: a vtable, the screen width and height, the MSAA mode (0 1x, 1 2x, 2 4x), the tile count, two words, a zero, then one {left, top, right, bottom} rectangle a tile. In order they are `4xMSAA` (1280x720, three 1280-wide bands of 256, 256 and 208 rows; the race), `2xMSAA` (two bands, 0-512 and 512-720), `NonTiling` (1x, one 1280x720 tile), `Small2xMSAA` (2x, one 1120x584 tile on a 1280x720 screen) and `SplitScreen_NonTiling2xMSAA` (one 1280x368 tile). The `TilingScenario` render setting picks one by name (strings from `0x8223BC68`). Small functions read the fields: width `sub_82472758`, height `sub_823EF560`, MSAA `sub_82C3EFE0`, tile count `sub_82456C88`, the rectangles `sub_823E9B38`, and one tile's width and height `sub_82C3EFF8` and `sub_82C3F028`. The renderer keeps the current record at +9272 and seven render-target sets of 264 bytes per scenario (`sub_824676A0`)."""
+how = """Static reads of the records and their accessors; rewriting records at launch (`pinyon_shift_fh1_scene_size`) and capturing the race."""
+confidence = """confirmed"""
+note = """v4 addresses not mapped; the experiment finds the record by its contents."""
+source = """src/native_renderer/graphics_hooks.cpp ResizeTiledScene; GitHub issue #1069"""
+
+[[finding]]
+group = """Render targets and EDRAM"""
+base = """0x832295B0 (table), sub_8257C220, 0x8257C39C, sub_82A40F28, sub_82A410E8"""
+name = """screen texture table"""
+what = """The full-screen render textures (`FrontBuffer_0` and `_1`, `WorldRender`, `ScratchBuffer`, `ShadowMask`, `WorldDepth`, `Bloom`, `MapRender` and many `Shared` entries) come from a static table of 41 entries of 44 bytes at `0x832295B0`. An entry holds a flag byte (set: the size is a divisor of the screen), width and height (or the divisors), the format at +0x14, a parent index at +0x1C (`0x29` when the entry owns its memory, otherwise the entry it aliases), a placed-at-the-end flag at +0x20 and the name at +0x28. `sub_8257C220` copies the table into 52-byte renderer slots from renderer+416, writes the 1280x720 screen size to renderer+408 and +412, sizes relative entries as `(screen / divisor + 31) & ~31` (a divisor of 1 takes the screen size unrounded), and builds each D3D texture header at the slot's +2132 with `sub_82A40F28` (`sub_82A410E8` for cube maps); both paths rejoin at `0x8257C39C`. Entries 24 and 25 alias the front buffers; entry 40 is the map."""
+how = """Static reads of the table and builder; a hook at `0x8257C39C` that logged every entry and rewrote the header sizes."""
+confidence = """confirmed"""
+note = """v4 addresses not mapped."""
+source = """src/native_renderer/graphics_hooks.cpp PinyonShiftScreenTextureMade; GitHub issue #1069"""
+
+[[finding]]
+group = """Render targets and EDRAM"""
+base = """sub_82444E60, 0x8244503C"""
+name = """one-tile scenes run at a smaller size, without the static world"""
+what = """The game's one-tile path renders the whole frame, HUD included, at the tile's size: the world view (`sub_82444E60`) clamps its viewport, a copy of view+424 ({x, y, width, height, min z, max z} as integers), to the tile's width and height only when the scenario has one tile. Pointing the `4xMSAA`, `2xMSAA` and `NonTiling` records at one 960x540 tile, and shrinking the size in every relative screen texture's header (front buffers included, memory and pitch kept at 720p), gives a clean 960x540 front buffer that the presenter scales to the window, with no resolve errors. As with `NonTiling`, the road, rails, terrain and start gantry are missing, so the static world is drawn only by the tiled path. Keeping three tiles with the bands scaled to 960x540 draws no world at all: the static world's command lists carry the 720p tiling."""
+how = """Race captures with the records rewritten at launch and a hook on the screen texture headers (`pinyon_shift_fh1_scene_size`, 2026-11-12); hooks on the world viewport and the full-screen quad builder `sub_823E5628` were never reached in the one-tile path."""
+confidence = """confirmed"""
+negative = true
+note = """`Small2xMSAA` is the console's own reduced mode: the 360's video scaler upscaled its front buffer. On the UHD 620 at equal draws the 960x540 frame costs 16-19 % less GPU time than the same mode at 1280x720 (Lessons page). The static world needs its tiled command lists replayed in one pass before this path can ship."""
+source = """GitHub issue #1069; src/native_renderer/graphics_hooks.cpp"""
+
+[[finding]]
+group = """Render targets and EDRAM"""
+base = """sub_823F5A00, sub_82DDDEE0, sub_823E5628, sub_82586170, sub_82589B50, sub_8259D670, sub_824532F0"""
+name = """passes with a fixed 1280x720 size"""
+what = """`sub_823F5A00` builds a viewport {x, y, width, height, min z, max z}; the pass functions `sub_82586170`, `sub_82589B50` and `sub_8259D670`, and the frame function `sub_824532F0` (shadow mask), call it with 1280x720 written in the code, and `sub_824532F0` also passes 1280x720 to `sub_82DDDEE0`, which writes 1/width and 1/height into a constant block. `sub_823E5628` builds a full-screen quad from a source rectangle (r4), the source texture's width and height (r5, r6) and a flag, with texture coordinates rectangle / size, and caches the result by all of them."""
+how = """Static reads; a hook at the entry of `sub_823E5628`."""
+confidence = """probable"""
+note = """Only `sub_823E5628` was hooked. In the one-tile 960x540 experiment no call passed a rectangle larger than its source, and the 960x540 race captures showed no misplaced pass; the fixed sizes were not tested further."""
+source = """GitHub issue #1069"""
 
 [[finding]]
 group = """Render targets and EDRAM"""

@@ -34,6 +34,8 @@ not have the simple image-preservation argument of an opaque sky drawn over
 empty depth. The [sky-order study](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/native-renderer/SKY_DRAW_ORDER.md)
 records the shader identities and measured ordering.
 
+The tiling comes from a small static table of scenarios (4x in three bands, 2x in two, one tile at 1x, a reduced one-tile `Small2xMSAA`, split screen), picked by name from the render settings. The full-screen textures the frame renders into are another static table, mostly sized as a divisor of the 1280x720 screen. Changing both at launch renders the frame at a smaller size, which shows the static world's command lists are recorded for the 720p three-band tiling only: a one-tile scenario at any size loses the road and terrain, and three smaller tiles lose the whole world. The measurement is on the [Lessons](lessons.md#what-didnt-pay-off-here) page.
+
 {{findings:rendering/Render targets and EDRAM}}
 
 ## Resolves

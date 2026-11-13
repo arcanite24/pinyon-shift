@@ -7,6 +7,7 @@
 #include "audio_mix.h"
 #include "dlc/rally_audio_probe.h"
 #include "guest_native/retire_code.h"
+#include "native_renderer/graphics_hooks.h"
 #include "dlc/rally_pace_notes.h"
 
 #include <algorithm>
@@ -1750,6 +1751,7 @@ void PinyonShiftApp::OnPostLaunchModule(rex::system::XThread* thread) {
   rex::cs_scheduler::Actor scheduled(rex::cs_scheduler::kMain);
   const std::string thread_id = thread ? std::to_string(thread->thread_id()) : "none";
   pinyon_shift::diagnostics::RecordEvent("guest.thread.prepared", {{"thread_id", thread_id}});
+  pinyon_shift::native_renderer::ApplySceneSize();
   pinyon_shift::fh1_render_test::Start(
       runtime() ? runtime()->graphics_system() : nullptr, &app_context(),
       window(), [this] { OnWindowCloseRequested(); });

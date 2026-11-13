@@ -10,8 +10,11 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
+#include <iterator>
 #include <mutex>
+#include <string>
 #include <vector>
 
 #include <rex/cvar.h>
@@ -38,6 +41,12 @@ REXCVAR_DEFINE_DOUBLE(pinyon_shift_fh1_env_map_rate, REX_PLATFORM_ANDROID ? 0.25
                       "Odin 2 Portal with reflections that look the same")
     .range(0.0, 1.0)
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+REXCVAR_DEFINE_STRING(pinyon_shift_fh1_scene_size, "", "Pinyon Shift",
+                      "Experimental, base game only (#1069): render the whole frame at "
+                      "<width>x<height> (for example 960x540) through the title's own "
+                      "one-tile scenario, at most 2x MSAA. The static world (road, terrain) "
+                      "is not drawn in this mode")
+    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 REXCVAR_DEFINE_BOOL(pinyon_shift_fh1_shadows, !REX_PLATFORM_ANDROID, "Pinyon Shift",
                     "Draw the sun's shadows. Off sets the render scenarios' "
                     "SkipShadowMapUnlessCockpit (no shadow maps, depth pre-pass or shadow "
@@ -320,6 +329,123 @@ void PinyonShiftGpuFenceWait(PPCRegister& r3) {
   PERF_counter_add(kTitleGpuFenceWaitNs, std::chrono::duration_cast<std::chrono::nanoseconds>(
                                              Clock::now() - wait_start)
                                              .count());
+}
+
+namespace {
+
+// pinyon_shift_fh1_scene_size (#1069). The title's tiling scenarios are
+// static records 1232 bytes apart: a vtable, the screen width and height,
+// the MSAA mode (0 1x, 1 2x, 2 4x), the tile count, two words, a zero and
+// one {left, top, right, bottom} rect a tile. The race uses "4xMSAA":
+// 1280x720 in three 1280-wide bands of 256, 256 and 208 rows.
+uint32_t g_scene_width = 0;
+uint32_t g_scene_height = 0;
+
+void ResizeScene(rex::memory::Memory* memory) {
+  // The screen texture hook (0x8257C39C) is mapped in the base build only.
+  if constexpr (pinyon_shift::fh1::kTitleUpdateV4) return;
+  const std::string& size = REXCVAR_GET(pinyon_shift_fh1_scene_size);
+  uint32_t width = 0, height = 0;
+  if (size.empty() || std::sscanf(size.c_str(), "%ux%u", &width, &height) != 2 || !width ||
+      !height || width > 1280 || height > 720) {
+    return;
+  }
+  static constexpr uint32_t kRecord[] = {1280, 720, 2, 3, 1, 3, 0, 0, 0, 1280, 256,
+                                         0, 256, 1280, 512, 0, 512, 1280, 720};
+  uint32_t found = 0;
+  for (uint32_t address = 0x83000000; address < 0x83400000 && !found; address += 4) {
+    const auto* words = memory->TranslateVirtual<const uint32_t*>(address);
+    bool match = true;
+    for (size_t i = 0; i < std::size(kRecord) && match; ++i) {
+      match = rex::byte_swap(words[i]) == kRecord[i];
+    }
+    if (match) found = address;
+  }
+  if (!found) {
+    REXLOG_WARN("[scene] 4xMSAA tiling scenario not found; scene size unchanged");
+    return;
+  }
+  // "Small2xMSAA" (the fourth record, 1232 bytes apart) is the title's own
+  // reduced scene: 1280x720 screen, one 2x MSAA tile of 1120x584, and the
+  // world view clamps its viewport to that tile. Point the 4x, 2x and
+  // no-MSAA scenarios at the same single tile, sized to the cvar.
+  constexpr uint32_t kStride = 1232;
+  const auto* small = memory->TranslateVirtual<const uint32_t*>(found + 3 * kStride);
+  uint32_t small_words[12];
+  for (size_t i = 0; i < std::size(small_words); ++i) small_words[i] = rex::byte_swap(small[i]);
+  REXLOG_INFO("[scene] Small2xMSAA record: {} {} {} {} {} {} {} | {} {} {} {}", small_words[0],
+              small_words[1], small_words[2], small_words[3], small_words[4], small_words[5],
+              small_words[6], small_words[7], small_words[8], small_words[9], small_words[10]);
+  if (small_words[0] != 1280 || small_words[1] != 720 || small_words[3] != 1 ||
+      small_words[9] != 1120 || small_words[10] != 584) {
+    REXLOG_WARN("[scene] Small2xMSAA record not as expected; scene size unchanged");
+    return;
+  }
+  for (uint32_t record = 0; record < 3; ++record) {
+    auto* words = memory->TranslateVirtual<uint32_t*>(found + record * kStride);
+    const uint32_t msaa = std::min(rex::byte_swap(words[2]), small_words[2]);
+    for (size_t i = 0; i < 11; ++i) words[i] = rex::byte_swap(small_words[i]);
+    words[2] = rex::byte_swap(msaa);
+    words[9] = rex::byte_swap(width);
+    words[10] = rex::byte_swap(height);
+  }
+  g_scene_width = width;
+  g_scene_height = height;
+  REXLOG_INFO("[scene] tiling scenarios at {:08X} set to one {}x{} tile", found - 4, width,
+              height);
+}
+
+}  // namespace
+
+namespace pinyon_shift::native_renderer {
+
+void ApplySceneSize() {
+  if (auto* state = rex::system::kernel_state()) ResizeScene(state->memory());
+}
+
+}  // namespace pinyon_shift::native_renderer
+
+// After the title builds one screen texture's header from its static table
+// (r25 the table entry, r28 the renderer, r31 24 bytes into the entry's
+// 52-byte slot; r31 starts at renderer+440). Relative entries (flag byte
+// set) are a divisor of the 1280x720 screen, rounded up to 32 unless the
+// divisor is 1. With a smaller scene, set the header's fetch-constant size
+// to the same divisor of the scene, keeping the 720p memory and pitch, so
+// every pass and the front buffer use the surface's top-left corner and
+// the presenter scales the smaller front buffer. The map keeps 720p.
+void PinyonShiftScreenTextureMade(PPCRegister& r25, PPCRegister& r28, PPCRegister& r31) {
+  if (!g_scene_width) return;
+  const uint32_t slot = r31.u32 - 24;
+  const uint32_t first = r28.u32 + 440;
+  if (r31.u32 < first || (r31.u32 - first) % 52) return;
+  const uint32_t index = (r31.u32 - first) / 52;
+  if (index == 40) return;  // MapRender
+  auto* memory = rex::system::kernel_state()->memory();
+  if (!*memory->TranslateVirtual<const uint8_t*>(slot)) return;
+  // r25 is the entry's static record: its divisors of the screen size.
+  const auto* entry = memory->TranslateVirtual<const uint32_t*>(r25.u32);
+  const auto* words = memory->TranslateVirtual<const uint32_t*>(slot);
+  const uint32_t width = rex::byte_swap(words[1]);
+  const uint32_t height = rex::byte_swap(words[2]);
+  const uint32_t div_w = rex::byte_swap(entry[1]);
+  const uint32_t div_h = rex::byte_swap(entry[2]);
+  if (!width || !height || !div_w || !div_h) return;
+  const auto scaled = [](uint32_t size, uint32_t divisor) {
+    return divisor == 1 ? size : (size / divisor + 31) & ~31u;
+  };
+  const uint32_t scene_w = std::min(scaled(g_scene_width, div_w), width);
+  const uint32_t scene_h = std::min(scaled(g_scene_height, div_h), height);
+  if (scene_w == width && scene_h == height) return;
+  auto* fetch = memory->TranslateVirtual<uint32_t*>(r31.u32 + 2108 + 0x24);
+  uint32_t dword = rex::byte_swap(*fetch);
+  dword &= ~0x03FFFFFFu;
+  dword |= (scene_w - 1) | ((scene_h - 1) << 13);
+  *fetch = rex::byte_swap(dword);
+  static uint32_t logged = 0;
+  if (logged++ < 48) {
+    REXLOG_INFO("[scene] screen texture {} {}x{} (/{} /{}) header set to {}x{}", index, width,
+                height, div_w, div_h, scene_w, scene_h);
+  }
 }
 
 // After the title loads a DynamicRenderSettings control from a render

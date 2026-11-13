@@ -1472,6 +1472,16 @@ CreateFiber = 0x830EBD50
 DeleteFiber = 0x830EBE30
 SwitchToFiber = 0x830EBE90
 
+# Experimental scene size (#1069, pinyon_shift_fh1_scene_size): after the
+# screen texture setup (sub_8257C220) builds an entry's D3D texture header
+# (r31 the entry's slot + 24, r28 the renderer), shrink the scene textures'
+# header sizes while keeping their 720p memory and pitch
+# (src/native_renderer/graphics_hooks.cpp).
+[[midasm_hook]]
+address = 0x8257C39C
+name = "PinyonShiftScreenTextureMade"
+registers = ["r25", "r28", "r31"]
+
 # Scale the render scenario's EnvMapFrequencyScale and record the scenarios
 # for pinyon_shift_fh1_shadows after the title loads a DynamicRenderSettings
 # control (src/native_renderer/graphics_hooks.cpp): 0x82D81298 follows the
