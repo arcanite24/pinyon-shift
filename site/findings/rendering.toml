@@ -260,7 +260,7 @@ what = """Selecting the game's own `NonTiling` value for the `TilingScenario` re
 how = """Hook on the tiling-scenario load selecting NonTiling; captures on Vulkan and D3D12."""
 confidence = """confirmed"""
 negative = true
-note = """Not the end of the question (2026-11-12). Another FH1 port reports that the missing world's command lists are recorded only for the three-tile pass, and that replaying them in the one-tile pass, with their tiling window, scissor and target packets dropped, restores it. Partly confirmed here (2026-11-12, "one-tile scenes run at a smaller size, without the static world"): any one-tile record drops it, and a three-tile record at another size draws no world. Our host single pass (`fh1_untile_predicated_tiling`) already skips the later tiles' draws at decode, so a game-side single pass would add only the decode of those tiles (NN-2.2 bounded it at 0.36 ms) and the title's recording of them; see the Lessons page for the desktop measurement."""
+note = """Not the end of the question (2026-11-12). Another FH1 port reports that the missing world's command lists are recorded only for the three-tile pass, and that replaying them in the one-tile pass, with their tiling window, scissor and target packets dropped, restores it. Partly confirmed here (2026-11-12, "one-tile scenes run at a smaller size, without the static world"): any one-tile record drops it. With the three bands kept and scaled, the lists do draw once their window offset and scissor are rewritten ("the static world's lists carry the 720p bands' window", #1070). Our host single pass (`fh1_untile_predicated_tiling`) already skips the later tiles' draws at decode, so a game-side single pass would add only the decode of those tiles (NN-2.2 bounded it at 0.36 ms) and the title's recording of them; see the Lessons page for the desktop measurement."""
 source = """docs/ANDROID_ODIN_BACKLOG.md Predicated tiling rendered once"""
 
 [[finding]]
@@ -271,7 +271,7 @@ what = """The scene's tiling modes are five static records, 1,232 bytes apart fr
 how = """Static reads of the records and their accessors; rewriting records at launch (`pinyon_shift_fh1_scene_size`) and capturing the race."""
 confidence = """confirmed"""
 note = """v4 addresses not mapped; the experiment finds the record by its contents."""
-source = """src/native_renderer/graphics_hooks.cpp ResizeTiledScene; GitHub issue #1069"""
+source = """src/native_renderer/graphics_hooks.cpp ResizeScene; GitHub issues #1069 and #1070"""
 
 [[finding]]
 group = """Render targets and EDRAM"""
@@ -287,12 +287,21 @@ source = """src/native_renderer/graphics_hooks.cpp PinyonShiftScreenTextureMade;
 group = """Render targets and EDRAM"""
 base = """sub_82444E60, 0x8244503C"""
 name = """one-tile scenes run at a smaller size, without the static world"""
-what = """The game's one-tile path renders the whole frame, HUD included, at the tile's size: the world view (`sub_82444E60`) clamps its viewport, a copy of view+424 ({x, y, width, height, min z, max z} as integers), to the tile's width and height only when the scenario has one tile. Pointing the `4xMSAA`, `2xMSAA` and `NonTiling` records at one 960x540 tile, and shrinking the size in every relative screen texture's header (front buffers included, memory and pitch kept at 720p), gives a clean 960x540 front buffer that the presenter scales to the window, with no resolve errors. As with `NonTiling`, the road, rails, terrain and start gantry are missing, so the static world is drawn only by the tiled path. Keeping three tiles with the bands scaled to 960x540 draws no world at all: the static world's command lists carry the 720p tiling."""
+what = """The game's one-tile path renders the whole frame, HUD included, at the tile's size: the world view (`sub_82444E60`) clamps its viewport, a copy of view+424 ({x, y, width, height, min z, max z} as integers), to the tile's width and height only when the scenario has one tile. Pointing the `4xMSAA`, `2xMSAA` and `NonTiling` records at one 960x540 tile, and shrinking the size in every relative screen texture's header (front buffers included, memory and pitch kept at 720p), gives a clean 960x540 front buffer that the presenter scales to the window, with no resolve errors. As with `NonTiling`, the road, rails, terrain and start gantry are missing, so the static world is drawn only by the tiled path. Keeping three tiles with the bands scaled to 960x540 draws no world at all until the static world's lists have their 720p window registers rewritten (next record)."""
 how = """Race captures with the records rewritten at launch and a hook on the screen texture headers (`pinyon_shift_fh1_scene_size`, 2026-11-12); hooks on the world viewport and the full-screen quad builder `sub_823E5628` were never reached in the one-tile path."""
 confidence = """confirmed"""
 negative = true
-note = """`Small2xMSAA` is the console's own reduced mode: the 360's video scaler upscaled its front buffer. On the UHD 620 at equal draws the 960x540 frame costs 16-19 % less GPU time than the same mode at 1280x720 (Lessons page). The static world needs its tiled command lists replayed in one pass before this path can ship."""
+note = """`Small2xMSAA` is the console's own reduced mode: the 360's video scaler upscaled its front buffer. On the UHD 620 at equal draws the 960x540 frame costs 16-19 % less GPU time than the same mode at 1280x720 (Lessons page). `pinyon_shift_fh1_scene_size` now scales the three bands instead (#1070)."""
 source = """GitHub issue #1069; src/native_renderer/graphics_hooks.cpp"""
+
+[[finding]]
+group = """Render targets and EDRAM"""
+name = """the static world's lists carry the 720p bands' window"""
+what = """The command lists that draw the static world (road, terrain, rails, start gantry) are recorded once for the 720p bands and replayed in each tile. Each replay sets the band's own window offset (`PA_SC_WINDOW_OFFSET`, rows -256 and -512) and window scissor (rows 0-256, 256-512 and 512-720, 1280 wide) inside the list, while the viewport comes from the frame (it scales with the scene). With the `4xMSAA`, `2xMSAA` and `NonTiling` records' bands scaled to 960x540, the game's per-frame draws take the scaled bands (-192 and -384; rows 192, 384 and 540, 960 wide) but these lists keep the 720p values, so their draws fall outside the smaller tiles and the world disappears. Rewriting exactly those 720p values to the scaled bands as the GPU decoder reads them (only while a surface of the scene's pitch is bound: the 256 and 512 rows also occur in 512x512 and 1024x1024 targets) restores the world at 960x540. About 1,000 of 4,100 draws a race frame come from such lists."""
+how = """A one-frame log of every draw's target, window and viewport registers and its indirect buffer (decoder), 720p against 960x540; then the rewrite in the decoder (`set_fh1_scene_size`, SDK) and race captures."""
+confidence = """confirmed"""
+note = """The frame at 960x540 then matches 720p in geometry, but its exposure and glare differ (darker, no sun glare): the small luminance chain resolves 160x96, 64x32 and 32x32 at 720p and 128x80 and 32x32 at 960x540, so one of its passes still assumes the 720p size (see "passes with a fixed 1280x720 size"). UHD 620: 15.6 % less GPU time than tiled 720p (Lessons page)."""
+source = """GitHub issue #1070; thirdparty/shiftglue-sdk src/graphics/command_processor.cpp Fh1SceneWindowRegister; src/native_renderer/graphics_hooks.cpp ResizeScene"""
 
 [[finding]]
 group = """Render targets and EDRAM"""
