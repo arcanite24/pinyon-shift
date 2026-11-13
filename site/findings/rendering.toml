@@ -747,6 +747,28 @@ source = """docs/DESKTOP_RENDERER_BACKLOG.md DR-0.4, Where it stands; docs/PERFO
 
 [[finding]]
 group = """D3D inside the game"""
+base = """sub_82435E78, sub_82435D18, sub_82439878, sub_82435DF0, sub_82417B90, sub_82418F50"""
+v4 = """sub_82465E28, sub_82465CC8, sub_82469820, sub_82465DA0, sub_82447B40, sub_82448F00"""
+name = """per-object shader constant block"""
+what = """The engine keeps D3D's float constants in a shadow block of the D3D device and marks them dirty; the next draw writes the dirty ones into the command stream (`824168B0`). `sub_82435E78(device, first register, data, count, mask)` copies `count` vectors (any alignment) to the vertex constants at device + (register + 120) × 16 and ORs the 64-bit mask into the dirty bits at device + 0; `sub_82435D18` does the same for the pixel constants (+ (register + 376) × 16, dirty bits at device + 8). `CD3D9GraphicsDevice` slots 26 and 25 (`sub_82417B90`, `sub_82418F50`) wrap them with the mask built from the register range (one bit per four registers). Before an object's display lists run, the model-asset, procedural-model and car owners build a 336-byte block on the stack: `sub_82439878` sets it to five identity matrices and a constant vector, the owner fills in projection × view × transposed world, a second set of four rows, its transpose, the transposed world, view × transposed world and one more vector, and `sub_82435DF0(draw context, …, block, prepared)` resets the draw context's list state (+1204 the list count, +1212 whether the lists use the default state, +1213, +1214) and stores the block as vertex and pixel constants 128-148 (mask 0xFC000000) into the device at draw context +1196."""
+how = """Reverse engineering of the generated code; a native copy of all four ran under pinyon_shift_guest_native_verify in a desktop race and matched the original on every call (33 million constant copies)."""
+confidence = """confirmed"""
+note = """Ported to native code for #1071 and removed: the copies took 27 ns a call against the translation's 31 ns, and the block init 28 against 38 ns, too little to matter (see "What didn't pay off here" on the lessons page)."""
+source = """GitHub issue #1071 P2; .local/leads/p1/removed/scene_submit.cpp (local)"""
+
+[[finding]]
+group = """D3D inside the game"""
+base = """sub_82436468, sub_824365B0, 0x832DF03C, 0x83445588"""
+v4 = """sub_82466418, sub_82466560, 0x833CAAFC, 0x8353ABE8"""
+name = """model-asset submission"""
+what = """The track presentation submits each loaded model asset for a pass through `sub_82436468` > `sub_824365B0(presentation, view, …, slot, instance, matrices)`. For slots 0-2 and after a virtual query on the instance (+32), it takes the asset (instance + 4) and its model data ([asset + 48] + 128), picks the display list for view × 3 + slot, builds the per-object constant block from the view and projection matrices (r8, r8 + 64) and the instance's world matrix ([instance + 16]; the block also takes world + 64..112 and world + 208), and stamps the model with the frame counter at `0x83445588`. The first draw in a slot (bit view × 3 + slot of asset + 56 clear) also prepares the list's fixups (`sub_82450440`). For views other than 0 and 6 it looks through the model's meshes and parts for a material texture slot marked -1, which takes the instance's own texture (renderer texture and sampler setters, four floats from world + 156). Then it runs the lists (`sub_82417060`). The renderer comes from the object at `0x832DF03C` (`sub_82436588`, one of two slots picked per thread)."""
+how = """Reverse engineering of the generated code; a native port of the prepared path under a custom verify (native plan, then the original with a recorder on the list run) in a desktop race."""
+confidence = """probable"""
+note = """The native port took 0.60 µs a call without the list run against 0.96 µs for the original with it, and in 22 % of verified calls (views 1 and 4) the original's constant dirty bits were already cleared when its list run started while the native plan's were still set; the cause was not found. Removed (#1071, lessons page)."""
+source = """GitHub issue #1071 P2; .local/leads/p1/removed/scene_submit.cpp (local)"""
+
+[[finding]]
+group = """D3D inside the game"""
 base = """82417BC0, 82417060, 824167F8, 824365B0, 82437218, 82439960, 82419A30, 8243CDC0, 8243CEE0, 8244D7F0, 82450508, 8244CB50, 823F69F8, 823F40D8, 8246E8F8, 824726C8, 82450160, 8245AA98, 82418A24, 82418EC8"""
 v4 = """82447B70, 82447010, 824467A8, 82466560, 824671C8, 82469908, 824499E0, 8246CEC8, 8246CFE8, 8247CEB0, 8247FBC0, 8247C210, 824269E8, 82424128, 8249E0E0, 824A1E40, 8247F818, 8248A180, 824489D4, 82448E78"""
 name = """display-list owners"""
