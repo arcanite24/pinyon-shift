@@ -1,5 +1,6 @@
 package studio.deimos.pinyonshift;
 
+import android.content.Context;
 import android.content.Intent;
 import android.database.Cursor;
 import android.net.Uri;
@@ -11,6 +12,8 @@ import android.system.ErrnoException;
 import android.system.Os;
 import android.util.Log;
 import android.view.Display;
+import android.view.Surface;
+import android.view.SurfaceHolder;
 import android.view.WindowManager;
 import android.widget.Toast;
 
@@ -31,6 +34,7 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
 import org.libsdl.app.SDLActivity;
+import org.libsdl.app.SDLSurface;
 
 /**
  * SDL's activity with the game's paths and arguments (AP-1.4, AP-3.3).
@@ -114,6 +118,7 @@ public class PinyonShiftActivity extends SDLActivity {
         }
         recordDisplayEnvironment();
         super.onCreate(savedInstanceState);
+        holdDisplayMode(presentRate());
         // A race played on a controller touches nothing, and a screen that
         // times out sends the game to the background, where it pauses (a
         // scripted route stalls the same way). Only while this window shows.
@@ -142,6 +147,85 @@ public class PinyonShiftActivity extends SDLActivity {
                 Settings.System.getInt(getContentResolver(), Settings.System.SCREEN_BRIGHTNESS, -1),
                 Settings.System.getInt(getContentResolver(), Settings.System.SCREEN_BRIGHTNESS_MODE, -1),
                 getWindow().getAttributes().screenBrightness, getWindow().getColorMode()));
+    }
+
+    // The game's surface tells the system the rate it presents at. Without a
+    // hint, panels with adaptive refresh (the POCO F7 Pro's HyperOS) switched
+    // between 60 and 120 Hz during a 30 fps drive (2-8 switches in 2.5 min).
+    // HyperOS kept switching with this hint alone; holdDisplayMode stops it.
+    @Override
+    protected SDLSurface createSDLSurface(Context context) {
+        final float rate = presentRate();
+        return new SDLSurface(context) {
+            @Override
+            public void surfaceCreated(SurfaceHolder holder) {
+                super.surfaceCreated(holder);
+                applyFrameRate(holder, rate);
+            }
+
+            @Override
+            public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
+                super.surfaceChanged(holder, format, width, height);
+                applyFrameRate(holder, rate);
+            }
+        };
+    }
+
+    // The surface's rate alone left HyperOS switching the panel, so the
+    // window also asks for one mode: the fastest whose refresh is a whole
+    // multiple of the game's rate (120 Hz for 30 fps), where a late frame
+    // costs one 8.3 ms refresh instead of 16.7 ms at 60 Hz.
+    private void holdDisplayMode(float rate) {
+        Display display = getDisplay();
+        if (rate <= 0 || display == null) return;
+        Display.Mode current = display.getMode();
+        Display.Mode chosen = null;
+        for (Display.Mode mode : display.getSupportedModes()) {
+            if (mode.getPhysicalWidth() != current.getPhysicalWidth()
+                    || mode.getPhysicalHeight() != current.getPhysicalHeight()) continue;
+            float multiple = mode.getRefreshRate() / rate;
+            if (Math.abs(multiple - Math.round(multiple)) > 0.01f) continue;
+            if (chosen == null || mode.getRefreshRate() > chosen.getRefreshRate()) chosen = mode;
+        }
+        if (chosen == null) return;
+        WindowManager.LayoutParams attributes = getWindow().getAttributes();
+        attributes.preferredDisplayModeId = chosen.getModeId();
+        getWindow().setAttributes(attributes);
+        Log.i(TAG, String.format(Locale.ROOT, "display mode %d (%.2f Hz) for %.0f fps",
+                chosen.getModeId(), chosen.getRefreshRate(), rate));
+    }
+
+    private static void applyFrameRate(SurfaceHolder holder, float rate) {
+        Surface surface = holder.getSurface();
+        if (rate <= 0 || surface == null || !surface.isValid()) return;
+        try {
+            surface.setFrameRate(rate, Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE,
+                    Surface.CHANGE_FRAME_RATE_ALWAYS);
+            Log.i(TAG, "surface frame rate " + rate);
+        } catch (RuntimeException error) {
+            Log.w(TAG, "surface frame rate not set", error);
+        }
+    }
+
+    // The rate the game presents at, from the settings it starts with:
+    // pinyon_shift_fh1_render_fps_limit, else host_present_fps_limit; 0 when
+    // neither limits it (the game then follows the display).
+    private float presentRate() {
+        File external = getExternalFilesDir(null);
+        File config = new File(external != null ? external : getFilesDir(), SetupActivity.CONFIG_FILE);
+        int render = 0, host = 0;
+        Pattern setting = Pattern.compile("^\\s*(pinyon_shift_fh1_render_fps_limit|host_present_fps_limit)\\s*=\\s*(\\d+)");
+        try (BufferedReader reader = new BufferedReader(new FileReader(config))) {
+            for (String line; (line = reader.readLine()) != null; ) {
+                Matcher match = setting.matcher(line);
+                if (!match.find()) continue;
+                int value = Integer.parseInt(match.group(2));
+                if (match.group(1).startsWith("pinyon")) render = value; else host = value;
+            }
+        } catch (IOException | NumberFormatException error) {
+            Log.w(TAG, "frame rate limits not read", error);
+        }
+        return render > 0 ? render : host;
     }
 
     // The C++ runtime first, then the ReXGlue runtime, which holds SDL and

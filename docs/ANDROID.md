@@ -71,6 +71,20 @@ has not been run. Explicit values look like
 `GPU_Commands=6-7;*=0-5` (`_` matches a space, `*` every other
 thread); `off` restores the threads' earlier masks.
 
+The activity holds one display mode while the game shows: the fastest
+whose refresh is a whole multiple of the frame limit read from the
+settings at start (`pinyon_shift_fh1_render_fps_limit`, else
+`host_present_fps_limit`; 120 Hz for 30 fps), through the window's
+`preferredDisplayModeId`, and sets that rate on the surface
+(`Surface.setFrameRate`, fixed source). On a POCO F7 Pro (Snapdragon 8
+Gen 3, HyperOS 3, Android 16) the panel switched between 60 and 120 Hz
+2 to 8 times in 2.5 minutes of a 30 fps drive; `setFrameRate` alone
+left it switching. Three alternating 2.5-minute runs of the same drive
+(new, old, new package; SurfaceFlinger `--latency`): the panel at 120 Hz
+100 %, 22 % and 100 % of the time, frames shown 45 ms or longer 0.02 %,
+1.31 % and 0.00 %. A missed refresh now costs 8.3 ms instead of 16.7.
+A change of the limit in the game applies at the next start.
+
 ## What stays private
 
 The package holds the game translated from your own disc, exactly as

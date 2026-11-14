@@ -63,6 +63,8 @@ On Adreno 7xx and 8xx the bundled Mesa Turnip driver (Gen8 V37) is chosen automa
 
 Where a phone's fastest cores form their own cluster of two or more (the Snapdragon 8 Elite's two 4.32 GHz cores), the GPU command decoder thread is pinned to them. Left to the scheduler it spent whole stretches on the slower cores: in an in-run A/B on the Astra at the 60 fps limit, 25 % of frames took over 17.5 ms and the decoder 16.2 ms of CPU a frame, against 2 % and 10.2 ms pinned, with the same GPU time. Phones with a single fastest core, such as the 8 Gen 2 and 8 Gen 3, are left alone. The `android_thread_cores` setting overrides it (`NAME=CORES` entries separated by semicolons, `off` to disable).
 
+At start the game asks the display for one refresh rate: the fastest mode that is a whole multiple of its frame limit (`pinyon_shift_fh1_render_fps_limit`, else `host_present_fps_limit`), such as 120 Hz for 30 fps, and gives the surface that frame rate. Without it a POCO F7 Pro (Snapdragon 8 Gen 3, HyperOS) switched its panel between 60 and 120 Hz 2 to 8 times in 2.5 minutes of a 30 fps drive, and the surface frame rate alone did not stop it. Held at 120 Hz in three alternating runs of the same drive (new, old, new package), frames shown for 45 ms or longer went from 1.31 % to 0.02 % and 0.00 %: a frame that misses its refresh now shows for 41.7 ms instead of 50. A frame limit of 0 leaves the display to the system.
+
 ## HDR calibration
 
 Keep brightness and the display mode fixed, and turn adaptive brightness off
