@@ -72,6 +72,18 @@ REXCVAR_DEFINE_DOUBLE(pinyon_shift_lod_distance_scale, 1.0, "Pinyon Shift",
     .range(0.25, 8.0)
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
 
+// Ceiling probe for an owned world renderer (docs/BEYOND_RECOMP_RESEARCH.md,
+// B4 gate): stop parts of the scene from being submitted at all, so no PM4
+// is built or decoded for them. Bits: 1 the loaded model assets (track
+// world lists, sub_824365B0), 2 the procedural models (vegetation, crowds,
+// props), 4 every mesh the scene walk culls per pass (cars too). The image
+// is wrong by design; measurement only.
+REXCVAR_DEFINE_INT32(pinyon_shift_debug_skip_world, 0, "Pinyon Shift",
+                     "Debug ceiling probe: skip world submission (1 model assets, 2 procedural "
+                     "models, 4 all scene-walk meshes); the world is not drawn")
+    .range(0, 7)
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+
 #if defined(PINYON_SHIFT_TITLE_UPDATE_V4) && PINYON_SHIFT_TITLE_UPDATE_V4
 extern "C" REX_FUNC(__imp__sub_8246FB28);
 #define PINYON_PROBE_SELECT __imp__sub_8246FB28
@@ -97,7 +109,9 @@ constexpr bool kV4 = pinyon_shift::fh1::kTitleUpdateV4;
 constexpr uint32_t kViewSettingsHolder = kV4 ? 0x835A1488u : 0x834ABB08u;
 constexpr uint32_t kCascadePlaneCount = kV4 ? 0x833A45CCu : 0x832B8ADCu;
 
-bool Enabled() { return REXCVAR_GET(pinyon_shift_native_scene_cull); }
+int SkipWorld() { return REXCVAR_GET(pinyon_shift_debug_skip_world); }
+bool Enabled() { return REXCVAR_GET(pinyon_shift_native_scene_cull) || SkipWorld() != 0; }
+bool SkipAssetsEnabled() { return (SkipWorld() & 1) != 0; }
 
 // The squared LOD distance scale.
 float LodScale2() {
@@ -640,6 +654,11 @@ void Apply(const Mem& m, const Plan& plan) {
 }
 
 bool CullNative(PPCContext& ctx, uint8_t* base) {
+  if (SkipWorld() & 4) {
+    ctx.r3.u64 = 0;
+    return true;
+  }
+  if (!REXCVAR_GET(pinyon_shift_native_scene_cull)) return false;
   Plan plan;
   if (!PlanCull(ctx, base, plan)) return false;
   const Mem m{base};
@@ -940,6 +959,8 @@ void ModelPassCull(ModelEffects& fx, uint32_t renderer, uint32_t reference, int3
 }
 
 bool ModelCullNative(PPCContext& ctx, uint8_t* base) {
+  if (SkipWorld() & 2) return true;
+  if (!REXCVAR_GET(pinyon_shift_native_scene_cull)) return false;
   ModelEffects fx{ctx, base, Mem{base}, nullptr};
   ModelPassCull(fx, ctx.r3.u32, ctx.r4.u32, ctx.r5.s32, ctx.r6.u32, ctx.r7.u8);
   return true;
@@ -1175,6 +1196,19 @@ Replacement cull_replacement = {
     .verify = VerifyCull,
 };
 
+bool SkipAsset(PPCContext&, uint8_t*) { return true; }
+
+Replacement asset_skip = {
+    .name = "scene.model_asset_skip_probe",
+    .guest_address = kV4 ? 0x82466560u : 0x824365B0u,
+    .guest_code_size = 2728,
+    .guest_code_fnv1a = kV4 ? 0x979A75CAE49A9519ull : 0x086156734112D717ull,
+    .returns = kReturnNone,
+    .enabled = SkipAssetsEnabled,
+    .native = SkipAsset,
+    .written = nullptr,
+};
+
 Replacement push_recorder = {
     .name = "scene.bucket_push_recorder",
     .guest_address = kV4 ? 0x82471590u : 0x82441488u,
@@ -1246,6 +1280,7 @@ Replacement range_recorder = {
 }  // namespace pinyon_shift::guest_native
 
 PINYON_GUEST_NATIVE(824400B0, 824701B8, ::pinyon_shift::guest_native::cull_replacement)
+PINYON_GUEST_NATIVE(824365B0, 82466560, ::pinyon_shift::guest_native::asset_skip)
 PINYON_GUEST_NATIVE(82441488, 82471590, ::pinyon_shift::guest_native::push_recorder)
 PINYON_GUEST_NATIVE(82DDD040, 82E9F610, ::pinyon_shift::guest_native::range_recorder)
 PINYON_GUEST_NATIVE(8243EE58, 8246EF60, ::pinyon_shift::guest_native::model_cull_replacement)
