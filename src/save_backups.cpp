@@ -1,6 +1,7 @@
 #include "save_backups.h"
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <fstream>
 #include <system_error>
@@ -25,6 +26,13 @@
 
 namespace pinyon_shift {
 namespace fs = std::filesystem;
+
+bool IsSaveFolder(const fs::path& name) {
+  const std::string text = rex::path_to_utf8(name);
+  return text.size() == 16 && text != "0000000000000000" &&
+         std::all_of(text.begin(), text.end(), [](char c) { return std::isxdigit(uint8_t(c)); });
+}
+
 namespace {
 
 constexpr auto kPollInterval = std::chrono::seconds(5);
@@ -138,23 +146,45 @@ SaveBackups::Signature SaveBackups::Scan(const fs::path& root) {
   return signature;
 }
 
-bool SaveBackups::Snapshot(const fs::path& user_root, const fs::path& backup_root,
-                           const std::string& reason) {
+std::optional<fs::path> SaveBackups::Snapshot(const fs::path& user_root,
+                                              const fs::path& backup_root,
+                                              const std::string& reason) {
   std::error_code error;
   if (!fs::exists(user_root, error)) {
-    return false;
+    return std::nullopt;
   }
   fs::create_directories(backup_root, error);
-  const std::string name = UtcStamp() + (reason.empty() ? "" : "-" + reason);
+  std::string name = UtcStamp() + (reason.empty() ? "" : "-" + reason);
+  // Two slots in one second (a sync import right after a restore): the
+  // second gets a counter.
+  for (int n = 2; fs::exists(backup_root / name, error) && n < 100; ++n) {
+    name = UtcStamp() + (reason.empty() ? "" : "-" + reason) + "-" + std::to_string(n);
+  }
   const fs::path slot = backup_root / name;
   if (fs::exists(slot, error) || !CopyTree(user_root, slot / "user")) {
-    return false;
+    return std::nullopt;
   }
   const Signature signature = Scan(slot / "user");
   REXLOG_INFO("Save backup {}: {} files, {} KB", name, signature.files, signature.bytes >> 10);
   diagnostics::RecordEvent("save.backup", {{"slot", name},
                                            {"files", std::to_string(signature.files)},
                                            {"bytes", std::to_string(signature.bytes)}});
+  return slot / "user";
+}
+
+std::optional<std::string> SaveBackups::AddSlot(const fs::path& user_copy,
+                                                const fs::path& backup_root,
+                                                const std::string& reason) {
+  auto slot = Snapshot(user_copy, backup_root, reason);
+  if (!slot) return std::nullopt;
+  return rex::path_to_utf8(slot->parent_path().filename());
+}
+
+bool SaveBackups::TakeSnapshot(const std::string& reason) {
+  auto copy = Snapshot(user_root_, backup_root_, reason);
+  if (!copy) return false;
+  Prune();
+  if (on_snapshot_) on_snapshot_(*copy);
   return true;
 }
 
@@ -214,22 +244,29 @@ void SaveBackups::ApplyPendingRestore(const fs::path& user_root, const fs::path&
   std::string slot;
   std::getline(std::ifstream(request), slot);
   fs::remove(request, error);
+  RestoreSlot(user_root, backup_root, slot);
+}
+
+bool SaveBackups::RestoreSlot(const fs::path& user_root, const fs::path& backup_root,
+                              const std::string& slot) {
+  std::error_code error;
   const fs::path source = backup_root / slot / "user";
   if (slot.empty() || slot.find_first_of("/\\") != std::string::npos ||
       !fs::exists(source, error)) {
     REXLOG_ERROR("Save restore: backup {} is missing; nothing restored", slot);
-    return;
+    return false;
   }
   // The files being replaced are kept too, so a restore can be undone.
-  if (fs::exists(user_root, error) && !Snapshot(user_root, backup_root, "before-restore")) {
+  if (fs::exists(user_root, error) &&
+      !Snapshot(user_root, backup_root, "before-restore").has_value()) {
     REXLOG_ERROR("Save restore: could not back up the current files; nothing restored");
-    return;
+    return false;
   }
   const fs::path staging = fs::path(user_root) += ".restoring";
   fs::remove_all(staging, error);
   if (!CopyTree(source, staging)) {
     REXLOG_ERROR("Save restore: could not copy backup {}", slot);
-    return;
+    return false;
   }
   const fs::path previous = fs::path(user_root) += ".replaced";
   fs::remove_all(previous, error);
@@ -237,7 +274,7 @@ void SaveBackups::ApplyPendingRestore(const fs::path& user_root, const fs::path&
     fs::rename(user_root, previous, error);
     if (error) {
       REXLOG_ERROR("Save restore: could not retain current files: {}", error.message());
-      return;
+      return false;
     }
   }
   // Move only content directories, so restoring a small save never copies
@@ -262,7 +299,7 @@ void SaveBackups::ApplyPendingRestore(const fs::path& user_root, const fs::path&
     for (auto it = moved_content.rbegin(); it != moved_content.rend(); ++it)
       fs::rename(staging / *it, previous / *it, error);
     fs::rename(previous, user_root, error);
-    return;
+    return false;
   }
   fs::rename(staging, user_root, error);
   if (error) {
@@ -270,11 +307,12 @@ void SaveBackups::ApplyPendingRestore(const fs::path& user_root, const fs::path&
     for (auto it = moved_content.rbegin(); it != moved_content.rend(); ++it)
       fs::rename(staging / *it, previous / *it, error);
     fs::rename(previous, user_root, error);
-    return;
+    return false;
   }
   fs::remove_all(previous, error);
   REXLOG_INFO("Save restore: restored backup {}", slot);
   diagnostics::RecordEvent("save.restore.applied", {{"slot", slot}});
+  return true;
 }
 
 void SaveBackups::Run() {
@@ -292,9 +330,7 @@ void SaveBackups::Run() {
   }
   Signature current = Scan(user_root_);
   if (current.files && !(current.files == saved.files && current.bytes == saved.bytes)) {
-    if (Snapshot(user_root_, backup_root_, "session")) {
-      Prune();
-    }
+    TakeSnapshot("session");
   }
   saved = current;
   Signature previous = current;
@@ -308,9 +344,7 @@ void SaveBackups::Run() {
     const auto now = std::chrono::steady_clock::now();
     if (current == previous && !(current == saved) && current.files &&
         now - last_snapshot >= kMinSnapshotInterval) {
-      if (Snapshot(user_root_, backup_root_, "")) {
-        Prune();
-      }
+      TakeSnapshot("");
       saved = current;
       last_snapshot = now;
     }
@@ -320,8 +354,8 @@ void SaveBackups::Run() {
   lock.unlock();
   // Keep the progress since the last backup when the game closes normally.
   current = Scan(user_root_);
-  if (current.files && !(current == saved) && Snapshot(user_root_, backup_root_, "exit")) {
-    Prune();
+  if (current.files && !(current == saved)) {
+    TakeSnapshot("exit");
   }
 }
 

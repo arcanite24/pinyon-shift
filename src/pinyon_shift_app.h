@@ -9,6 +9,7 @@
 #include <rex/ui/window_listener.h>
 
 #include "achievements/fh1_achievements.h"
+#include "save_sync.h"
 
 namespace pinyon_shift::config {
 class HostConfig;
@@ -119,6 +120,14 @@ class PinyonShiftApp final : public rex::ReXApp {
   std::unique_ptr<pinyon_shift::ui::AchievementUiState> achievement_ui_state_;
   uint64_t achievement_listener_ = 0;
   std::unique_ptr<pinyon_shift::SaveBackups> save_backups_;
+  // Save sync through a folder a sync app shares (docs/SAVE_SYNC.md); null
+  // when no folder is set.
+  std::unique_ptr<pinyon_shift::SaveSync> save_sync_;
+  pinyon_shift::SaveSync::StartupResult sync_startup_;
+  // A plain notification from any thread, shown by the host UI.
+  void PostToast(std::string heading, std::string title, std::string detail);
+  // Publishes the player's own save as the title left it (at exit).
+  void ExportSaveSync();
   // enabled_mods as the settings file had it at start (NP-7).
   std::string enabled_mods_;
   // The settings file the in-game settings screen edits.

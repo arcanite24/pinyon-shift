@@ -29,6 +29,7 @@ set(PINYON_SHIFT_HOST_SOURCES
     src/pinyon_shift_diagnostics.cpp
     src/pinyon_shift_runtime_hooks.cpp
     src/save_backups.cpp
+    src/save_sync.cpp
     src/cvar_cycle.cpp
     src/cheats.cpp
     src/cheats_map.cpp
@@ -285,6 +286,13 @@ add_executable(pinyon_shift_save_backups_tests EXCLUDE_FROM_ALL
     tests/save/save_backups_test.cpp src/save_backups.cpp)
 target_include_directories(pinyon_shift_save_backups_tests PRIVATE src)
 target_link_libraries(pinyon_shift_save_backups_tests PRIVATE rex::runtime)
+
+# Save sync's two-device test (docs/SAVE_SYNC.md).
+add_executable(pinyon_shift_save_sync_tests EXCLUDE_FROM_ALL
+    tests/save/save_sync_test.cpp src/save_sync.cpp src/save_backups.cpp
+    src/config/host_config.cpp)
+target_include_directories(pinyon_shift_save_sync_tests PRIVATE src)
+target_link_libraries(pinyon_shift_save_sync_tests PRIVATE rex::runtime)
 
 add_executable(pinyon_shift_telemetry_tests EXCLUDE_FROM_ALL
     tests/telemetry/forza_dash_test.cpp src/telemetry/forza_dash.cpp)

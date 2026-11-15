@@ -10,6 +10,7 @@
 
 #include "config/host_config.h"
 #include "save_backups.h"
+#include "save_sync.h"
 #include "ui/hostui/host_ui.h"
 #include "ui/hostui/menu.h"
 
@@ -26,6 +27,8 @@ struct SettingsServices {
   std::function<std::unique_ptr<hostui::MenuScreen>()> achievements;
   // Lists and restores save backups under PROFILE; no rows without it.
   SaveBackups* save_backups = nullptr;
+  // Save sync (docs/SAVE_SYNC.md); no SAVE SYNC row without it.
+  SaveSync* save_sync = nullptr;
   // <state>/mods: the MODS page lists its folders; no page when empty.
   std::filesystem::path mods_root;
   // The draw resolution scale the renderer uses (0 when unknown). With it,

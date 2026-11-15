@@ -588,7 +588,7 @@ public partial class MainWindow : Window
     {
         var scale = ConfiguredResolutionScale();
         SetSubhead("Vulkan · " +
-                   $"{scale}× ({1280 * scale} × {720 * scale}) · F6 opens settings in game");
+                   $"{scale}× ({1280 * scale} × {720 * scale}) · F6 opens settings in game" + SyncSummary());
     }
 
     private void DetectExistingBuild()
@@ -1097,6 +1097,8 @@ public partial class MainWindow : Window
         OpenLogsButton.Content = "Logs";
         OpenLogsButton.Visibility = Visibility.Visible;
         OpenStateFolderButton.Visibility = Visibility.Visible;
+        OpenSyncButton.Visibility = Visibility.Visible;
+        UpdateSyncButton();
         AppendLog("Build complete. Generated files remain on this computer.");
     }
 

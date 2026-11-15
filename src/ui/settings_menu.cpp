@@ -229,6 +229,8 @@ class SettingsPages : public std::enable_shared_from_this<SettingsPages> {
   std::unique_ptr<MenuScreen> TrainerGraphics();
   std::unique_ptr<MenuScreen> TrainerDebug();
   std::unique_ptr<MenuScreen> ConfirmRestore(std::string slot);
+  std::unique_ptr<MenuScreen> Sync();
+  std::unique_ptr<MenuScreen> ConfirmSync(SaveSync::Remote remote);
   static constexpr size_t kMaxGamertag = 15;
 
   hostui::HostUi& host_ui_;
@@ -1022,9 +1024,6 @@ std::unique_ptr<MenuScreen> SettingsPages::Graphics() {
   // POST-PROCESS AA covers the scene only, so HUD text stays sharp; ON also
   // smooths the HUD, as it did before. Menus without a scene get none.
   rows.push_back(Toggle("AA ON THE HUD", "swap_post_effect_scene_only", true));
-  // A .cube colour LUT from state/luts on the scene; the HUD keeps its
-  // colours. Applies on the next frame.
-  {
   // FH1 has no ambient occlusion pass; ShiftGlue adds one at swap from the
   // scene depth (from Lavender Shift's SR-3): contact shade under cars and
   // along kerbs, darker cockpits, the sky and HUD untouched. Applies on the
@@ -1037,6 +1036,9 @@ std::unique_ptr<MenuScreen> SettingsPages::Graphics() {
                                       {"swap_ambient_occlusion_strength", "70"}}},
                           {"HIGH", {{"swap_ambient_occlusion", "true"},
                                     {"swap_ambient_occlusion_strength", "100"}}}}));
+  // A .cube colour LUT from state/luts on the scene; the HUD keeps its
+  // colours. Applies on the next frame.
+  {
     std::vector<Choice> luts = {{"OFF", {{"scene_lut_path", "\"\""}}}};
     std::vector<std::filesystem::path> files;
     std::error_code error;
@@ -2241,6 +2243,12 @@ std::unique_ptr<MenuScreen> SettingsPages::Profile() {
     backups.activate = [this] { host_ui_.Push(Backups()); };
     rows.push_back(std::move(backups));
   }
+  if (services_.save_sync) {
+    MenuRow sync;
+    sync.label = "SAVE SYNC";
+    sync.activate = [this] { host_ui_.Push(Sync()); };
+    rows.push_back(std::move(sync));
+  }
   return std::make_unique<MenuScreen>("PROFILE", std::move(rows));
 }
 
@@ -2251,13 +2259,111 @@ std::string SlotLabel(const std::string& name) {
   }
   std::string label = name.substr(0, 4) + "-" + name.substr(4, 2) + "-" + name.substr(6, 2) +
                       " " + name.substr(9, 2) + ":" + name.substr(11, 2);
-  const std::string reason = name.size() > 17 ? name.substr(17) : std::string();
+  std::string reason = name.size() > 17 ? name.substr(17) : std::string();
+  // "-2": a second slot in the same second.
+  if (const size_t dash = reason.rfind('-'); dash != std::string::npos &&
+      reason.find_first_not_of("0123456789", dash + 1) == std::string::npos) {
+    reason.resize(dash);
+  }
   if (reason == "session") {
     label += " SESSION START";
   } else if (reason == "before-restore") {
     label += " BEFORE RESTORE";
+  } else if (reason == "sync") {
+    label += " FROM SAVE SYNC";
   }
   return label;
+}
+
+// "2026-11-14T18:02:11Z" as "2026-11-14 18:02".
+std::string SyncTime(const std::string& utc) {
+  if (utc.size() < 16) return utc.empty() ? std::string("NEVER") : Upper(utc);
+  return utc.substr(0, 10) + " " + utc.substr(11, 5);
+}
+
+const char* RelationLabel(const SaveSync::Remote& remote) {
+  if (!remote.loadable) return "NEEDS THE V4 BUILD";
+  switch (remote.relation) {
+    case SaveSync::Relation::kSame: return "SAME SAVE";
+    case SaveSync::Relation::kRemoteAhead: return "NEWER";
+    case SaveSync::Relation::kLocalAhead: return "OLDER";
+    case SaveSync::Relation::kDiverged: return "DIFFERENT";
+  }
+  return "";
+}
+
+// The other devices sharing the sync folder and how their saves compare to
+// this one's; a newer or different save can be chosen for the next start,
+// or this device's kept over it.
+std::unique_ptr<MenuScreen> SettingsPages::Sync() {
+  SaveSync* sync = services_.save_sync;
+  const auto remotes = sync->Remotes();
+  std::vector<MenuRow> rows;
+  if (sync->ImportPending()) {
+    MenuRow cancel;
+    cancel.label = "CANCEL LOADING THE CHOSEN SAVE";
+    cancel.activate = [sync] { sync->CancelImport(); };
+    rows.push_back(std::move(cancel));
+  }
+  for (const auto& remote : remotes) {
+    MenuRow row;
+    row.label = Upper(remote.device_name.empty() ? remote.device_id.substr(0, 8)
+                                                 : remote.device_name);
+    row.value = [label = std::string(RelationLabel(remote))] { return label; };
+    if (remote.loadable && (remote.relation == SaveSync::Relation::kRemoteAhead ||
+                            remote.relation == SaveSync::Relation::kDiverged)) {
+      row.activate = [this, remote] { host_ui_.Push(ConfirmSync(remote)); };
+    } else {
+      row.enabled = [] { return false; };
+    }
+    rows.push_back(std::move(row));
+  }
+  const bool empty = remotes.empty();
+  auto screen = std::make_unique<MenuScreen>("SAVE SYNC", std::move(rows), [sync, empty] {
+    if (sync->ImportPending()) return std::string("RESTART THE GAME TO LOAD THE CHOSEN SAVE");
+    return std::string(empty ? "NO OTHER DEVICE HAS SHARED A SAVE IN THIS FOLDER YET"
+                             : "UTC TIMES");
+  });
+  // The folder's name only: a whole path does not wrap.
+  const std::string last = sync->LastExportUtc();
+  screen->set_body("This device, " + sync->device_name() + ", shares its save through the folder " +
+                   rex::path_to_utf8(sync->folder().filename()) + ". " +
+                   (last.empty() ? std::string("It hasn't shared a save yet.")
+                                 : "Last shared " + SyncTime(last) + " UTC."));
+  return screen;
+}
+
+std::unique_ptr<MenuScreen> SettingsPages::ConfirmSync(SaveSync::Remote remote) {
+  SaveSync* sync = services_.save_sync;
+  auto self = std::make_shared<const MenuScreen*>(nullptr);
+  const std::string name = Upper(remote.device_name);
+  std::vector<MenuRow> rows(3);
+  rows[0].label = "LOAD " + name + "'S SAVE AT NEXT START";
+  rows[0].activate = [this, sync, id = remote.device_id, self] {
+    sync->ScheduleImport(id);
+    host_ui_.Finish(*self);
+  };
+  rows[1].label = "KEEP THIS DEVICE'S SAVE";
+  rows[1].activate = [this, sync, id = remote.device_id, self] {
+    sync->KeepLocal(id);
+    host_ui_.Finish(*self);
+  };
+  rows[2].label = "CANCEL";
+  rows[2].activate = [this, self] { host_ui_.Finish(*self); };
+  auto screen = std::make_unique<MenuScreen>("CHOOSE A SAVE", std::move(rows));
+  const bool diverged = remote.relation == SaveSync::Relation::kDiverged;
+  screen->set_body(
+      std::string(diverged ? "The save changed both here and on " + remote.device_name +
+                                 " since they last had the same one."
+                           : remote.device_name + " has a newer save that continued from this "
+                                                  "one.") +
+      " " + remote.device_name + "'s save is from " + SyncTime(remote.written_utc) + " UTC, with " +
+      std::to_string(remote.achievements) +
+      " achievements. Loading it backs up this device's save first (SAVE BACKUPS). Keeping "
+      "this device's makes " + remote.device_name + " load it instead, next time it starts.");
+  screen->SetFocus(2);
+  *self = screen.get();
+  return screen;
 }
 
 std::unique_ptr<MenuScreen> SettingsPages::Backups() {

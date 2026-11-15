@@ -76,6 +76,7 @@ private/
 !/docs/native-renderer/**
 !/docs/TIME_TO_PLAY_BACKLOG.md
 !/docs/MALI_BACKLOG.md
+!/docs/SAVE_SYNC.md
 
 # Build output and tooling state.
 build/

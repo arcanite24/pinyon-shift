@@ -132,6 +132,15 @@ REXCVAR_DEFINE_INT32(pinyon_shift_save_backup_slots, 10, "Pinyon Shift",
                      "Save backups to keep; older ones are deleted")
     .range(1, 100)
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+REXCVAR_DEFINE_STRING(pinyon_shift_sync_folder, "", "Pinyon Shift",
+                      "A folder a sync app (Syncthing, Dropbox, OneDrive...) keeps in step "
+                      "between devices; the save and achievements are shared through it "
+                      "(docs/SAVE_SYNC.md). Empty: off")
+    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+REXCVAR_DEFINE_STRING(pinyon_shift_device_name, "", "Pinyon Shift",
+                      "This device's name as other devices show it in SAVE SYNC; empty uses "
+                      "the computer's name")
+    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 REXCVAR_DEFINE_BOOL(pinyon_shift_achievement_sound, true, "Pinyon Shift",
                     "Play the game's own HUD reward sound when an achievement unlocks");
 REXCVAR_DEFINE_BOOL(pinyon_shift_achievement_milestones, false, "Pinyon Shift",
@@ -712,6 +721,42 @@ void PinyonShiftApp::OnConfigurePaths(rex::PathConfig& paths) {
   // can open the files.
   pinyon_shift::SaveBackups::ApplyPendingRestore(paths.user_data_root,
                                                  state_root / "backups" / "saves");
+  // Save sync, also before the title reads its saves and the runtime its
+  // achievement unlocks: a save another device continued from this one's
+  // is put in place, and every device's unlocks are merged. It works on the
+  // player's own save (<state>/user), never a modded profile. The settings
+  // file is loaded only after this, so its values are read here when the
+  // command line did not set them.
+  {
+    const auto setting = [&](const char* name, std::string value) {
+      if (rex::cvar::GetFlagSource(name) == rex::cvar::Source::kDefault) {
+        if (auto text = pinyon_shift::config::ReadFile(paths.config_path)) {
+          if (auto saved = pinyon_shift::config::GetValue(*text, name)) {
+            value = *saved;
+            if (value.size() >= 2 && value.front() == '"' && value.back() == '"') {
+              value = value.substr(1, value.size() - 2);
+            }
+          }
+        }
+      }
+      return value;
+    };
+    const std::string sync_folder =
+        setting("pinyon_shift_sync_folder", REXCVAR_GET(pinyon_shift_sync_folder));
+    // A scripted route plays a seed's copy of a save (tools/create-render-seed.py
+    // copies the settings too): it must never publish that save or load one.
+    const bool scripted_route =
+        pinyon_shift::diagnostics::EnvironmentPath("PINYON_SHIFT_FH1_RENDER_TEST_SCRIPT")
+            .has_value();
+    if (!sync_folder.empty() && scripted_route) {
+      REXLOG_INFO("Save sync: off for this scripted route");
+    } else if (!sync_folder.empty()) {
+      save_sync_ = std::make_unique<pinyon_shift::SaveSync>(
+          paths.user_data_root, state_root, rex::to_path(sync_folder),
+          setting("pinyon_shift_device_name", REXCVAR_GET(pinyon_shift_device_name)));
+      sync_startup_ = save_sync_->Startup();
+    }
+  }
   if (REXCVAR_GET(pinyon_shift_repair_car_cards)) {
     const size_t repaired = pinyon_shift::save::QuarantineStripedCarCards(
         paths.user_data_root, state_root / "backups" / "car-cards");
@@ -1121,6 +1166,7 @@ void PinyonShiftApp::OpenSettingsMenu() {
   pinyon_shift::ui::SettingsServices services;
   services.achievements = [this] { return CreateAchievementsMenu(); };
   services.save_backups = save_backups_.get();
+  services.save_sync = save_sync_.get();
 #if !defined(__ANDROID__)
   // Android leaves through the system's back and home gestures.
   services.quit = [this] { QuitFromMenu(); };
@@ -1443,7 +1489,38 @@ void PinyonShiftApp::OnPostSetup() {
         pinyon_shift::diagnostics::StateRoot() / "user",
         pinyon_shift::diagnostics::StateRoot() / "backups" / "saves",
         size_t(std::max(1, REXCVAR_GET(pinyon_shift_save_backup_slots))));
+    // Each snapshot is a copy of the saves taken while they were still, so
+    // sync publishes from it, never from files the title may be writing.
+    if (save_sync_) {
+      save_backups_->SetOnSnapshot(
+          [sync = save_sync_.get()](const std::filesystem::path& copy) { sync->Export(copy); });
+    }
     save_backups_->Start();
+  }
+  if (save_sync_) {
+    save_sync_->Watch([this](const std::vector<pinyon_shift::SaveSync::Remote>& news,
+                             bool first_poll) {
+      if (first_poll) {
+        if (sync_startup_.folder_unavailable) {
+          PostToast("SAVE SYNC", "THE SYNC FOLDER IS NOT REACHABLE",
+                    "This session's progress stays on this device");
+          return;
+        }
+        if (!sync_startup_.imported_from.empty()) {
+          PostToast("SAVE SYNC", "LOADED THE SAVE FROM " + sync_startup_.imported_from,
+                    "This device's previous save is in SAVE BACKUPS");
+        }
+      }
+      for (const auto& remote : news) {
+        if (remote.relation == pinyon_shift::SaveSync::Relation::kDiverged) {
+          PostToast("SAVE SYNC", "YOUR SAVE ALSO CHANGED ON " + remote.device_name,
+                    "Choose which to keep: SETTINGS > PROFILE > SAVE SYNC");
+        } else {
+          PostToast("SAVE SYNC", "A NEWER SAVE FROM " + remote.device_name + " IS WAITING",
+                    "It loads when the game next starts");
+        }
+      }
+    });
   }
   // Now, not on first use, so the title's first message box already gets
   // the host dialogs.
@@ -1456,6 +1533,7 @@ void PinyonShiftApp::OnPostSetup() {
   pinyon_shift::music::Install([this](std::function<void()> task) {
     if (window()) window()->app_context().CallInUIThreadDeferred(std::move(task));
   });
+  pinyon_shift::cvar_cycle::Start();
   pinyon_shift::ui::ApplyMasterVolume();
   rex::cvar::RegisterChangeCallback(
       "pinyon_shift_master_volume",
@@ -1533,7 +1611,6 @@ void PinyonShiftApp::ApplyFirstRunHardwareDefaults(const rex::ui::vulkan::Vulkan
     settings.push_back(
         {"fh1_coarse_shading",
          "\"1024/32/4x/d1+0/32/4x/c3=2x2,0/16/1x/d1+720/16/1x/c0=2x2\""});
-  pinyon_shift::cvar_cycle::Start();
     settings.push_back({"fh1_coarse_shading_alpha_test", "true"});
   }
   if (!settings.empty() && host_config_ && host_config_->Load()) {
@@ -1786,6 +1863,7 @@ bool PinyonShiftApp::OnWindowCloseRequested() {
   pinyon_shift::mod::NotifyShutdown();
   pinyon_shift::ui::WaitForPhoto();
   save_backups_.reset();
+  ExportSaveSync();
   pinyon_shift::platform::RestoreDisplayHdr();
   RecordShutdownOnce();
 #ifdef PINYON_SHIFT_PGO_GENERATE
@@ -1797,7 +1875,31 @@ bool PinyonShiftApp::OnWindowCloseRequested() {
   return true;
 }
 
+void PinyonShiftApp::ExportSaveSync() {
+  // The title has stopped: publish the save as it was left (also when
+  // backups are off, or a SAVE SYNC choice changed what to publish).
+  if (!save_sync_) return;
+  save_sync_->StopWatching();
+  save_sync_->Export(pinyon_shift::diagnostics::StateRoot() / "user");
+  save_sync_.reset();
+}
+
+void PinyonShiftApp::PostToast(std::string heading, std::string title, std::string detail) {
+  if (!window()) return;
+  window()->app_context().CallInUIThreadDeferred(
+      [this, heading = std::move(heading), title = std::move(title),
+       detail = std::move(detail)]() mutable {
+        if (!EnsureHostUi()) return;
+        pinyon_shift::hostui::HostUi::ToastSpec spec;
+        spec.heading = std::move(heading);
+        spec.title = std::move(title);
+        spec.detail = std::move(detail);
+        host_ui_->ShowToast(std::move(spec));
+      });
+}
+
 void PinyonShiftApp::OnShutdown() {
+  pinyon_shift::cvar_cycle::Stop();
 #if !defined(__ANDROID__)
   rex::ui::UnregisterBind("bind_frame_inspector");
   frame_inspector_.reset();
@@ -1839,6 +1941,7 @@ void PinyonShiftApp::OnShutdown() {
   achievement_icons_.reset();
   achievement_ui_state_.reset();
   save_backups_.reset();
+  ExportSaveSync();
   pinyon_shift::fh1_render_test::Stop();
   pinyon_shift::native_renderer::UninstallShaderCapture(
       runtime() ? runtime()->graphics_system() : nullptr);
@@ -1888,4 +1991,3 @@ void PinyonShiftApp::RecordShutdownOnce() {
 #endif
   }
 }
-  pinyon_shift::cvar_cycle::Stop();

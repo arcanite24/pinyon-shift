@@ -771,6 +771,9 @@
                             AutomationProperties.HelpText="Download the newer release from GitHub and restart the launcher. Saves and settings are kept.">
                         <TextBlock x:Name="UpdateButtonText" Text="Update" Foreground="{StaticResource AccentBrush}"/>
                     </Button>
+                    <Button x:Name="OpenSyncButton" Content="Save sync" Style="{StaticResource LinkButton}"
+                            Visibility="Collapsed" Click="OpenSyncButton_Click"
+                            AutomationProperties.HelpText="Share your save with your other devices through a folder a sync app such as Syncthing or Dropbox keeps in step."/>
                     <Button x:Name="OpenStateFolderButton" Content="Saves" Style="{StaticResource LinkButton}"
                             Visibility="Collapsed" Click="OpenStateFolderButton_Click"
                             AutomationProperties.HelpText="Open the folder with your saves and settings."/>
