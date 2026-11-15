@@ -271,26 +271,90 @@ behaviour gates (handling, AI lap times, Rally completion), as #1071
 already plans for physics. It never needs a big switch-over. But each
 subsystem pays only its share of a flat profile.
 
+### B4 gate probe: measured 2026-11-15
+
+`pinyon_shift_debug_skip_world` (debug, off, hot reload; in
+`src/guest_native/scene_cull.cpp`) stops submission at the owners, so no
+PM4 is built or decoded for what it skips:
+
+- **1:** the loaded model assets (`824365B0`).
+- **2:** the procedural models (`8243EE58`).
+- **4:** every mesh the scene walk's per-pass culling (`824400B0`) sees.
+  That covers the world, cars, crowds and props, in every pass including
+  the shadows.
+
+The image is wrong by design. Method:
+
+- `race-long` (Recaro Rush, 12,920 frames), toggled every 240 frames from
+  frame 4,600, with `tools/summarize-inrun-ab.py` blocks (side 1 minus
+  side 0, ±95 %).
+- The Deck LCD ran a Steam launch of the base game. The Odin 2 Portal ran
+  v4 from a private state (both builds at `dev` 74b9e96a plus the probe).
+- At the 60 fps limit both GPUs clock down, so GPU time doesn't move. The
+  numbers below are uncapped (`pinyon_shift_fh1_render_fps_limit=120`,
+  `host_present_fps_limit=0`, vsync off).
+
+| Device, skip | Draws a frame | Frame | GPU time | Process CPU | Decoder, recorder |
+| --- | --- | --- | --- | --- | --- |
+| Deck, 7 (from a full scene) | 3,626 → 1,391 | 13.61 → 10.80 ms (−2.88 ± 0.33) | −3.39 ± 0.41 ms | −13.78 ± 2.44 ms | −4.30, −3.59 ms |
+| Deck, 7 (second run) | 2,274 → 1,183 | −2.60 ± 0.42 ms | −2.86 ± 0.52 ms | −10.30 ± 2.66 ms | −2.47, −2.41 ms |
+| Deck, 3 (60 limit, two runs) | −720 to −750 | none | none | −0.4 to −1.6 ms (noise) | −0.7, −0.4 to −0.6 ms |
+| Odin, 7 | 2,755 → 954 | 11.56 → 8.62 ms (−3.08 ± 0.43) | −3.06 ± 0.51 ms | −7.24 ± 0.83 ms | −3.42 ms (decoder) |
+| Odin, 7 (second run) | 2,154 → 798 | −2.13 ± 0.16 ms | −2.12 ± 0.28 ms | −5.18 ± 0.80 ms | −2.43 ms |
+| Odin, 3 | −603 | −0.25 ± 0.62 ms | −0.19 ± 0.73 ms | −1.31 ± 1.38 ms | −0.83 ms |
+
+**Reading.** With everything the scene walk draws free, the frame gets 21 %
+(Deck) to 27 % (Odin) faster:
+
+- GPU time falls by 25-28 %.
+- The Deck's process CPU falls by 13.8 ms, at the −12 ms gate.
+- The model-asset lists and the procedural models, the part an owned
+  *static* world renderer would take first, are worth nothing measurable.
+
+The 1,000-1,400 draws left (post chain, cloned and zone lists, HUD) keep
+about 72-75 % of the GPU frame. An owned renderer would still have to draw
+the world and the cars, so its real gain is a fraction of this ceiling.
+**B4 fails its gate.** The estimates above (−3 to −6 ms GPU, −12 to −18 ms
+CPU) were the ceiling, not the expected result.
+
+Two pitfalls:
+
+- Skipping all scene-walk meshes leaves the scene lighter for a while
+  afterwards. In two runs (Deck and Odin), side 0 then drew 1,500-2,300
+  draws instead of 3,000-3,900, probably streaming that follows what was
+  drawn.
+- Trust only runs whose side 0 still draws a full scene.
+
+The desktop wasn't measured, because multivac was busy.
+
 ## Recommendation
 
-- **Effort 60 (B4) is the knee.** It is the only step that removes
-  per-draw emulation work rather than making it cheaper, which every
-  rejected item has shown to be the wall. It is also the first step that
-  helps both the CPU-bound desktop and the GPU-bound devices, and the
-  earlier steps (B2's culling) become part of it.
-- **B5 is worth it for low-end hardware and features:** the UHD 620, Mali
-  and anything weaker than the Deck. It isn't worth it for the desktop frame
-  rate.
-- **B6 pays in control, not speed.** Above B5 it buys at most about a third
-  of the guest threads' time. Choose it for mods, new content or new
+Revised after the B4 gate probe (2026-11-15):
+
+- **B4 doesn't pay.** It was planned as the knee of the curve. With the
+  whole scene walk free, the Deck and the Odin gain only 21-27 %, and
+  the static-world lists alone gain nothing. A renderer that still draws
+  the world would keep only a part of that.
+- **The draws are not where the GPU frame goes.** About three quarters of
+  the GPU time is in the 1,000-1,400 draws left: the post chain, the
+  cloned and zone lists, and the HUD. Per-pass work is the target there,
+  so B1's resolve and colour-compression probes now rank first, followed
+  by the post chain (MR-5's pass `5361` carries most of the image).
+- **B5 is the only step with a payoff that scales.** It removes the post
+  chain's emulated passes and the decoder together. Size it against the
+  probe: the 72-75 % of GPU time left after skip 7 is the pool it works
+  on.
+- **B6 pays in control, not speed.** Above B5 it buys at most about a
+  third of the guest threads' time. Choose it for mods, new content or new
   platforms, not to lower hardware requirements.
 
 Order:
 
 1. B1's three probes (days).
-2. B4's gate probe (a day).
-3. If the gate passes, B2 as B4's first piece, then B4 itself.
-4. Decide B5 on the UHD 620 and Mali numbers after B4.
+2. A per-pass GPU census of what's left after skip 7, on the Deck and
+   the Odin (`fh1_native_gpu_profile`), to size B5.
+3. B2 only if the census shows the main pass is still worth 2 ms or more
+   on a target device.
 
 ## Other projects surveyed (2026-11-15)
 
