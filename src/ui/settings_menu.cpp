@@ -1024,6 +1024,18 @@ std::unique_ptr<MenuScreen> SettingsPages::Graphics() {
   // A .cube colour LUT from state/luts on the scene; the HUD keeps its
   // colours. Applies on the next frame.
   {
+  // FH1 has no ambient occlusion pass; ShiftGlue adds one at swap from the
+  // scene depth (from Lavender Shift's SR-3): contact shade under cars and
+  // along kerbs, darker cockpits, the sky and HUD untouched. Applies on the
+  // next frame; off by default.
+  rows.push_back(Setting("AMBIENT OCCLUSION",
+                         {{"OFF", {{"swap_ambient_occlusion", "false"}}},
+                          {"LOW", {{"swap_ambient_occlusion", "true"},
+                                   {"swap_ambient_occlusion_strength", "40"}}},
+                          {"MEDIUM", {{"swap_ambient_occlusion", "true"},
+                                      {"swap_ambient_occlusion_strength", "70"}}},
+                          {"HIGH", {{"swap_ambient_occlusion", "true"},
+                                    {"swap_ambient_occlusion_strength", "100"}}}}));
     std::vector<Choice> luts = {{"OFF", {{"scene_lut_path", "\"\""}}}};
     std::vector<std::filesystem::path> files;
     std::error_code error;
