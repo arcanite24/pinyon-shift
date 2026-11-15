@@ -101,12 +101,20 @@ if ($isRepositoryCheckout) {
 else {
     $replaceCheckout = $false
     $head = @()
+    # Written once a managed checkout is complete. A folder without it may be
+    # an interrupted download: a --no-checkout clone whose fetch failed reads
+    # as "every file deleted", which is replaced rather than refused. A clean
+    # checkout from before the marker existed is kept.
+    $preparedMarker = "$sdkRoot.prepared"
     if (Test-Path -LiteralPath $sdkRoot) {
         if (Test-Path -LiteralPath (Join-Path $sdkRoot '.git')) {
             $head = @(& $git -C $sdkRoot rev-parse HEAD 2>$null | Select-Object -First 1)
         }
         $dirty = @(& $git -C $sdkRoot status --porcelain --ignore-submodules=dirty 2>$null).Count -ne 0
-        if ($dirty) {
+        if ($dirty -and -not (Test-Path -LiteralPath $preparedMarker)) {
+            $head = @()
+        }
+        elseif ($dirty) {
             throw "The managed ShiftGlue checkout has local changes: $sdkRoot"
         }
         # Keep a valid checkout's dependency sources and build trees across pin
@@ -120,6 +128,7 @@ else {
                 [StringComparison]::OrdinalIgnoreCase)) {
             throw "Refusing to replace ShiftGlue outside $allowed"
         }
+        Remove-Item -LiteralPath $preparedMarker -Force -ErrorAction SilentlyContinue
         Remove-Item -LiteralPath $resolved -Recurse -Force
     }
     if (-not (Test-Path -LiteralPath $sdkRoot)) {
@@ -162,4 +171,7 @@ if ($head[0] -ne $config.rexglue.revision) {
     Write-PinyonEvent tools 38 "Using developer ShiftGlue revision $($head[0])." -JsonEvents:$JsonEvents
 }
 Repair-MaterializedLinks -RepositoryRoot $sdkRoot
+if (-not $isRepositoryCheckout) {
+    [IO.File]::WriteAllText("$sdkRoot.prepared", $head[0] + [Environment]::NewLine)
+}
 Write-PinyonEvent tools 39 'ShiftGlue source is ready.' -JsonEvents:$JsonEvents
