@@ -68,6 +68,7 @@
 #include "mod/overlay_device.h"
 #include "save/car_cards.h"
 #include "save_backups.h"
+#include "cvar_cycle.h"
 #include "achievements/achievement_progress.h"
 #include "achievements/achievement_strings.h"
 #include "ui/achievement_icons.h"
@@ -1532,6 +1533,7 @@ void PinyonShiftApp::ApplyFirstRunHardwareDefaults(const rex::ui::vulkan::Vulkan
     settings.push_back(
         {"fh1_coarse_shading",
          "\"1024/32/4x/d1+0/32/4x/c3=2x2,0/16/1x/d1+720/16/1x/c0=2x2\""});
+  pinyon_shift::cvar_cycle::Start();
     settings.push_back({"fh1_coarse_shading_alpha_test", "true"});
   }
   if (!settings.empty() && host_config_ && host_config_->Load()) {
@@ -1886,3 +1888,4 @@ void PinyonShiftApp::RecordShutdownOnce() {
 #endif
   }
 }
+  pinyon_shift::cvar_cycle::Stop();

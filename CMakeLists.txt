@@ -29,6 +29,7 @@ set(PINYON_SHIFT_HOST_SOURCES
     src/pinyon_shift_diagnostics.cpp
     src/pinyon_shift_runtime_hooks.cpp
     src/save_backups.cpp
+    src/cvar_cycle.cpp
     src/cheats.cpp
     src/cheats_map.cpp
     src/audio_mix.cpp
