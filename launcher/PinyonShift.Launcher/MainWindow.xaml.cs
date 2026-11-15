@@ -79,6 +79,10 @@ public partial class MainWindow : Window
 
     public MainWindow()
     {
+        // Started from a PowerShell 7 prompt, the launcher inherits its PSModulePath, and the
+        // Windows PowerShell it starts then fails to load its own modules (Get-FileHash is "not
+        // recognized"). Without the variable each PowerShell builds its default.
+        Environment.SetEnvironmentVariable("PSModulePath", null);
         InitializeComponent();
         RouteList.ItemsSource = _steps;
         BuildLocationRun.Text = Path.Combine(
