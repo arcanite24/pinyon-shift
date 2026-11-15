@@ -64,6 +64,14 @@ REXCVAR_DEFINE_BOOL(pinyon_shift_native_scene_cull, REX_PLATFORM_LINUX && !REX_P
                     "native code (#1071)")
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
 
+REXCVAR_DEFINE_DOUBLE(pinyon_shift_lod_distance_scale, 1.0, "Pinyon Shift",
+                      "With native scene culling: scale the distances the game picks model "
+                      "LODs by, and the procedural models' (vegetation, crowds, props) far "
+                      "limits. Above 1, coarser meshes come in sooner and items without a "
+                      "mesh for their distance stop drawing sooner: fewer draws and vertices")
+    .range(0.25, 8.0)
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+
 #if defined(PINYON_SHIFT_TITLE_UPDATE_V4) && PINYON_SHIFT_TITLE_UPDATE_V4
 extern "C" REX_FUNC(__imp__sub_8246FB28);
 #define PINYON_PROBE_SELECT __imp__sub_8246FB28
@@ -90,6 +98,12 @@ constexpr uint32_t kViewSettingsHolder = kV4 ? 0x835A1488u : 0x834ABB08u;
 constexpr uint32_t kCascadePlaneCount = kV4 ? 0x833A45CCu : 0x832B8ADCu;
 
 bool Enabled() { return REXCVAR_GET(pinyon_shift_native_scene_cull); }
+
+// The squared LOD distance scale.
+float LodScale2() {
+  const float scale = float(REXCVAR_GET(pinyon_shift_lod_distance_scale));
+  return scale * scale;
+}
 
 // ---- guest memory -------------------------------------------------------
 
@@ -502,7 +516,7 @@ bool PlanCull(PPCContext& ctx, uint8_t* base, Plan& plan) {
     }
     int32_t level = -1;
     if ((flags & 0x3800) && keep) {
-      float d2 = DistanceToBox(m, item, m.U32(passes + 152) + pass * 16);
+      float d2 = DistanceToBox(m, item, m.U32(passes + 152) + pass * 16) * LodScale2();
       if ((shadow || light) && !(d2 >= m.F32(item + 60))) d2 = m.F32(item + 60);
       bool far = false;
       if (pass == 11) {
@@ -790,7 +804,7 @@ bool ModelInRange(const Mem& m, uint32_t model, V3 p, int32_t pass) {
   const float near = m.F32(b + 52), far = m.F32(b + 56);
   if (near == 0.0f && far == 0.0f) return false;
   if (near < 0.0f && far < 0.0f) return true;
-  const float d2 = dist2();
+  const float d2 = dist2() * LodScale2();
   if (!(near < 0.0f) && d2 < near * near) return false;
   if (far < 0.0f) return true;
   return !(d2 > far * far);
