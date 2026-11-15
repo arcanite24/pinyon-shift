@@ -1,0 +1,2847 @@
+---
+header:
+  profile-version: 1
+  binary-name:     librexruntime.so
+  binary-build-id: '<unknown>'
+  profile-flags:   [ sample ]
+  profile-origin:  perf data aggregator
+  profile-events:  'cycles:u:'
+  dfs-order:       false
+  hash-func:       xxh3
+functions:
+  - name:            _ZN3rex3bit6BitMap7AcquireEv
+    fid:             21
+    hash:            0x133274D3CCA18D8E
+    exec:            0
+    nblocks:         7
+  - name:            _ZN3rex6stream9BitStreamC2EPhm
+    fid:             25
+    hash:            0xDB4E2EE853F8E98E
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex6stream9BitStream9SetOffsetEm
+    fid:             27
+    hash:            0xB4E348156D3BC75A
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex6stream9BitStream13BitsRemainingEv
+    fid:             28
+    hash:            0x7B8B4B2CDC49E110
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex6stream9BitStream4PeekEm
+    fid:             29
+    hash:            0xF34D6C5F9012D5BF
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex6stream9BitStream4ReadEm
+    fid:             30
+    hash:            0xD467273768EB39A8
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex6stream9BitStream7AdvanceEm
+    fid:             31
+    hash:            0xAEE9771DFC583BD2
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex6stream9BitStream4CopyEPhm
+    fid:             33
+    hash:            0x152EC33A0AF33B6C
+    exec:            0
+    nblocks:         9
+  - name:            _Z42FLAGS_high_resolution_timer_waits_storage_v
+    fid:             45
+    hash:            0xA1FEF0E92C4293F5
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex6chrono5Clock17guest_time_scalarEv
+    fid:             51
+    hash:            0xFBBF09FD02A2E676
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex6chrono5Clock17guest_time_pausedEv
+    fid:             54
+    hash:            0xEADC53E5B5C8A96C
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex6chrono5Clock20guest_tick_frequencyEv
+    fid:             56
+    hash:            0x94C23D1BCF234270
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex6chrono5Clock19QueryGuestTickCountEv
+    fid:             60
+    hash:            0x7F6AF99677292515
+    exec:            0
+    nblocks:         12
+  - name:            _ZN3rex6chrono5Clock22QueryGuestUptimeMillisEv
+    fid:             62
+    hash:            0x3CFD5FE4D9E99FF9
+    exec:            0
+    nblocks:         27
+  - name:            _ZN3rex6chrono5Clock24ScaleGuestDurationMillisEj
+    fid:             64
+    hash:            0x44E7BAF596F7CF86
+    exec:            0
+    nblocks:         6
+  - name:            _ZN3rex4cvar18HasNonDefaultValueESt17basic_string_viewIcSt11char_traitsIcEE
+    fid:             118
+    hash:            0xD3B426605B16393D
+    exec:            0
+    nblocks:         46
+  - name:            _ZSteqIcSt11char_traitsIcESaIcEEbRKNSt7__cxx1112basic_stringIT_T0_T1_EEPKS5_
+    fid:             151
+    hash:            0xDC9FE95B481B50E5
+    exec:            0
+    nblocks:         5
+  - name:            _ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE7reserveEm
+    fid:             310
+    hash:            0xD7F2E785DC58D433
+    exec:            0
+    nblocks:         13
+  - name:            _ZNSt10_HashtableINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESt4pairIKS5_mESaIS8_ENSt8__detail10_Select1stESt8equal_toIS5_ESt4hashIS5_ENSA_18_Mod_range_hashingENSA_20_Default_ranged_hashENSA_20_Prime_rehash_policyENSA_17_Hashtable_traitsILb1ELb0ELb1EEEE4findERS7_
+    fid:             1033
+    hash:            0x9DE03FE4615694DB
+    exec:            0
+    nblocks:         34
+  - name:            _Z24FLAGS_log_noisy_storage_v
+    fid:             1098
+    hash:            0xA1FEF0E92C4293F5
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex12GetLoggerRawENS_13LogCategoryIdE
+    fid:             1113
+    hash:            0x24F7CD1F74640918
+    exec:            0
+    nblocks:         6
+  - name:            '_ZN3rex12_GLOBAL__N_120PathRotatingFileSink8sink_it_ERKN6spdlog7details7log_msgE/1'
+    fid:             1182
+    hash:            0x58F471D674E4CA17
+    exec:            0
+    nblocks:         37
+  - name:            _ZN3rex6memory26copy_and_swap_16_unalignedEPvPKvm
+    fid:             1289
+    hash:            0xB1FDC54C9115A967
+    exec:            0
+    nblocks:         24
+  - name:            _ZN3rex6memory24copy_and_swap_32_alignedEPvPKvm
+    fid:             1290
+    hash:            0x6BEFC5D7031785F2
+    exec:            0
+    nblocks:         24
+  - name:            _ZN3rex6memory26copy_and_swap_32_unalignedEPvPKvm
+    fid:             1291
+    hash:            0xF8F2FD2820CBA287
+    exec:            0
+    nblocks:         24
+  - name:            _ZN3rex6thread22global_critical_region5mutexEv
+    fid:             1306
+    hash:            0xA1FEF0E92C4293F5
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex6thread22global_critical_region13LockContendedEv
+    fid:             1307
+    hash:            0xDFC48E16F973CC65
+    exec:            0
+    nblocks:         59
+  - name:            _ZN3rex6thread22global_critical_region23CountReservationSectionEv
+    fid:             1310
+    hash:            0xCF927EC242BC2B35
+    exec:            0
+    nblocks:         3
+  - name:            _ZN3rex6memory10RingBufferC2EPhm
+    fid:             1337
+    hash:            0xE56EBA165565F6F1
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex6memory10RingBuffer11AdvanceReadEm
+    fid:             1338
+    hash:            0x92772C84FC339D64
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex6memory10RingBuffer9BeginReadEm
+    fid:             1340
+    hash:            0x3818B5DF6066AD37
+    exec:            0
+    nblocks:         5
+  - name:            _ZN3rex6memory10RingBuffer7EndReadENS1_9ReadRangeE
+    fid:             1341
+    hash:            0x4AA1A4E23169F2CA
+    exec:            0
+    nblocks:         3
+  - name:            _ZN3rex6memory10RingBuffer5WriteEPKhm
+    fid:             1343
+    hash:            0x5B6A1B75E7DE092E
+    exec:            0
+    nblocks:         6
+  - name:            _ZN3rex6string12StringBuffer6AppendEc
+    fid:             1348
+    hash:            0xA27C6922716F8049
+    exec:            0
+    nblocks:         3
+  - name:            _ZN3rex6thread6census5FrameEv
+    fid:             1360
+    hash:            0xE402B3EF3F5F7567
+    exec:            0
+    nblocks:         522
+  - name:            _ZN3rex6thread23logical_processor_countEv
+    fid:             1399
+    hash:            0x92FE1B00BA65BF76
+    exec:            0
+    nblocks:         4
+  - name:            _ZN3rex6thread10TimerQueue15TimerThreadMainESt10stop_token
+    fid:             1422
+    hash:            0xC76DAB91A5EA96A7
+    exec:            0
+    nblocks:         154
+  - name:            _ZNSt14_Fwd_list_baseISt10shared_ptrIN3rex6thread18TimerQueueWaitItemEESaIS4_EE14_M_erase_afterEPSt19_Fwd_list_node_baseS8_
+    fid:             1424
+    hash:            0x15BCDA35AEF1306F
+    exec:            0
+    nblocks:         19
+  - name:            _ZN3rex6string16equal_ascii_caseEjj
+    fid:             1438
+    hash:            0xC813573B211A63D6
+    exec:            0
+    nblocks:         3
+  - name:            _ZN3rex6string15utf8_join_pathsB5cxx11ESt17basic_string_viewIcSt11char_traitsIcEES4_Di
+    fid:             1461
+    hash:            0xF3CF30E9E89C8AE1
+    exec:            0
+    nblocks:         69
+  - name:            _ZN4utf84nextIPKcEEDiRT_S3_
+    fid:             1478
+    hash:            0x24D49B3BDA46E405
+    exec:            0
+    nblocks:         7
+  - name:            _ZN4utf88internal13validate_nextIPKcEENS0_9utf_errorERT_S5_RDi
+    fid:             1479
+    hash:            0x7056A86D2A39E3A
+    exec:            0
+    nblocks:         35
+  - name:            _ZSt9__find_ifIN4utf88iteratorIPKcEEN9__gnu_cxx5__ops10_Iter_predIZN3rex6string11find_needleES4_S4_S4_S4_EUlRKT_E_EEESA_SA_SA_T0_St18input_iterator_tag
+    fid:             1484
+    hash:            0xAE6DA3DC9B093FA4
+    exec:            0
+    nblocks:         83
+  - name:            _ZSt8__equal4IN4utf88iteratorIPKcEES4_PFbjjEEbT_S7_T0_S8_T1_
+    fid:             1485
+    hash:            0xD3300848F61FDB22
+    exec:            0
+    nblocks:         22
+  - name:            _ZN3rex6thread10atomic_incEPVi
+    fid:             1490
+    hash:            0xC0C4B78927C8872
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex6thread10atomic_decEPVi
+    fid:             1491
+    hash:            0xC03B1063BF43F6B2
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex6thread10atomic_casEiiPVi
+    fid:             1496
+    hash:            0x3BECEE2446ABD63A
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex6thread10atomic_casEllPVl
+    fid:             1497
+    hash:            0xEFD77EF9685E8D90
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex6chrono5Clock28host_tick_frequency_platformEv
+    fid:             1499
+    hash:            0xEA7E1C69A6E83F38
+    exec:            0
+    nblocks:         3
+  - name:            _ZN3rex6chrono5Clock24host_tick_count_platformEv
+    fid:             1500
+    hash:            0x8169A61EF1212053
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex6chrono5Clock21QueryHostUptimeMillisEv
+    fid:             1502
+    hash:            0xA38A644FBE81EA73
+    exec:            0
+    nblocks:         5
+  - name:            '_ZN3rex4archL24ExceptionHandlerCallbackEiP9siginfo_tPv/1'
+    fid:             1516
+    hash:            0x3A01B213FF03CE87
+    exec:            0
+    nblocks:         34
+  - name:            _ZN3rex12path_to_utf8ERKNSt10filesystem7__cxx114pathE
+    fid:             1518
+    hash:            0x6A231E151F0901D0
+    exec:            0
+    nblocks:         13
+  - name:            _ZN3rex6memory7ProtectEPvmNS0_10PageAccessEPS2_
+    fid:             1573
+    hash:            0xDE30088BB55461E8
+    exec:            0
+    nblocks:         19
+  - name:            _ZN3rex6memory14IsHostReadableEPKv
+    fid:             1575
+    hash:            0x4C9549C5D5871DF
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex6thread10MaybeYieldEv
+    fid:             1614
+    hash:            0xEFCB83D12A91A101
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex6thread10SyncMemoryEv
+    fid:             1615
+    hash:            0xC94D07B330409E1F
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex6thread10SleepUntilENSt6chrono10time_pointINS1_3_V212steady_clockENS1_8durationIlSt5ratioILl1ELl1000000000EEEEEENS5_IlS6_ILl1ELl1000000EEEE
+    fid:             1616
+    hash:            0xE3E150B74675EB06
+    exec:            0
+    nblocks:         9
+  - name:            _ZN3rex6thread9WaitUntilENSt6chrono10time_pointINS1_3_V212steady_clockENS1_8durationIlSt5ratioILl1ELl1000000000EEEEEE
+    fid:             1617
+    hash:            0xF1FA895E660A8B5B
+    exec:            0
+    nblocks:         5
+  - name:            _ZN3rex6thread5SleepENSt6chrono8durationIlSt5ratioILl1ELl1000000EEEE
+    fid:             1618
+    hash:            0x18F44D505F958B0
+    exec:            0
+    nblocks:         4
+  - name:            _ZN3rex6thread14AlertableSleepENSt6chrono8durationIlSt5ratioILl1ELl1000000EEEE
+    fid:             1619
+    hash:            0x469394C114870495
+    exec:            0
+    nblocks:         32
+  - name:            _ZN3rex6thread4WaitEPNS0_10WaitHandleEbNSt6chrono8durationIlSt5ratioILl1ELl1000EEEE
+    fid:             1633
+    hash:            0x8492BA1623D3AC5D
+    exec:            0
+    nblocks:         34
+  - name:            _ZN3rex6thread12WaitMultipleEPPNS0_10WaitHandleEmbbNSt6chrono8durationIlSt5ratioILl1ELl1000EEEE
+    fid:             1635
+    hash:            0xF3B744B7BF893248
+    exec:            0
+    nblocks:         62
+  - name:            '_ZN3rex6thread12_GLOBAL__N_116SweepThreadCoresENSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEE/1'
+    fid:             1663
+    hash:            0x9A7A908AB9E56F00
+    exec:            0
+    nblocks:         133
+  - name:            _ZN3rex6thread11PosixWaiter13WaitForChangeEmNSt6chrono10time_pointINS2_3_V212steady_clockENS2_8durationIlSt5ratioILl1ELl1000000000EEEEEE
+    fid:             1669
+    hash:            0xACAE1B7021A598C8
+    exec:            0
+    nblocks:         20
+  - name:            _ZN3rex6thread14PosixConditionINS0_6ThreadEE27DispatchQueuedUserCallbacksEv
+    fid:             1671
+    hash:            0x7BE2948B45BF340E
+    exec:            0
+    nblocks:         31
+  - name:            _ZN3rex6thread18PosixConditionBase4WaitENSt6chrono8durationIlSt5ratioILl1ELl1000EEEE
+    fid:             1675
+    hash:            0x8A037E9266102049
+    exec:            0
+    nblocks:         23
+  - name:            _ZN3rex6thread18PosixConditionBase15NotifyAllLockedEv
+    fid:             1678
+    hash:            0x1A196E68A45012ED
+    exec:            0
+    nblocks:         12
+  - name:            _ZThn8_N3rex6thread20PosixConditionHandleINS0_9SemaphoreEE9conditionEv
+    fid:             1685
+    hash:            0xA1FEF0E92C4293F5
+    exec:            0
+    nblocks:         1
+  - name:            _ZThn8_N3rex6thread20PosixConditionHandleINS0_6MutantEE9conditionEv
+    fid:             1692
+    hash:            0xA1FEF0E92C4293F5
+    exec:            0
+    nblocks:         1
+  - name:            _ZThn8_N3rex6thread20PosixConditionHandleINS0_5EventEE9conditionEv
+    fid:             1706
+    hash:            0xA1FEF0E92C4293F5
+    exec:            0
+    nblocks:         1
+  - name:            _ZNK3rex6thread14PosixConditionINS0_9SemaphoreEE8signaledEv
+    fid:             1725
+    hash:            0x119F431D7A4135B5
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex6thread14PosixConditionINS0_9SemaphoreEE14post_executionEv
+    fid:             1726
+    hash:            0x8ADCB434A31725AE
+    exec:            0
+    nblocks:         1
+  - name:            _ZNK3rex6thread14PosixConditionINS0_6MutantEE8signaledEv
+    fid:             1731
+    hash:            0xE2460BFB148E598
+    exec:            0
+    nblocks:         3
+  - name:            _ZN3rex6thread14PosixConditionINS0_6MutantEE14post_executionEv
+    fid:             1732
+    hash:            0x460E90EBE5228427
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex6thread14PosixConditionINS0_6MutantEE7ReleaseEv
+    fid:             1733
+    hash:            0xA8641514509FA0AC
+    exec:            0
+    nblocks:         15
+  - name:            _ZN3rex6thread14PosixConditionINS0_5TimerEE6SignalEv
+    fid:             1736
+    hash:            0x5EE87124E4143ED0
+    exec:            0
+    nblocks:         9
+  - name:            _ZNK3rex6thread14PosixConditionINS0_5TimerEE8signaledEv
+    fid:             1738
+    hash:            0x698C7954FFE9C7C3
+    exec:            0
+    nblocks:         1
+  - name:            _ZNK3rex6thread14PosixConditionINS0_5EventEE8signaledEv
+    fid:             1744
+    hash:            0x698C7954FFE9C7C3
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex6thread14PosixConditionINS0_5EventEE14post_executionEv
+    fid:             1745
+    hash:            0x93B1D89201A36E2C
+    exec:            0
+    nblocks:         3
+  - name:            _ZN3rex6thread18PosixConditionBase9AddWaiterEPNS0_11PosixWaiterE
+    fid:             1757
+    hash:            0xB5689CCE41F604CF
+    exec:            0
+    nblocks:         19
+  - name:            _ZN3rex6thread18PosixConditionBase10TryAcquireERKSt6vectorIPS1_SaIS3_EEbPm
+    fid:             1758
+    hash:            0x2648F6FC53C8CE67
+    exec:            0
+    nblocks:         94
+  - name:            _ZN3rex6thread18PosixConditionBase12RemoveWaiterEPNS0_11PosixWaiterE
+    fid:             1759
+    hash:            0xE0BA01DE912E6851
+    exec:            0
+    nblocks:         36
+  - name:            _ZN3rex6thread10PosixEvent3SetEv
+    fid:             1765
+    hash:            0x7DE7DAFE3CD30957
+    exec:            0
+    nblocks:         9
+  - name:            _ZN3rex6thread10PosixEvent5ResetEv
+    fid:             1766
+    hash:            0xD071EEAF65603346
+    exec:            0
+    nblocks:         5
+  - name:            _ZN3rex6thread14PosixSemaphore7ReleaseEiPi
+    fid:             1772
+    hash:            0xBD11BCA9D4E60EA7
+    exec:            0
+    nblocks:         15
+  - name:            _ZN3rex6thread11PosixMutant7ReleaseEv
+    fid:             1776
+    hash:            0x7058A31094080677
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex6thread14PosixConditionINS0_5TimerEE17CompletionRoutineEPv
+    fid:             1790
+    hash:            0x6B760AEC6015D49A
+    exec:            0
+    nblocks:         27
+  - name:            _ZN3rex6thread11PosixThread8priorityEv
+    fid:             1797
+    hash:            0xB81BFE27ECB88205
+    exec:            0
+    nblocks:         1
+  - name:            _ZNK3rex6thread14PosixConditionINS0_6ThreadEE11WaitStartedEv
+    fid:             1809
+    hash:            0x65C964FCF4E9FC6C
+    exec:            0
+    nblocks:         14
+  - name:            _ZN3rex8graphics5xenos12Float7e3To32Ej
+    fid:             1835
+    hash:            0x8892F085A6A80B19
+    exec:            0
+    nblocks:         6
+  - name:            _ZN3rex8graphics5xenos13Float20e4To32Ej
+    fid:             1837
+    hash:            0x5E3ABA058AFC8641
+    exec:            0
+    nblocks:         5
+  - name:            _ZN3rex8graphics10FormatInfo3GetEj
+    fid:             1850
+    hash:            0x6E1F64F9576B3DB2
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex8graphics12texture_util32GetSubresourcesFromFetchConstantERKNS0_5xenos22xe_gpu_texture_fetch_tEPjS6_S6_S6_S6_S6_S6_
+    fid:             1853
+    hash:            0x4B6D5E18BA9634AC
+    exec:            0
+    nblocks:         23
+  - name:            _ZN3rex8graphics12texture_util18GetPackedMipOffsetEjjjNS0_5xenos13TextureFormatEjRjS4_S4_
+    fid:             1854
+    hash:            0x56E54DF8E358B6A5
+    exec:            0
+    nblocks:         11
+  - name:            _ZN3rex8graphics12texture_util27GetTiledAddressUpperBound2DEjjjj
+    fid:             1857
+    hash:            0xB212A4A5EA9381A8
+    exec:            0
+    nblocks:         8
+  - name:            _ZN3rex8graphics12texture_util16GetTiledOffset2DEiijj
+    fid:             1858
+    hash:            0x306CD664DC3DEF82
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex8graphics12texture_util12SwizzleSignsERKNS0_5xenos22xe_gpu_texture_fetch_tE
+    fid:             1860
+    hash:            0xD6D776856C508EBD
+    exec:            0
+    nblocks:         13
+  - name:            _ZN3rex8graphics12texture_util25GetClampModesForDimensionERKNS0_5xenos22xe_gpu_texture_fetch_tERNS2_9ClampModeES7_S7_
+    fid:             1861
+    hash:            0x2FBCEF5B9C208454
+    exec:            0
+    nblocks:         5
+  - name:            _ZN3rex4perf10SetCounterENS0_9CounterIdEl
+    fid:             1874
+    hash:            0x4DB1794DAE061812
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex4perf16IncrementCounterENS0_9CounterIdEl
+    fid:             1875
+    hash:            0x18409B2DA3A33640
+    exec:            0
+    nblocks:         5
+  - name:            _ZN3rex4perf15GetTotalCounterENS0_9CounterIdE
+    fid:             1877
+    hash:            0x6A1047880D7546D5
+    exec:            0
+    nblocks:         3
+  - name:            _ZN3rex4perf15InjectFrameCostEv
+    fid:             1878
+    hash:            0x2D31EA59ADE4A428
+    exec:            0
+    nblocks:         28
+  - name:            _ZN3rex4perf18ResetFrameCountersEv
+    fid:             1882
+    hash:            0x22BC21BF0F1B7054
+    exec:            0
+    nblocks:         33
+  - name:            _ZN3rex4perf22CurrentThreadCpuTimeNsEv
+    fid:             1884
+    hash:            0xE3A4BF428CB97564
+    exec:            0
+    nblocks:         3
+  - name:            _ZN3rex4perf24CriticalPathTraceEnabledEv
+    fid:             1886
+    hash:            0x62DEC6C9939AAA1D
+    exec:            0
+    nblocks:         5
+  - name:            _ZN3rex4perf13WriteCsvFrameEv
+    fid:             1890
+    hash:            0x36D4C51EBE7AF7CF
+    exec:            0
+    nblocks:         18
+  - name:            _ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE12_M_constructIPKcEEvT_S8_St20forward_iterator_tag
+    fid:             1943
+    hash:            0xCDF6A2F74C00C060
+    exec:            0
+    nblocks:         6
+  - name:            _ZNKSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE7_M_dataEv
+    fid:             1948
+    hash:            0x7A3EBE316C2EE87
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex10filesystem5Entry8GetChildESt17basic_string_viewIcSt11char_traitsIcEE
+    fid:             1958
+    hash:            0x5B9C360A06E67F9E
+    exec:            0
+    nblocks:         41
+  - name:            _ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE7_S_copyEPcPKcm
+    fid:             1980
+    hash:            0x2F62E08BC535D0EA
+    exec:            0
+    nblocks:         4
+  - name:            _ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE12_M_constructIPcEEvT_S7_St20forward_iterator_tag
+    fid:             1984
+    hash:            0xCDF6A2F74C00C060
+    exec:            0
+    nblocks:         6
+  - name:            _ZZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE12_M_constructIPcEEvT_S7_St20forward_iterator_tagEN6_GuardC2EPS4_
+    fid:             1985
+    hash:            0xA63E135C044B663C
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex10filesystem17VirtualFileSystem8OpenFileEPNS0_5EntryESt17basic_string_viewIcSt11char_traitsIcEENS0_15FileDispositionEjbbPPNS0_4FileEPNS0_10FileActionE
+    fid:             2002
+    hash:            0xBDAA7F31D0A8EF24
+    exec:            0
+    nblocks:         91
+  - name:            _ZN3rex2ui24GraphicsUploadBufferPool7ReclaimEm
+    fid:             2211
+    hash:            0x9D2F00B7665A8DD2
+    exec:            0
+    nblocks:         10
+  - name:            _ZN3rex2ui24GraphicsUploadBufferPool11FlushWritesEv
+    fid:             2215
+    hash:            0x7AF3865E59D70339
+    exec:            0
+    nblocks:         3
+  - name:            _ZN3rex2ui24GraphicsUploadBufferPool7RequestEmmmRm
+    fid:             2216
+    hash:            0xDB11B530B57B667
+    exec:            0
+    nblocks:         16
+  - name:            _ZN3rex2ui24GraphicsUploadBufferPool14RequestPartialEmmmRmS2_
+    fid:             2217
+    hash:            0x50BE04DBB84EEA1
+    exec:            0
+    nblocks:         3
+  - name:            _ZN3rex2ui21FloatToD3D11Fixed16p8Ef
+    fid:             2220
+    hash:            0x2D005BCE3E276590
+    exec:            0
+    nblocks:         6
+  - name:            _ZN3rex2ui9Presenter15PaintAndPresentEb
+    fid:             2395
+    hash:            0x6AB66862E9A9F9E8
+    exec:            0
+    nblocks:         60
+  - name:            _ZN3rex2ui9Presenter18RefreshGuestOutputEjjjjSt8functionIFbRNS1_25GuestOutputRefreshContextEEE
+    fid:             2397
+    hash:            0xADC1A3393995E3B8
+    exec:            0
+    nblocks:         33
+  - name:            _ZN3rex2ui9Presenter18PublishGuestOutputEv
+    fid:             2398
+    hash:            0x1F4FBF804FD89EAE
+    exec:            0
+    nblocks:         30
+  - name:            _ZN3rex2ui9Presenter18ConsumeGuestOutputERjPNS1_21GuestOutputPropertiesEPNS1_22GuestOutputPaintConfigE
+    fid:             2407
+    hash:            0x28E2D41C22F5820B
+    exec:            0
+    nblocks:         23
+  - name:            _ZNK3rex2ui9Presenter23GetGuestOutputPaintFlowERKNS1_21GuestOutputPropertiesEjjjjRKNS1_22GuestOutputPaintConfigE
+    fid:             2408
+    hash:            0xBF68523FD01A2FF9
+    exec:            0
+    nblocks:         126
+  - name:            _ZN3rex2ui9Presenter25SetPaintedGuestOutputRectEPKNS1_20GuestOutputPaintFlowE
+    fid:             2411
+    hash:            0xBFB2E5142404B4EE
+    exec:            0
+    nblocks:         6
+  - name:            '_ZNSt17_Function_handlerIFvvEZN3rex2ui9Presenter18RefreshGuestOutputEjjjjSt8functionIFbRNS3_25GuestOutputRefreshContextEEEE3$_1E9_M_invokeERKSt9_Any_data/1'
+    fid:             2501
+    hash:            0x784E6A49369ED463
+    exec:            0
+    nblocks:         3
+  - name:            '_ZNSt17_Function_handlerIFvvEZN3rex2ui9Presenter18RefreshGuestOutputEjjjjSt8functionIFbRNS3_25GuestOutputRefreshContextEEEE3$_1E10_M_managerERSt9_Any_dataRKSB_St18_Manager_operation/1'
+    fid:             2502
+    hash:            0x6F34A89E9C01C89B
+    exec:            0
+    nblocks:         7
+  - name:            _ZN3rex2ui25SetTemporalUpscalerActiveEb
+    fid:             2516
+    hash:            0x98D1F90067D5A6E0
+    exec:            0
+    nblocks:         1
+  - name:            _Z31FLAGS_video_mode_width_storage_v
+    fid:             2528
+    hash:            0xA1FEF0E92C4293F5
+    exec:            0
+    nblocks:         1
+  - name:            '_ZNSt17_Function_handlerIFNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEvE3$_1E9_M_invokeERKSt9_Any_data/3'
+    fid:             2577
+    hash:            0x66BB7C84ED6AEBE1
+    exec:            0
+    nblocks:         18
+  - name:            '_ZNSt17_Function_handlerIFNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEvE4$_16E9_M_invokeERKSt9_Any_data/2'
+    fid:             2607
+    hash:            0x66BB7C84ED6AEBE1
+    exec:            0
+    nblocks:         18
+  - name:            '_ZNSt17_Function_handlerIFNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEvE4$_22E9_M_invokeERKSt9_Any_data/2'
+    fid:             2619
+    hash:            0x4C2E209917078E0A
+    exec:            0
+    nblocks:         4
+  - name:            _ZNK3rex2ui6vulkan12VulkanDevice22ReportImageCompressionEP9VkImage_TRK17VkImageCreateInfoPKc
+    fid:             3053
+    hash:            0x1A03F79242CAE0FC
+    exec:            0
+    nblocks:         49
+  - name:            _ZN14VmaBlockVector12AllocatePageEmmRK23VmaAllocationCreateInfo20VmaSuballocationTypePP15VmaAllocation_T
+    fid:             3403
+    hash:            0x66628F6F023DBA8F
+    exec:            0
+    nblocks:         98
+  - name:            _ZNK21VmaBlockMetadata_TLSF19GetAllocationOffsetEP16VmaAllocHandle_T
+    fid:             3576
+    hash:            0x7A3EBE316C2EE87
+    exec:            0
+    nblocks:         1
+  - name:            _Z35FLAGS_present_upscaler_hud_storage_B5cxx11v
+    fid:             3589
+    hash:            0x7FDB0D5D8318DFBB
+    exec:            0
+    nblocks:         5
+  - name:            _ZN3rex2ui6vulkan15VulkanPresenter19GetTemporalUpscalerERKNS0_9Presenter22GuestOutputPaintConfigE
+    fid:             3627
+    hash:            0x640D970A48A80EBF
+    exec:            0
+    nblocks:         12
+  - name:            _ZN3rex2ui6vulkan15VulkanPresenter22RefreshGuestOutputImplEjjjSt8functionIFbRNS0_9Presenter25GuestOutputRefreshContextEEERb
+    fid:             3640
+    hash:            0x207E54E21BB4A8D7
+    exec:            0
+    nblocks:         53
+  - name:            _ZN3rex2ui6vulkan15VulkanPresenter27GuestOutputRefreshSubmittedEj
+    fid:             3641
+    hash:            0x728B62ABB5ED6925
+    exec:            0
+    nblocks:         12
+  - name:            _ZN3rex2ui6vulkan15VulkanPresenter19PaintAndPresentImplEb
+    fid:             3646
+    hash:            0xD25881185C61AF12
+    exec:            0
+    nblocks:         418
+  - name:            _ZNSt4pairImSt10shared_ptrIN3rex2ui6vulkan15VulkanPresenter16GuestOutputImageEEEaSEOS7_Qcl13_S_assignableIT_T0_EE
+    fid:             3765
+    hash:            0xEF8943A88F522D5C
+    exec:            0
+    nblocks:         8
+  - name:            _ZNK3rex2ui6vulkan15VulkanPresenter23WantsHudlessGuestOutputEv
+    fid:             3769
+    hash:            0xE95195AD5B586CDC
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex2ui6vulkan23VulkanSubmissionTracker16FenceAcquisitionD1Ev
+    fid:             3859
+    hash:            0x7494DB89B0AFE847
+    exec:            0
+    nblocks:         19
+  - name:            _ZN3rex2ui6vulkan23VulkanSubmissionTracker31UpdateAndGetCompletedSubmissionEv
+    fid:             3862
+    hash:            0x8B29FBDAEBFFE54B
+    exec:            0
+    nblocks:         17
+  - name:            _ZN3rex2ui6vulkan23VulkanSubmissionTracker25AwaitSubmissionCompletionEm
+    fid:             3863
+    hash:            0x541880307ADE727B
+    exec:            0
+    nblocks:         38
+  - name:            _ZN3rex2ui6vulkan23VulkanSubmissionTracker31AcquireFenceToAdvanceSubmissionEv
+    fid:             3864
+    hash:            0x45688A85802D62B7
+    exec:            0
+    nblocks:         6
+  - name:            _ZN3rex2ui6vulkan22VulkanUploadBufferPool7RequestEmmmRP10VkBuffer_TRm
+    fid:             3868
+    hash:            0x69689CE4D532EDCF
+    exec:            0
+    nblocks:         3
+  - name:            _ZN3rex2ui6vulkan22VulkanUploadBufferPool14RequestPartialEmmmRP10VkBuffer_TRmS6_
+    fid:             3869
+    hash:            0xDF44A514D9B30565
+    exec:            0
+    nblocks:         3
+  - name:            _ZN3rex2ui6vulkan22VulkanUploadBufferPool15FlushPageWritesEPNS0_24GraphicsUploadBufferPool4PageEmm
+    fid:             3871
+    hash:            0xF442D01D5B14EB67
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex2ui6vulkan4util22FlushMappedMemoryRangeEPKNS1_12VulkanDeviceEP16VkDeviceMemory_Tjmmm
+    fid:             3876
+    hash:            0x69743C01EBFA14F7
+    exec:            0
+    nblocks:         14
+  - name:            _ZN3rex5audio11AudioSystem16WorkerThreadMainEv
+    fid:             3891
+    hash:            0x3BCD778776811866
+    exec:            0
+    nblocks:         107
+  - name:            _ZN3rex5audio13GetStereoFoldEv
+    fid:             3920
+    hash:            0xE29A4F7CEDF2F691
+    exec:            0
+    nblocks:         5
+  - name:            _ZN3rex5audio10XmaContext4WorkEv
+    fid:             3985
+    hash:            0xF4AF5EA72C02D3B6
+    exec:            0
+    nblocks:         44
+  - name:            _ZN3rex5audio10XmaContext7ConsumeEPNS_6memory10RingBufferEPKNS0_16XMA_CONTEXT_DATAE
+    fid:             3987
+    hash:            0xEB62CDE302AD12A3
+    exec:            0
+    nblocks:         20
+  - name:            _ZN3rex5audio10XmaContext18StoreContextMergedERKNS0_16XMA_CONTEXT_DATAES4_Ph
+    fid:             3988
+    hash:            0x2BD6BB39E3004E5C
+    exec:            0
+    nblocks:         9
+  - name:            _ZN3rex5audio10XmaContext16NoteNoSpaceStallERKNS0_16XMA_CONTEXT_DATAEi
+    fid:             3989
+    hash:            0x42330CAB307BF2AD
+    exec:            0
+    nblocks:         29
+  - name:            _ZN3rex5audio10XmaContext6DecodeEPNS0_16XMA_CONTEXT_DATAE
+    fid:             3990
+    hash:            0x25022E7D331DFAA9
+    exec:            0
+    nblocks:         93
+  - name:            _ZN3rex5audio10XmaContext12NoteProgressERKNS0_16XMA_CONTEXT_DATAERKNS_6memory10RingBufferEj
+    fid:             3991
+    hash:            0x6051F549B864E545
+    exec:            0
+    nblocks:         12
+  - name:            _ZN3rex5audio10XmaContext6EnableEv
+    fid:             3993
+    hash:            0xD071EEAF65603346
+    exec:            0
+    nblocks:         5
+  - name:            _ZN3rex5audio10XmaContext5BlockEb
+    fid:             3994
+    hash:            0xC4405188E17A1F39
+    exec:            0
+    nblocks:         8
+  - name:            _ZN3rex5audio10XmaContext5ClearEv
+    fid:             3995
+    hash:            0x3EE40876E7204247
+    exec:            0
+    nblocks:         32
+  - name:            _ZN3rex5audio10XmaContext7DisableEv
+    fid:             3998
+    hash:            0x1AD17EBDEBD30E9F
+    exec:            0
+    nblocks:         6
+  - name:            _ZN3rex5audio10XmaContext7ReleaseEv
+    fid:             3999
+    hash:            0xE92F2BFF88D06699
+    exec:            0
+    nblocks:         13
+  - name:            _ZN3rex5audio10XmaContext20WarnPacketResolutionERKNS0_15XmaPacketHandleEj
+    fid:             4007
+    hash:            0xA24FE13C7CCA073F
+    exec:            0
+    nblocks:         10
+  - name:            _ZN3rex5audio10XmaContext22AssemblePacketPayloadsEPNS0_16XMA_CONTEXT_DATAEjjjjSt4spanIhLm18446744073709551615EE
+    fid:             4008
+    hash:            0x86BF1E40BF3EE4C8
+    exec:            0
+    nblocks:         27
+  - name:            _ZN3rex5audio10XmaContext23GetNextPacketReadOffsetEPNS0_16XMA_CONTEXT_DATAEjjPNS0_15XmaPacketHandleE
+    fid:             4012
+    hash:            0xB5F879981FE30B61
+    exec:            0
+    nblocks:         32
+  - name:            _ZN3rex5audio10XmaContext13GetPacketInfoEPhj
+    fid:             4013
+    hash:            0x202E8A0ABCAC56D3
+    exec:            0
+    nblocks:         19
+  - name:            _ZN3rex5audio10XmaContext14PrepareDecoderEib
+    fid:             4014
+    hash:            0x4A67980EBCD73FE2
+    exec:            0
+    nblocks:         28
+  - name:            _ZN3rex5audio10XmaContext12DecodePacketEP14AVCodecContextPK8AVPacketP7AVFrame
+    fid:             4016
+    hash:            0xB324A2614AB39271
+    exec:            0
+    nblocks:         30
+  - name:            _ZN3rex5audio10XmaContext12ConvertFrameEPPKhbPh
+    fid:             4017
+    hash:            0x4F760651E7324C86
+    exec:            0
+    nblocks:         6
+  - name:            _ZN3rex5audio15av_log_callbackEPviPKcP13__va_list_tag
+    fid:             4052
+    hash:            0xCC7254EDB87932A7
+    exec:            0
+    nblocks:         41
+  - name:            _ZN3rex5audio10XmaDecoder16WorkerThreadMainEv
+    fid:             4054
+    hash:            0x1D77C43CCAB31399
+    exec:            0
+    nblocks:         31
+  - name:            _ZN3rex5audio10XmaDecoder14ReleaseContextEj
+    fid:             4059
+    hash:            0xA8FF4912C6DC36E4
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex5audio10XmaDecoder12ReadRegisterEj
+    fid:             4061
+    hash:            0x2973F94F62FCEA53
+    exec:            0
+    nblocks:         19
+  - name:            _ZN3rex5audio10XmaDecoder13WriteRegisterEjj
+    fid:             4062
+    hash:            0xEC3F0C19A5D9DC44
+    exec:            0
+    nblocks:         46
+  - name:            _ZN3rex5audio10XmaDecoder21MMIOReadRegisterThunkEPvPS1_j
+    fid:             4078
+    hash:            0xB5832A3857FA512B
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex5audio10XmaDecoder22MMIOWriteRegisterThunkEPvPS1_jj
+    fid:             4079
+    hash:            0x37596488A515B535
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex5audio3sdl14SDLAudioDriver11SDLCallbackEPvP15SDL_AudioStreamii
+    fid:             4105
+    hash:            0x1108A5C90C17204D
+    exec:            0
+    nblocks:         85
+  - name:            _ZN3rex5audio3sdl14SDLAudioDriver15SubmitHostFrameEPKj
+    fid:             4107
+    hash:            0xCC5EE6383841A665
+    exec:            0
+    nblocks:         31
+  - name:            _ZN3rex5input11InputSystem14RefreshDevicesEv
+    fid:             4141
+    hash:            0x4DC7620B20D5348
+    exec:            0
+    nblocks:         238
+  - name:            _ZN3rex5input11InputSystem8GetStateEjPNS0_13X_INPUT_STATEE
+    fid:             4147
+    hash:            0x91B2E5A9C3502AF
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex5input11InputSystem14GetMergedStateEjbPNS0_13X_INPUT_STATEE
+    fid:             4149
+    hash:            0x7283DAD9B86E1F6
+    exec:            0
+    nblocks:         51
+  - name:            _ZN3rex5input11InputSystem20UpdateFeedbackLockedEjRKSt6vectorINS0_8DeviceIdESaIS3_EERKNS0_13X_INPUT_STATEE
+    fid:             4151
+    hash:            0xA51F67FFC7EEDC2A
+    exec:            0
+    nblocks:         71
+  - name:            _ZN3rex5input11InputSystem4LiveEv
+    fid:             4157
+    hash:            0x7A3EBE316C2EE87
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex5input11InputSystem8SetStateEjPNS0_17X_INPUT_VIBRATIONE
+    fid:             4158
+    hash:            0xC6E0C9F5CE277D21
+    exec:            0
+    nblocks:         54
+  - name:            '_ZSt24__merge_sort_with_bufferIN9__gnu_cxx17__normal_iteratorIPmSt6vectorImSaImEEEES2_NS0_5__ops15_Iter_comp_iterIZN3rex5input11InputSystem14RefreshDevicesEvE3$_3EEEvT_SE_T0_T1_/1'
+    fid:             4205
+    hash:            0x49DA49011C834989
+    exec:            0
+    nblocks:         109
+  - name:            '_ZSt16__merge_adaptiveIN9__gnu_cxx17__normal_iteratorIPmSt6vectorImSaImEEEElS2_NS0_5__ops15_Iter_comp_iterIZN3rex5input11InputSystem14RefreshDevicesEvE3$_3EEEvT_SE_SE_T0_SF_T1_T2_/1'
+    fid:             4206
+    hash:            0xB8312FE3DC673DFC
+    exec:            0
+    nblocks:         36
+  - name:            _ZNSt6vectorIN3rex5input10DeviceInfoESaIS2_EE17_M_realloc_appendIJRKS2_EEEvDpOT_
+    fid:             4216
+    hash:            0x93C93553F86AB913
+    exec:            0
+    nblocks:         21
+  - name:            _ZN3rex5input15PadChordButtonsESt17basic_string_viewIcSt11char_traitsIcEE
+    fid:             4258
+    hash:            0xFC2D4C1FF48C51ED
+    exec:            0
+    nblocks:         8
+  - name:            _ZN3rex5input18PadControlFromNameESt17basic_string_viewIcSt11char_traitsIcEE
+    fid:             4259
+    hash:            0xF78EF761FD4AC0E3
+    exec:            0
+    nblocks:         51
+  - name:            _ZN3rex5input13ApplyPadRemapERNS0_15X_INPUT_GAMEPADE
+    fid:             4265
+    hash:            0x6B12382587A2BBB
+    exec:            0
+    nblocks:         20
+  - name:            _ZNK3rex5input14SlotAssignment14DevicesForUserEjRSt6vectorINS0_8DeviceIdESaIS3_EE
+    fid:             4280
+    hash:            0x35A29D76D57DE592
+    exec:            0
+    nblocks:         5
+  - name:            _ZNSt6vectorIN3rex5input8DeviceIdESaIS2_EEaSERKS4_
+    fid:             4283
+    hash:            0xA0D00492C5F13791
+    exec:            0
+    nblocks:         26
+  - name:            _ZN3rex5input9dualsense18CurrentTriggerModeEv
+    fid:             4312
+    hash:            0x82FEEB496A864CE8
+    exec:            0
+    nblocks:         8
+  - name:            _ZN3rex5input9dualsense19CurrentLightbarModeEv
+    fid:             4313
+    hash:            0x43B7A291FDC7FDDB
+    exec:            0
+    nblocks:         8
+  - name:            _ZN3rex5input9dualsense22CurrentTriggerSettingsEv
+    fid:             4314
+    hash:            0x61FB41CE20FE6F16
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex7Runtime8instanceEv
+    fid:             6621
+    hash:            0x94C23D1BCF234270
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex6system12kernel_stateEv
+    fid:             6753
+    hash:            0x94C23D1BCF234270
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3fmt3v126detail18parse_format_specsIcEEPKT_S5_S5_RNS1_20dynamic_format_specsIS3_EERNS0_13parse_contextIS3_EENS1_4typeE
+    fid:             6898
+    hash:            0xC2B35F435B69007D
+    exec:            0
+    nblocks:         91
+  - name:            _ZN3fmt3v126detail18parse_dynamic_specIcEENS1_25parse_dynamic_spec_resultIT_EEPKS4_S7_RiRNS1_7arg_refIS4_EERNS0_13parse_contextIS4_EE
+    fid:             6899
+    hash:            0xE1B1A456D4D824A3
+    exec:            0
+    nblocks:         23
+  - name:            _ZN3fmt3v126detail18write_int_noinlineIcNS0_14basic_appenderIcEEjEET0_S5_NS1_13write_int_argIT1_EERKNS0_12format_specsE
+    fid:             6903
+    hash:            0x7419AD96DD0840E5
+    exec:            0
+    nblocks:         69
+  - name:            _ZN3rex6memory6Memory23HostToGuestVirtualThunkEPKvS3_
+    fid:             6933
+    hash:            0x55B8BE16E887124D
+    exec:            0
+    nblocks:         3
+  - name:            _ZN3rex6memory6Memory28AccessViolationCallbackThunkESt11unique_lockISt15recursive_mutexEPvS5_b
+    fid:             6934
+    hash:            0x6C6E2C3702EF3054
+    exec:            0
+    nblocks:         8
+  - name:            _ZNK3rex6memory6Memory10LookupHeapEj
+    fid:             6940
+    hash:            0x17E6028430C15913
+    exec:            0
+    nblocks:         15
+  - name:            _ZNK3rex6memory6Memory18GetPhysicalAddressEj
+    fid:             6944
+    hash:            0xB0E2E87C1A885E70
+    exec:            0
+    nblocks:         18
+  - name:            _ZN3rex6memory6Memory23AccessViolationCallbackESt11unique_lockISt15recursive_mutexEPvb
+    fid:             6953
+    hash:            0x400FB9390E11B7BF
+    exec:            0
+    nblocks:         145
+  - name:            _ZN3rex6memory12PhysicalHeap16TriggerCallbacksESt11unique_lockISt15recursive_mutexEjjbbbbb
+    fid:             6954
+    hash:            0x1B119786238FDFEF
+    exec:            0
+    nblocks:         122
+  - name:            _ZN3rex6memory8BaseHeap12QueryProtectEjPj
+    fid:             6955
+    hash:            0x3A3B61235606CD90
+    exec:            0
+    nblocks:         16
+  - name:            _ZN3rex6memory6Memory35EnablePhysicalMemoryAccessCallbacksEjjbbb
+    fid:             6962
+    hash:            0x3E7A989F796502E3
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex6memory12PhysicalHeap21EnableAccessCallbacksEjjbbb
+    fid:             6963
+    hash:            0xD95DA37FD626E13
+    exec:            0
+    nblocks:         64
+  - name:            _ZNK3rex6memory8BaseHeap19HostPageGuestAccessEj
+    fid:             6983
+    hash:            0xC1EAFFAB4BAA643D
+    exec:            0
+    nblocks:         19
+  - name:            _ZN3rex6memory8BaseHeap10AllocRangeEjjjjjjbPj
+    fid:             6990
+    hash:            0x9CA52751EB8DA536
+    exec:            0
+    nblocks:         110
+  - name:            _ZN3rex6memory8BaseHeap16QueryRangeAccessEjj
+    fid:             6995
+    hash:            0xD3075A40B3B9A01B
+    exec:            0
+    nblocks:         24
+  - name:            _ZN3rex6system7XObject12WaitCallbackEv
+    fid:             7060
+    hash:            0x8CE11268808116F5
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex3ppc19VerifyHostFpControlEPKc
+    fid:             7105
+    hash:            0xE7D443C8F824B6BD
+    exec:            0
+    nblocks:         8
+  - name:            _ZN3rex6system7XThread16GetCurrentThreadEv
+    fid:             7116
+    hash:            0xD2D5BB4ADEBC5CAA
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex6system7XThread21CheckTitleTerminationEv
+    fid:             7117
+    hash:            0xA0A20A9F623C51C2
+    exec:            0
+    nblocks:         6
+  - name:            _ZN3rex6system7XThread12SetActiveCpuEh
+    fid:             7129
+    hash:            0xB486FD59F20E1084
+    exec:            0
+    nblocks:         20
+  - name:            _ZN3rex6system7XThread11DeliverAPCsEv
+    fid:             7133
+    hash:            0x9EC354026FB79B03
+    exec:            0
+    nblocks:         49
+  - name:            _ZN3rex6system7XThread19EnterCriticalRegionEv
+    fid:             7135
+    hash:            0x7CABCEFB1BE22544
+    exec:            0
+    nblocks:         3
+  - name:            _ZN3rex6system7XThread13QueryPriorityEv
+    fid:             7140
+    hash:            0xC5BB1E5D33F705D5
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex6system7XThread11SetPriorityEi
+    fid:             7141
+    hash:            0x268B4CCD1F174DC4
+    exec:            0
+    nblocks:         10
+  - name:            _ZN3rex6system7XThread11GetTLSValueEjPj
+    fid:             7145
+    hash:            0x57DC60A878F228BE
+    exec:            0
+    nblocks:         5
+  - name:            _ZN3rex6system7XThread5DelayEjjm
+    fid:             7151
+    hash:            0x99CED8A0D681A1A3
+    exec:            0
+    nblocks:         25
+  - name:            _ZN3rex6system6XEvent3SetEjb
+    fid:             7230
+    hash:            0x6843D5D622CC6720
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex6system6XEvent5ResetEv
+    fid:             7232
+    hash:            0x6843D5D622CC6720
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex6system6XEvent13GetWaitHandleEv
+    fid:             7236
+    hash:            0x7A3EBE316C2EE87
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex6system16GpuWriteSequenceEv
+    fid:             7238
+    hash:            0x4DE55492268F85BD
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex6system14SignalGpuWriteEv
+    fid:             7239
+    hash:            0x1434BDF4057FE06D
+    exec:            0
+    nblocks:         7
+  - name:            _ZN3rex6system15WaitForGpuWriteEjNSt6chrono8durationIlSt5ratioILl1ELl1000000EEEE
+    fid:             7240
+    hash:            0x7DC7D3B72362908E
+    exec:            0
+    nblocks:         13
+  - name:            _ZN3rex6system10d3d_census7EnabledEv
+    fid:             7246
+    hash:            0xE95195AD5B586CDC
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex6system8d3d_draw12GetSliceModeEv
+    fid:             7282
+    hash:            0x4DE55492268F85BD
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex6system11d3d_program4ModeEv
+    fid:             7289
+    hash:            0x4DE55492268F85BD
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex6system11d3d_program7SetModeEj
+    fid:             7290
+    hash:            0x715513931F05EE6D
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex6system7XMutant13ReleaseMutantEjbb
+    fid:             7325
+    hash:            0x34FB21291B7A3665
+    exec:            0
+    nblocks:         3
+  - name:            _ZN3rex6system7XMutant12WaitCallbackEv
+    fid:             7328
+    hash:            0xE8584156708185A4
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex6system7XMutant13GetWaitHandleEv
+    fid:             7329
+    hash:            0x7A3EBE316C2EE87
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex6system10XSemaphore16ReleaseSemaphoreEiPi
+    fid:             7337
+    hash:            0xA88A919C7BA4BCC2
+    exec:            0
+    nblocks:         3
+  - name:            _ZN3rex6system10XSemaphore13GetWaitHandleEv
+    fid:             7340
+    hash:            0x7A3EBE316C2EE87
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex6system6XTimer13GetWaitHandleEv
+    fid:             7351
+    hash:            0x7A3EBE316C2EE87
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex6system15XNotifyListener19DequeueNotificationEPjS2_
+    fid:             7366
+    hash:            0x7EAA3D4D903BC813
+    exec:            0
+    nblocks:         31
+  - name:            _ZN3rex6system7XObjectC2EPNS0_11KernelStateENS1_4TypeE
+    fid:             7409
+    hash:            0xF39CC2735BEA2A1E
+    exec:            0
+    nblocks:         8
+  - name:            _ZNK3rex6system7XObject6memoryEv
+    fid:             7411
+    hash:            0x94C23D1BCF234270
+    exec:            0
+    nblocks:         1
+  - name:            _ZNK3rex6system7XObject12kernel_stateEv
+    fid:             7414
+    hash:            0x7A3EBE316C2EE87
+    exec:            0
+    nblocks:         1
+  - name:            _ZNK3rex6system7XObject4typeEv
+    fid:             7415
+    hash:            0x4DE55492268F85BD
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex6system7XObject12RetainHandleEv
+    fid:             7416
+    hash:            0x57F529BC7E64169
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex6system7XObject6RetainEv
+    fid:             7418
+    hash:            0xB17BE48196F419AD
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex6system7XObject7ReleaseEv
+    fid:             7419
+    hash:            0xD70324C7AD57A5BC
+    exec:            0
+    nblocks:         3
+  - name:            _ZN3rex6system7XObject4WaitEjjjPm
+    fid:             7426
+    hash:            0xFC301A26D2DA2CC
+    exec:            0
+    nblocks:         14
+  - name:            _ZN3rex6system7XObject12WaitMultipleEjPPS1_jjjjPm
+    fid:             7428
+    hash:            0xE8977C17C9D01244
+    exec:            0
+    nblocks:         39
+  - name:            _ZN3rex6system7XObject15GetNativeObjectEPNS0_11KernelStateEPvi
+    fid:             7431
+    hash:            0x43DBB79E7FDF143
+    exec:            0
+    nblocks:         31
+  - name:            _ZN3rex6system4util11ObjectTable9AddHandleEPNS0_7XObjectEPj
+    fid:             7451
+    hash:            0x5868246B61E64194
+    exec:            0
+    nblocks:         43
+  - name:            _ZN3rex6system4util11ObjectTable12LookupObjectEjb
+    fid:             7454
+    hash:            0xC0ACE7A377075E62
+    exec:            0
+    nblocks:         21
+  - name:            _ZN3rex6system4util11ObjectTable11LookupTableEj
+    fid:             7456
+    hash:            0x71F75671302E9F04
+    exec:            0
+    nblocks:         14
+  - name:            _ZN3rex6system4util11ObjectTable12LookupObjectINS0_7XObjectEEENS0_10object_refIT_EEj
+    fid:             7462
+    hash:            0xA95C5E72690F7FE5
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex6system3xam10AppManager19DispatchMessageSyncEjjjj
+    fid:             7502
+    hash:            0xBC34C1FEA54426D0
+    exec:            0
+    nblocks:         16
+  - name:            _ZN3rex7runtime11MMIOHandler14global_handlerEv
+    fid:             7656
+    hash:            0x94C23D1BCF234270
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex7runtime11MMIOHandler22ExceptionCallbackThunkEPNS_4arch9ExceptionEPv
+    fid:             7658
+    hash:            0x129071BFCA7A6C86
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex7runtime11MMIOHandler9CheckLoadEjPj
+    fid:             7664
+    hash:            0xECD100A331034BEC
+    exec:            0
+    nblocks:         7
+  - name:            _ZN3rex7runtime11MMIOHandler10CheckStoreEjj
+    fid:             7665
+    hash:            0x29F04F58A1DA1CD7
+    exec:            0
+    nblocks:         7
+  - name:            _ZN3rex7runtime11MMIOHandler17ExceptionCallbackEPNS_4arch9ExceptionE
+    fid:             7667
+    hash:            0x6AB26869A19A704A
+    exec:            0
+    nblocks:         64
+  - name:            _ZN3rex7runtime23ResolveIndirectFunctionEj
+    fid:             7692
+    hash:            0x4FCDEA00BF1C0A18
+    exec:            0
+    nblocks:         25
+  - name:            _ZN3rex7runtime18FunctionDispatcher7ExecuteEPNS0_11ThreadStateEj
+    fid:             7697
+    hash:            0xE1F5230B6D417940
+    exec:            0
+    nblocks:         31
+  - name:            _ZN3rex7runtime18FunctionDispatcher16ExecuteInterruptEPNS0_11ThreadStateEjPmm
+    fid:             7700
+    hash:            0x9B31AE49CDD02987
+    exec:            0
+    nblocks:         22
+  - name:            _ZN3rex7runtime11ThreadState4BindEPS1_
+    fid:             7744
+    hash:            0x69CE773AEA36C29A
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex7runtime11ThreadState3GetEv
+    fid:             7745
+    hash:            0xD2D5BB4ADEBC5CAA
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex6kernel3xam21XamContentFlush_entryENS_9MappedPtrIcEENS2_IvEE
+    fid:             7886
+    hash:            0x5DD30B9CD167EFBE
+    exec:            0
+    nblocks:         14
+  - name:            _ZN3rex6kernel3xam22XamInputGetState_entryEjjNS_9MappedPtrINS_5input13X_INPUT_STATEEEE
+    fid:             8235
+    hash:            0x8B3CF43729C56287
+    exec:            0
+    nblocks:         11
+  - name:            __imp__XamInputGetState
+    fid:             8245
+    hash:            0xCFDEA982C2C33623
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex3ppc19HostToGuestFunctionITnDaXadL_ZNS_6kernel3xam22XamInputGetState_entryEjjNS_9MappedPtrINS_5input13X_INPUT_STATEEEEEEEEvR10PPCContextPh
+    fid:             8276
+    hash:            0x58AA28BDC75CCB08
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex3ppc19HostToGuestFunctionITnDaXadL_ZNS_6kernel3xam22XamInputSetState_entryEjjNS_9MappedPtrINS_5input17X_INPUT_VIBRATIONEEEEEEEvR10PPCContextPh
+    fid:             8277
+    hash:            0x3F1027A8B0A8009A
+    exec:            0
+    nblocks:         6
+  - name:            _ZN3rex6kernel3xam23XMsgInProcessCall_entryEjjjj
+    fid:             8366
+    hash:            0x903BE60ECE86F03D
+    exec:            0
+    nblocks:         9
+  - name:            _ZN3rex3ppc19HostToGuestFunctionITnDaXadL_ZNS_6kernel3xam23XMsgInProcessCall_entryEjjjjEEEEvR10PPCContextPh
+    fid:             8384
+    hash:            0x474D0096475D6014
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex6kernel3xam20XNotifyGetNext_entryEjjNS_9MappedPtrINS_12endian_storeIjLSt6endian4321EEEEES6_
+    fid:             8653
+    hash:            0xDA7CC59AC32131B5
+    exec:            0
+    nblocks:         29
+  - name:            _ZN3rex3ppc19HostToGuestFunctionITnDaXadL_ZNS_6kernel3xam20XNotifyGetNext_entryEjjNS_9MappedPtrINS_12endian_storeIjLSt6endian4321EEEEES8_EEEEvR10PPCContextPh
+    fid:             8671
+    hash:            0x4052A26B72E2EC0E
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex3ppc19HostToGuestFunctionITnDaXadL_ZNS_6kernel3xam20XamUserGetXUID_entryEjjNS_9MappedPtrINS_12endian_storeImLSt6endian4321EEEEEEEEEvR10PPCContextPh
+    fid:             9192
+    hash:            0x67018829A7F6F9D6
+    exec:            0
+    nblocks:         10
+  - name:            __imp__XamXStudioRequest
+    fid:             10020
+    hash:            0xA74D34F1639425CB
+    exec:            0
+    nblocks:         20
+  - name:            _ZN3rex6kernel3xam4apps6XmpApp12TraceMessageEj
+    fid:             10336
+    hash:            0xAA48A48877EC83FE
+    exec:            0
+    nblocks:         49
+  - name:            _ZN3rex6kernel3xam4apps6XmpApp19DispatchMessageSyncEjjj
+    fid:             10346
+    hash:            0x144D22E3A7658048
+    exec:            0
+    nblocks:         273
+  - name:            _ZN6sha2566SHA25612processBlockEPKv
+    fid:             10636
+    hash:            0x582CFCAF9CCB2C1D
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex3ppc19HostToGuestFunctionITnDaXadL_ZNS_6kernel8xboxkrnl16NtReadFile_entryEjjNS_9MappedPtrIvEES5_NS4_INS_6system17X_IO_STATUS_BLOCKEEES5_jNS4_INS_12endian_storeImLSt6endian4321EEEEEEEEEvR10PPCContextPh
+    fid:             11098
+    hash:            0x7155DFD38245C7EA
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex6kernel8xboxkrnl26NtSetInformationFile_entryEjNS_9MappedPtrINS_6system17X_IO_STATUS_BLOCKEEENS2_IvEEjj
+    fid:             11131
+    hash:            0x279234D78D93CA8C
+    exec:            0
+    nblocks:         62
+  - name:            _ZN3rex6kernel8xboxkrnl26MmGetPhysicalAddress_entryEj
+    fid:             11158
+    hash:            0x40C6D5208800B144
+    exec:            0
+    nblocks:         9
+  - name:            __imp__MmQueryAddressProtect
+    fid:             11179
+    hash:            0xCFDEA982C2C33623
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex3ppc19HostToGuestFunctionITnDaXadL_ZNS_6kernel8xboxkrnl27MmQueryAddressProtect_entryEjEEEEvR10PPCContextPh
+    fid:             11221
+    hash:            0x82B88EBCC8029C51
+    exec:            0
+    nblocks:         5
+  - name:            _ZN3rex3ppc19HostToGuestFunctionITnDaXadL_ZNS_6kernel8xboxkrnl26MmGetPhysicalAddress_entryEjEEEEvR10PPCContextPh
+    fid:             11225
+    hash:            0x3F7FDF2C6053955B
+    exec:            0
+    nblocks:         1
+  - name:            '_ZNSt17_Function_handlerIFvvEZN3rex6kernel8xboxkrnl14XboxkrnlModuleC1EPNS1_7RuntimeEPNS1_6system11KernelStateEE3$_1E9_M_invokeERKSt9_Any_data/1'
+    fid:             11427
+    hash:            0x4D5D382AF8A3A35F
+    exec:            0
+    nblocks:         1
+  - name:            _ZNSt17_Function_handlerIFvPvEZN3rex6thread19HighResolutionTimerC1ENSt6chrono8durationIlSt5ratioILl1ELl1000EEEESt8functionIFvvEEEUlS0_E_E9_M_invokeERKSt9_Any_dataOS0_
+    fid:             11432
+    hash:            0x42C477D51D2CA10E
+    exec:            0
+    nblocks:         3
+  - name:            _ZN3rex6kernel8xboxkrnl31ObReferenceObjectByHandle_entryEjjNS_9MappedPtrINS_12endian_storeIjLSt6endian4321EEEEE
+    fid:             11504
+    hash:            0xBEF044E8FBB55FCF
+    exec:            0
+    nblocks:         42
+  - name:            _ZN3rex6kernel8xboxkrnl25ObDereferenceObject_entryEj
+    fid:             11506
+    hash:            0x342DFC5152CBA907
+    exec:            0
+    nblocks:         16
+  - name:            _ZN3rex3ppc19HostToGuestFunctionITnDaXadL_ZNS_6kernel8xboxkrnl31ObReferenceObjectByHandle_entryEjjNS_9MappedPtrINS_12endian_storeIjLSt6endian4321EEEEEEEEEvR10PPCContextPh
+    fid:             11543
+    hash:            0x58AA28BDC75CCB08
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex3ppc19HostToGuestFunctionITnDaXadL_ZNS_6kernel8xboxkrnl25ObDereferenceObject_entryEjEEEEvR10PPCContextPh
+    fid:             11545
+    hash:            0x3F7FDF2C6053955B
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex3ppc19HostToGuestFunctionITnDaXadL_ZNS_6kernel8xboxkrnl13NtClose_entryEjEEEEvR10PPCContextPh
+    fid:             11549
+    hash:            0x3F7FDF2C6053955B
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex6kernel8xboxkrnl23RtlInitAnsiString_entryENS_9MappedPtrINS_6system13X_ANSI_STRINGEEENS2_IcEE
+    fid:             11560
+    hash:            0xC338273954167EB0
+    exec:            0
+    nblocks:         15
+  - name:            _ZN3rex6kernel8xboxkrnl23RtlEnterCriticalSectionEPNS1_22X_RTL_CRITICAL_SECTIONEj
+    fid:             11576
+    hash:            0x26031006211BC441
+    exec:            0
+    nblocks:         13
+  - name:            __imp__RtlEnterCriticalSection
+    fid:             11628
+    hash:            0xB2605C2CFF465D9C
+    exec:            0
+    nblocks:         4
+  - name:            __imp__RtlTryEnterCriticalSection
+    fid:             11629
+    hash:            0x33589F1A5C7ED84B
+    exec:            0
+    nblocks:         10
+  - name:            __imp__RtlLeaveCriticalSection
+    fid:             11630
+    hash:            0xCFDEA982C2C33623
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex3ppc19HostToGuestFunctionITnDaXadL_ZNS_6kernel8xboxkrnl28RtlMultiByteToUnicodeN_entryENS_9MappedPtrINS_12endian_storeItLSt6endian4321EEEEEjNS4_INS5_IjLS6_4321EEEEENS4_IhEEjEEEEvR10PPCContextPh
+    fid:             11660
+    hash:            0xEC2B5DBC1F640BE5
+    exec:            0
+    nblocks:         23
+  - name:            _ZN3rex3ppc19HostToGuestFunctionITnDaXadL_ZNS_6kernel8xboxkrnl46RtlInitializeCriticalSectionAndSpinCount_entryENS_9MappedPtrINS3_22X_RTL_CRITICAL_SECTIONEEEjEEEEvR10PPCContextPh
+    fid:             11665
+    hash:            0xC86D12DE0A7CBED9
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex3ppc19HostToGuestFunctionITnDaXadL_ZNS_6kernel8xboxkrnl29RtlLeaveCriticalSection_entryENS_9MappedPtrINS3_22X_RTL_CRITICAL_SECTIONEEEEEEEvR10PPCContextPh
+    fid:             11666
+    hash:            0x16EA6D51A24126A5
+    exec:            0
+    nblocks:         5
+  - name:            _ZN3rex6kernel8xboxkrnl29KeSetBasePriorityThread_entryENS_9MappedPtrIvEEj
+    fid:             11704
+    hash:            0xBD569C74DCAA684F
+    exec:            0
+    nblocks:         24
+  - name:            _ZN3rex6kernel8xboxkrnl16KeSetEvent_entryENS_9MappedPtrINS_6system8X_KEVENTEEEjj
+    fid:             11718
+    hash:            0xAEB906D00D298F29
+    exec:            0
+    nblocks:         6
+  - name:            _ZN3rex6kernel8xboxkrnl12xeNtSetEventEjPNS_12endian_storeIjLSt6endian4321EEE
+    fid:             11722
+    hash:            0x4362CFEE6DDC7291
+    exec:            0
+    nblocks:         9
+  - name:            _ZN3rex6kernel8xboxkrnl14xeNtClearEventEj
+    fid:             11725
+    hash:            0xD3C67A8DBCBCD4EB
+    exec:            0
+    nblocks:         7
+  - name:            _ZN3rex6kernel8xboxkrnl24NtReleaseSemaphore_entryEjjNS_9MappedPtrINS_12endian_storeIjLSt6endian4321EEEEE
+    fid:             11731
+    hash:            0xD197D18934332AE9
+    exec:            0
+    nblocks:         11
+  - name:            _ZN3rex6kernel8xboxkrnl21NtReleaseMutant_entryEjj
+    fid:             11733
+    hash:            0x1BFA4CA048C3582D
+    exec:            0
+    nblocks:         7
+  - name:            _ZN3rex6kernel8xboxkrnl23xeKeWaitForSingleObjectEPvjjjPm
+    fid:             11738
+    hash:            0x67C45F1EB0684AC
+    exec:            0
+    nblocks:         8
+  - name:            _ZN3rex6kernel8xboxkrnl29NtWaitForSingleObjectEx_entryEjjjNS_9MappedPtrINS_12endian_storeImLSt6endian4321EEEEE
+    fid:             11740
+    hash:            0xD260776D5008FFBA
+    exec:            0
+    nblocks:         12
+  - name:            _ZN3rex6kernel8xboxkrnl28xeNtWaitForMultipleObjectsExEjPNS_12endian_storeIjLSt6endian4321EEEjjjPm
+    fid:             11742
+    hash:            0x2CE9C7E63624B2C3
+    exec:            0
+    nblocks:         43
+  - name:            _ZN3rex6kernel8xboxkrnl21xeKeKfAcquireSpinLockEP10PPCContextPNS_11X_KSPINLOCKEb
+    fid:             11745
+    hash:            0x83A3E20B794B44B5
+    exec:            0
+    nblocks:         8
+  - name:            _ZN3rex6kernel8xboxkrnl21xeKeKfReleaseSpinLockEP10PPCContextPNS_11X_KSPINLOCKEjb
+    fid:             11746
+    hash:            0x588C868277925286
+    exec:            0
+    nblocks:         5
+  - name:            _ZN3rex6kernel8xboxkrnl23KfAcquireSpinLock_entryENS_9MappedPtrINS_12endian_storeIjLSt6endian4321EEEEE
+    fid:             11749
+    hash:            0x4C88C05BA4556304
+    exec:            0
+    nblocks:         6
+  - name:            __imp__KeGetCurrentProcessType
+    fid:             11799
+    hash:            0xCFDEA982C2C33623
+    exec:            0
+    nblocks:         1
+  - name:            __imp__KeQueryPerformanceFrequency
+    fid:             11801
+    hash:            0xCFDEA982C2C33623
+    exec:            0
+    nblocks:         1
+  - name:            __imp__KeDelayExecutionThread
+    fid:             11802
+    hash:            0xCFDEA982C2C33623
+    exec:            0
+    nblocks:         1
+  - name:            __imp__KeResetEvent
+    fid:             11812
+    hash:            0xCFDEA982C2C33623
+    exec:            0
+    nblocks:         1
+  - name:            __imp__NtSetEvent
+    fid:             11814
+    hash:            0xCFDEA982C2C33623
+    exec:            0
+    nblocks:         1
+  - name:            __imp__NtReleaseSemaphore
+    fid:             11820
+    hash:            0xCFDEA982C2C33623
+    exec:            0
+    nblocks:         1
+  - name:            __imp__NtReleaseMutant
+    fid:             11822
+    hash:            0xCFDEA982C2C33623
+    exec:            0
+    nblocks:         1
+  - name:            __imp__NtWaitForSingleObjectEx
+    fid:             11828
+    hash:            0xCFDEA982C2C33623
+    exec:            0
+    nblocks:         1
+  - name:            __imp__KfAcquireSpinLock
+    fid:             11832
+    hash:            0xCFDEA982C2C33623
+    exec:            0
+    nblocks:         1
+  - name:            __imp__InterlockedFlushSList
+    fid:             11857
+    hash:            0xCFDEA982C2C33623
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex3ppc19HostToGuestFunctionITnDaXadL_ZNS_6kernel8xboxkrnl29KeSetBasePriorityThread_entryENS_9MappedPtrIvEEjEEEEvR10PPCContextPh
+    fid:             11913
+    hash:            0x1B87707D1DDFA115
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex3ppc19HostToGuestFunctionITnDaXadL_ZNS_6kernel8xboxkrnl29KeGetCurrentProcessType_entryEvEEEEvR10PPCContextPh
+    fid:             11915
+    hash:            0x86BE98F6B2FCB6B8
+    exec:            0
+    nblocks:         8
+  - name:            _ZN3rex3ppc19HostToGuestFunctionITnDaXadL_ZNS_6kernel8xboxkrnl33KeQueryPerformanceFrequency_entryEvEEEEvR10PPCContextPh
+    fid:             11917
+    hash:            0xB0CB04953DB9A550
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex3ppc19HostToGuestFunctionITnDaXadL_ZNS_6kernel8xboxkrnl28KeDelayExecutionThread_entryEjjNS_9MappedPtrINS_12endian_storeImLSt6endian4321EEEEEEEEEvR10PPCContextPh
+    fid:             11918
+    hash:            0xF86897EF3EE3CFDE
+    exec:            0
+    nblocks:         6
+  - name:            _ZN3rex3ppc19HostToGuestFunctionITnDaXadL_ZNS_6kernel8xboxkrnl19KeTlsGetValue_entryEjEEEEvR10PPCContextPh
+    fid:             11923
+    hash:            0x3A4C616D7C5D4B6D
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex3ppc19HostToGuestFunctionITnDaXadL_ZNS_6kernel8xboxkrnl16KeSetEvent_entryENS_9MappedPtrINS_6system8X_KEVENTEEEjjEEEEvR10PPCContextPh
+    fid:             11926
+    hash:            0xAB41A6199149147B
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex3ppc19HostToGuestFunctionITnDaXadL_ZNS_6kernel8xboxkrnl18KeResetEvent_entryENS_9MappedPtrINS_6system8X_KEVENTEEEEEEEvR10PPCContextPh
+    fid:             11928
+    hash:            0xDA8AA35DE2A9F50C
+    exec:            0
+    nblocks:         6
+  - name:            _ZN3rex3ppc19HostToGuestFunctionITnDaXadL_ZNS_6kernel8xboxkrnl16NtSetEvent_entryEjNS_9MappedPtrINS_12endian_storeIjLSt6endian4321EEEEEEEEEvR10PPCContextPh
+    fid:             11930
+    hash:            0xD589B60A1E23C8F1
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex3ppc19HostToGuestFunctionITnDaXadL_ZNS_6kernel8xboxkrnl24NtReleaseSemaphore_entryEjjNS_9MappedPtrINS_12endian_storeIjLSt6endian4321EEEEEEEEEvR10PPCContextPh
+    fid:             11936
+    hash:            0x58AA28BDC75CCB08
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex3ppc19HostToGuestFunctionITnDaXadL_ZNS_6kernel8xboxkrnl21NtReleaseMutant_entryEjjEEEEvR10PPCContextPh
+    fid:             11938
+    hash:            0x3F7FDF2C6053955B
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex3ppc19HostToGuestFunctionITnDaXadL_ZNS_6kernel8xboxkrnl27KeWaitForSingleObject_entryENS_9MappedPtrIvEEjjjNS4_INS_12endian_storeImLSt6endian4321EEEEEEEEEvR10PPCContextPh
+    fid:             11943
+    hash:            0xBD330A192B305B4F
+    exec:            0
+    nblocks:         3
+  - name:            _ZN3rex3ppc19HostToGuestFunctionITnDaXadL_ZNS_6kernel8xboxkrnl29NtWaitForSingleObjectEx_entryEjjjNS_9MappedPtrINS_12endian_storeImLSt6endian4321EEEEEEEEEvR10PPCContextPh
+    fid:             11944
+    hash:            0x2A98EE66C15205C0
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex3ppc19HostToGuestFunctionITnDaXadL_ZNS_6kernel8xboxkrnl23KfAcquireSpinLock_entryENS_9MappedPtrINS_12endian_storeIjLSt6endian4321EEEEEEEEEvR10PPCContextPh
+    fid:             11948
+    hash:            0xAAB6C1087E4D4D01
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex3ppc19HostToGuestFunctionITnDaXadL_ZNS_6kernel8xboxkrnl23KfReleaseSpinLock_entryENS_9MappedPtrINS_12endian_storeIjLSt6endian4321EEEEEjEEEEvR10PPCContextPh
+    fid:             11949
+    hash:            0x47C67B8445F07673
+    exec:            0
+    nblocks:         5
+  - name:            _ZN3rex3ppc19HostToGuestFunctionITnDaXadL_ZNS_6kernel8xboxkrnl35KeAcquireSpinLockAtRaisedIrql_entryENS_9MappedPtrINS_12endian_storeIjLSt6endian4321EEEEEEEEEvR10PPCContextPh
+    fid:             11950
+    hash:            0xFF56EF715694E5B9
+    exec:            0
+    nblocks:         4
+  - name:            _ZN3rex3ppc19HostToGuestFunctionITnDaXadL_ZNS_6kernel8xboxkrnl37KeReleaseSpinLockFromRaisedIrql_entryENS_9MappedPtrINS_12endian_storeIjLSt6endian4321EEEEEEEEEvR10PPCContextPh
+    fid:             11952
+    hash:            0x1644588110191A9B
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex3ppc19HostToGuestFunctionITnDaXadL_ZNS_6kernel8xboxkrnl27InterlockedFlushSList_entryENS_9MappedPtrINS_14X_SLIST_HEADEREEEEEEEvR10PPCContextPh
+    fid:             11973
+    hash:            0xCAAD97250398CE78
+    exec:            0
+    nblocks:         3
+  - name:            _ZN3rex6kernel8xboxkrnl16VdQueryVideoModeEPNS_6system12X_VIDEO_MODEE
+    fid:             12027
+    hash:            0xCC4DE51C94E6B215
+    exec:            0
+    nblocks:         17
+  - name:            _ZN3rex6kernel8xboxkrnl12VdSwap_entryENS_9MappedPtrIvEES3_S3_S3_S3_NS2_INS_12endian_storeIjLSt6endian4321EEEEES7_S7_S7_S7_
+    fid:             12049
+    hash:            0xB070786AA2A90B5E
+    exec:            0
+    nblocks:         12
+  - name:            __imp__VdGetSystemCommandBuffer
+    fid:             12064
+    hash:            0xCFDEA982C2C33623
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex3ppc19HostToGuestFunctionITnDaXadL_ZNS_6kernel8xboxkrnl30VdGetSystemCommandBuffer_entryENS_9MappedPtrIvEES5_EEEEvR10PPCContextPh
+    fid:             12086
+    hash:            0xD38B619688BE34AB
+    exec:            0
+    nblocks:         3
+  - name:            _ZN3rex3ppc19HostToGuestFunctionITnDaXadL_ZNS_6kernel8xboxkrnl12VdSwap_entryENS_9MappedPtrIvEES5_S5_S5_S5_NS4_INS_12endian_storeIjLSt6endian4321EEEEES9_S9_S9_S9_EEEEvR10PPCContextPh
+    fid:             12094
+    hash:            0x16D8808036817254
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3rex6kernel8xboxkrnl22XMACreateContext_entryENS_9MappedPtrINS_12endian_storeIjLSt6endian4321EEEEE
+    fid:             12152
+    hash:            0x387FB451DBFE7890
+    exec:            0
+    nblocks:         10
+  - name:            _ZN3rex3ppc19HostToGuestFunctionITnDaXadL_ZNS_6kernel8xboxkrnl23XMAReleaseContext_entryENS_9MappedPtrIvEEEEEEvR10PPCContextPh
+    fid:             12196
+    hash:            0xE7A176A055699625
+    exec:            0
+    nblocks:         1
+  - name:            rexcrt_memcpy
+    fid:             12366
+    hash:            0xCFDEA982C2C33623
+    exec:            0
+    nblocks:         1
+  - name:            '_ZN3rex3ppc19HostToGuestFunctionITnDaXadL_ZNS_6kernel3crtL13native_memcpyEPvPKvmEEEEvR10PPCContextPh/1'
+    fid:             12367
+    hash:            0xBFB18C77A1C4B30A
+    exec:            0
+    nblocks:         1
+  - name:            '_ZN3rex3ppc19HostToGuestFunctionITnDaXadL_ZNS_6kernel3crtL14native_memmoveEPvPKvmEEEEvR10PPCContextPh/1'
+    fid:             12369
+    hash:            0xBFB18C77A1C4B30A
+    exec:            0
+    nblocks:         1
+  - name:            rexcrt_memset
+    fid:             12370
+    hash:            0xCFDEA982C2C33623
+    exec:            0
+    nblocks:         1
+  - name:            '_ZN3rex3ppc19HostToGuestFunctionITnDaXadL_ZNS_6kernel3crtL13native_memsetEPvimEEEEvR10PPCContextPh/1'
+    fid:             12371
+    hash:            0xF0076A11B306B1F0
+    exec:            0
+    nblocks:         1
+  - name:            _ZN3fmt3v127vformatB5cxx11ENS0_17basic_string_viewIcEENS0_17basic_format_argsINS0_7contextEEE
+    fid:             12461
+    hash:            0xF7ED486C0A9F7973
+    exec:            0
+    nblocks:         14
+  - name:            _ZN3fmt3v126detail10vformat_toERNS1_6bufferIcEENS0_17basic_string_viewIcEENS0_17basic_format_argsINS0_7contextEEENS0_10locale_refE
+    fid:             12465
+    hash:            0x7563F29083B53199
+    exec:            0
+    nblocks:         25
+  - name:            _ZN3fmt3v126detail19parse_format_stringIcNS1_14format_handlerIcEEEEvNS0_17basic_string_viewIT_EEOT0_
+    fid:             12483
+    hash:            0xFEB0C9B0793E840C
+    exec:            0
+    nblocks:         117
+  - name:            _ZN3fmt3v126detail13copy_noinlineIcPKcNS0_14basic_appenderIcEEEET1_T0_S8_S7_
+    fid:             12497
+    hash:            0x4BA06B7C000DE5E0
+    exec:            0
+    nblocks:         26
+  - name:            _ZN3fmt3v126detail12write_paddedIcLNS0_5alignE2ENS0_14basic_appenderIcEERZNS1_11write_fixedIcNS1_14digit_groupingIcEES5_NS1_14big_decimal_fpEEET1_SA_RKT2_iT_RKNS0_12format_specsENS0_4signENS0_10locale_refEEUlS5_E0_EESA_SA_SH_mmOSB_
+    fid:             12534
+    hash:            0x783E9EC946109C84
+    exec:            0
+    nblocks:         16
+  - name:            _ZN3fmt3v126detail14format_handlerIcE15on_format_specsEiPKcS5_
+    fid:             12539
+    hash:            0xF3945AD96875DA7E
+    exec:            0
+    nblocks:         65
+  - name:            _ZN6spdlog17pattern_formatter6formatERKNS_7details7log_msgERN3fmt3v1219basic_memory_bufferIcLm250ENS6_6detail9allocatorIcEEEE
+    fid:             12693
+    hash:            0x29C237005D0A23FB
+    exec:            0
+    nblocks:         36
+  - name:            _ZN6spdlog7details14name_formatterINS0_18null_scoped_padderEE6formatERKNS0_7log_msgERK2tmRN3fmt3v1219basic_memory_bufferIcLm250ENSB_6detail9allocatorIcEEEE
+    fid:             12897
+    hash:            0xAC300BD6B611297A
+    exec:            0
+    nblocks:         27
+  - name:            _ZN6spdlog7details11Y_formatterINS0_18null_scoped_padderEE6formatERKNS0_7log_msgERK2tmRN3fmt3v1219basic_memory_bufferIcLm250ENSB_6detail9allocatorIcEEEE
+    fid:             12919
+    hash:            0xD574E91644D01FD3
+    exec:            0
+    nblocks:         35
+  - name:            SDL_PutAudioStreamData
+    fid:             13845
+    hash:            0xE87B1F182B6B440B
+    exec:            0
+    nblocks:         1
+  - name:            SDL_SetAtomicPointer_REAL
+    fid:             15788
+    hash:            0x78B25A91536FAECA
+    exec:            0
+    nblocks:         1
+  - name:            SDL_AddAtomicInt_REAL
+    fid:             15789
+    hash:            0xEF2CCACAFB16246B
+    exec:            0
+    nblocks:         1
+  - name:            SDL_GetAtomicInt_REAL
+    fid:             15791
+    hash:            0x4DE55492268F85BD
+    exec:            0
+    nblocks:         1
+  - name:            SDL_PlaybackAudioThreadIterate
+    fid:             15957
+    hash:            0xE78FBA1447F8D77D
+    exec:            0
+    nblocks:         51
+  - name:            SDL_UpdateAudio
+    fid:             16005
+    hash:            0x17099FE4944FB5A6
+    exec:            0
+    nblocks:         8
+  - name:            ConvertAudio
+    fid:             16067
+    hash:            0x5B96A438530DCD13
+    exec:            0
+    nblocks:         52
+  - name:            'PutAudioStreamBuffer/1'
+    fid:             16092
+    hash:            0xE25E62524D90EB39
+    exec:            0
+    nblocks:         10
+  - name:            'PutAudioStreamBufferInternal/1'
+    fid:             16095
+    hash:            0xE16E11040ABE5E05
+    exec:            0
+    nblocks:         12
+  - name:            SDL_GetAudioStreamDataAdjustGain
+    fid:             16099
+    hash:            0x2D541AC910441AEB
+    exec:            0
+    nblocks:         79
+  - name:            SDL_WriteToAudioQueue
+    fid:             16167
+    hash:            0x28BA4630FDA58222
+    exec:            0
+    nblocks:         16
+  - name:            'CreateChunkedAudioTrack/1'
+    fid:             16168
+    hash:            0xAE48DBB420E1C520
+    exec:            0
+    nblocks:         16
+  - name:            SDL_NextAudioQueueIter
+    fid:             16170
+    hash:            0xDF4AF3E232A202E0
+    exec:            0
+    nblocks:         7
+  - name:            SDL_ReadFromAudioQueue
+    fid:             16171
+    hash:            0x39924E5F0786AA9E
+    exec:            0
+    nblocks:         50
+  - name:            'FreeChunkedAudioBuffer/1'
+    fid:             16174
+    hash:            0xCE7B24746A120B12
+    exec:            0
+    nblocks:         3
+  - name:            'SDL_PeepEventsInternal/1'
+    fid:             16260
+    hash:            0x6B5C902FE521CD28
+    exec:            0
+    nblocks:         126
+  - name:            'SDL_CutEvent/1'
+    fid:             16265
+    hash:            0x73BE0E10F88C1BDE
+    exec:            0
+    nblocks:         25
+  - name:            'SDL_PumpEventsInternal/1'
+    fid:             16269
+    hash:            0xC233893426727307
+    exec:            0
+    nblocks:         30
+  - name:            SDL_WaitEventTimeoutNS
+    fid:             16271
+    hash:            0x5DF42D3AAE530481
+    exec:            0
+    nblocks:         57
+  - name:            SDL_UpdateCursorAnimation
+    fid:             16397
+    hash:            0x7BCF9B23BBBD2026
+    exec:            0
+    nblocks:         19
+  - name:            SDL_SendPendingPenProximity
+    fid:             16422
+    hash:            0x57D785417C5C6E7E
+    exec:            0
+    nblocks:         11
+  - name:            SDL_UpdateJoysticks_REAL
+    fid:             16980
+    hash:            0x2C7E6527925B17E
+    exec:            0
+    nblocks:         42
+  - name:            SDL_GetVideoDevice
+    fid:             17975
+    hash:            0x7A3EBE316C2EE87
+    exec:            0
+    nblocks:         1
+  - name:            'PIPEWIRE_GetDeviceBuf/1'
+    fid:             18322
+    hash:            0x77C96E2CD3C861BF
+    exec:            0
+    nblocks:         5
+  - name:            'output_callback/1'
+    fid:             18351
+    hash:            0x733D1CDDCB1318B7
+    exec:            0
+    nblocks:         7
+  - name:            X11_WaitEventTimeout
+    fid:             18394
+    hash:            0x3933578A510427FF
+    exec:            0
+    nblocks:         9
+  - name:            X11_PumpEvents
+    fid:             18396
+    hash:            0x49358889AF3D04BD
+    exec:            0
+    nblocks:         47
+  - name:            SDL_IOReady
+    fid:             19012
+    hash:            0xDF5D67D603F6BA5C
+    exec:            0
+    nblocks:         13
+  - name:            SDL_DBus_PumpEvents
+    fid:             19055
+    hash:            0xB90449272E66AE33
+    exec:            0
+    nblocks:         6
+  - name:            SDL_LockMutex_REAL
+    fid:             19817
+    hash:            0x2167EC2487D6B085
+    exec:            0
+    nblocks:         2
+  - name:            SDL_SYS_GetTLSData
+    fid:             19833
+    hash:            0x5D60EB8C8442BA0F
+    exec:            0
+    nblocks:         3
+  - name:            aes_encrypt_128
+    fid:             20141
+    hash:            0xC5D16C90C97E339E
+    exec:            0
+    nblocks:         3
+  - name:            'avcodec_open2/1'
+    fid:             20175
+    hash:            0xA751D589D9AEA5E
+    exec:            0
+    nblocks:         167
+  - name:            'avcodec_close/1'
+    fid:             20181
+    hash:            0x4AB30D95FFA7573B
+    exec:            0
+    nblocks:         24
+  - name:            'av_packet_unref/1'
+    fid:             20185
+    hash:            0x85FB6611BBAA2BC5
+    exec:            0
+    nblocks:         4
+  - name:            'av_packet_get_side_data/1'
+    fid:             20198
+    hash:            0xCAE2417478A97D3E
+    exec:            0
+    nblocks:         10
+  - name:            'av_packet_unpack_dictionary/1'
+    fid:             20203
+    hash:            0x1E31FCDC3975D953
+    exec:            0
+    nblocks:         13
+  - name:            'av_bsf_free/1'
+    fid:             20217
+    hash:            0x2C41A7CE0B9379A3
+    exec:            0
+    nblocks:         11
+  - name:            'bsf_list_close/1'
+    fid:             20228
+    hash:            0x3B0C3D32855C74CD
+    exec:            0
+    nblocks:         4
+  - name:            'avcodec_descriptor_get/1'
+    fid:             20245
+    hash:            0xCE5091362AA36C17
+    exec:            0
+    nblocks:         8
+  - name:            'avcodec_default_get_buffer2/1'
+    fid:             20266
+    hash:            0x25A92462C0061673
+    exec:            0
+    nblocks:         105
+  - name:            'ff_decode_frame_props/1'
+    fid:             20267
+    hash:            0xAD03298D27A74CEC
+    exec:            0
+    nblocks:         65
+  - name:            'decode_data_free/1'
+    fid:             20269
+    hash:            0x9587869623EBCD82
+    exec:            0
+    nblocks:         5
+  - name:            'ff_get_buffer/1'
+    fid:             20270
+    hash:            0x49A6FA7859C4B9BF
+    exec:            0
+    nblocks:         51
+  - name:            'av_codec_is_decoder/1'
+    fid:             20315
+    hash:            0xF93DC60FBBF89701
+    exec:            0
+    nblocks:         5
+  - name:            'xmaframes_decode_packet/1'
+    fid:             20366
+    hash:            0xB0F67635AF8F496B
+    exec:            0
+    nblocks:         8
+  - name:            'save_bits/1'
+    fid:             20368
+    hash:            0xA4A19462801E2FE9
+    exec:            0
+    nblocks:         22
+  - name:            'decode_frame/1'
+    fid:             20369
+    hash:            0x4CE55E0B881D1EB9
+    exec:            0
+    nblocks:         536
+  - name:            'decode_init/1'
+    fid:             20376
+    hash:            0x8B68264C2371CCCC
+    exec:            0
+    nblocks:         118
+  - name:            'ff_copy_bits/1'
+    fid:             20381
+    hash:            0x5CD1A411D7693800
+    exec:            0
+    nblocks:         45
+  - name:            'ff_init_vlc_sparse/1'
+    fid:             20383
+    hash:            0xAB543AA0C19DDCF2
+    exec:            0
+    nblocks:         118
+  - name:            'build_table/1'
+    fid:             20387
+    hash:            0xCA3E7B33EB4627AA
+    exec:            0
+    nblocks:         62
+  - name:            'ff_imdct_half_c/1'
+    fid:             20388
+    hash:            0x5AB830EEE72D7CA7
+    exec:            0
+    nblocks:         11
+  - name:            'ff_mdct_init/1'
+    fid:             20391
+    hash:            0xB09A15C1E5998BEC
+    exec:            0
+    nblocks:         11
+  - name:            'ff_init_ff_sine_windows/1'
+    fid:             20403
+    hash:            0x1C862E35177762A4
+    exec:            0
+    nblocks:         1
+  - name:            'ff_wma_get_large_val/1'
+    fid:             20411
+    hash:            0x47A211EFC45240A4
+    exec:            0
+    nblocks:         8
+  - name:            'ff_wma_run_level_decode/1'
+    fid:             20412
+    hash:            0xD3D77BE963B87308
+    exec:            0
+    nblocks:         35
+  - name:            'fft_calc_c/1'
+    fid:             20500
+    hash:            0xFD0AE2DD66575D30
+    exec:            0
+    nblocks:         1
+  - name:            'split_radix_permutation/1'
+    fid:             20501
+    hash:            0xF8283F51EBE916DD
+    exec:            0
+    nblocks:         8
+  - name:            'fft8/1'
+    fid:             20503
+    hash:            0xB46A4F1EC5239D40
+    exec:            0
+    nblocks:         1
+  - name:            'fft16/1'
+    fid:             20504
+    hash:            0x40FDA81D0FBB1DA4
+    exec:            0
+    nblocks:         1
+  - name:            'fft64/1'
+    fid:             20506
+    hash:            0x1136D1C791F42525
+    exec:            0
+    nblocks:         1
+  - name:            'pass/1'
+    fid:             20518
+    hash:            0x2A98F8B26617E9B4
+    exec:            0
+    nblocks:         3
+  - name:            'ff_fft_init/1'
+    fid:             20521
+    hash:            0xDA636D3E20E05B76
+    exec:            0
+    nblocks:         27
+  - name:            'av_buffer_create/1'
+    fid:             20575
+    hash:            0xCFFA6436A2323079
+    exec:            0
+    nblocks:         6
+  - name:            'av_buffer_unref/1'
+    fid:             20580
+    hash:            0x1A370771581ACC80
+    exec:            0
+    nblocks:         6
+  - name:            'av_buffer_pool_init/1'
+    fid:             20588
+    hash:            0x4247C14AA79B3E13
+    exec:            0
+    nblocks:         3
+  - name:            'av_buffer_pool_uninit/1'
+    fid:             20589
+    hash:            0x454C927E27E2DB1A
+    exec:            0
+    nblocks:         14
+  - name:            'av_buffer_pool_get/1'
+    fid:             20590
+    hash:            0x3E2E55979EAD310
+    exec:            0
+    nblocks:         18
+  - name:            'pool_release_buffer/1'
+    fid:             20591
+    hash:            0x1446A669EE9CFE09
+    exec:            0
+    nblocks:         8
+  - name:            'av_dict_free/1'
+    fid:             20627
+    hash:            0x6F9CB86AEC954177
+    exec:            0
+    nblocks:         6
+  - name:            'av_fifo_size/1'
+    fid:             20637
+    hash:            0xFC4724ACCF38EF9D
+    exec:            0
+    nblocks:         1
+  - name:            'vector_fmul_scalar_c/1'
+    fid:             20650
+    hash:            0x4CDB7FFEA3A2B8D1
+    exec:            0
+    nblocks:         9
+  - name:            'vector_fmul_window_c/1'
+    fid:             20653
+    hash:            0xF748164AD0D4276C
+    exec:            0
+    nblocks:         8
+  - name:            'av_frame_alloc/1'
+    fid:             20687
+    hash:            0x686570B3ADE636B5
+    exec:            0
+    nblocks:         3
+  - name:            'av_frame_unref/1'
+    fid:             20689
+    hash:            0x10F77C023B9C38F1
+    exec:            0
+    nblocks:         11
+  - name:            'av_malloc/1'
+    fid:             20773
+    hash:            0xFA3BC989EE6121C2
+    exec:            0
+    nblocks:         8
+  - name:            'av_freep/1'
+    fid:             20778
+    hash:            0xD30AF035F3E9AE51
+    exec:            0
+    nblocks:         1
+  - name:            'av_malloc_array/1'
+    fid:             20779
+    hash:            0xD4395A71AF0B9902
+    exec:            0
+    nblocks:         11
+  - name:            'av_mallocz/1'
+    fid:             20781
+    hash:            0x836DB7DBAB23CEF4
+    exec:            0
+    nblocks:         11
+  - name:            'write_number/1'
+    fid:             20804
+    hash:            0x161407ECCFBEEFDB
+    exec:            0
+    nblocks:         39
+  - name:            'av_opt_set_defaults2/1'
+    fid:             20842
+    hash:            0xF0DEF2FE4D7D05A1
+    exec:            0
+    nblocks:         36
+  - name:            'av_opt_free/1'
+    fid:             20846
+    hash:            0xA5706501184D5F9F
+    exec:            0
+    nblocks:         18
+  - name:            'av_sample_fmt_is_planar/1'
+    fid:             20938
+    hash:            0x4CACDEE7ADD274D0
+    exec:            0
+    nblocks:         3
+  - name:            'av_samples_get_buffer_size/1'
+    fid:             20939
+    hash:            0xDD980D57707624F3
+    exec:            0
+    nblocks:         12
+  - name:            _ZNKSt9type_info4nameEv
+    fid:             20976
+    hash:            0x83B90CBEE344E492
+    exec:            0
+    nblocks:         4
+  - name:            _ZNKSt9type_infoeqERKS_
+    fid:             20977
+    hash:            0x77AF18D116069927
+    exec:            0
+    nblocks:         10
+  - name:            _ZNK10__cxxabiv117__class_type_info12__do_dyncastElNS0_10__sub_kindEPKS0_PKvS3_S5_RNS0_16__dyncast_resultE
+    fid:             20985
+    hash:            0xC8332EF6499902A3
+    exec:            0
+    nblocks:         10
+  - name:            _ZdlPvm
+    fid:             20988
+    hash:            0x637377971A49A8AF
+    exec:            0
+    nblocks:         1
+  - name:            _ZdlPv
+    fid:             20989
+    hash:            0xBC3566720518C146
+    exec:            0
+    nblocks:         1
+  - name:            '_ZN10__cxxabiv112_GLOBAL__N_118contained_public_pENS_17__class_type_info10__sub_kindE/2'
+    fid:             20993
+    hash:            0x476B469712B75AE2
+    exec:            0
+    nblocks:         1
+  - name:            _ZN10__cxxabiv117__class_type_info16__dyncast_resultC2Ei
+    fid:             20995
+    hash:            0x26552E91EB405A4E
+    exec:            0
+    nblocks:         1
+  - name:            __dynamic_cast
+    fid:             20997
+    hash:            0x882D7A39645CF541
+    exec:            0
+    nblocks:         25
+  - name:            '_ZN10__cxxabiv112_GLOBAL__N_114adjust_pointerIvEEPKT_PKvl/1'
+    fid:             20998
+    hash:            0x7828324B73404F55
+    exec:            0
+    nblocks:         1
+  - name:            '_ZN10__cxxabiv112_GLOBAL__N_114adjust_pointerINS0_13vtable_prefixEEEPKT_PKvl/1'
+    fid:             20999
+    hash:            0x7828324B73404F55
+    exec:            0
+    nblocks:         1
+  - name:            _ZnwmPv
+    fid:             21001
+    hash:            0x902AB0E0D128334C
+    exec:            0
+    nblocks:         1
+  - name:            _ZSt7forwardIiEOT_RNSt16remove_referenceIS0_E4typeE
+    fid:             21042
+    hash:            0x1AC5A49ECF994BDE
+    exec:            0
+    nblocks:         1
+  - name:            '_ZN12_GLOBAL__N_110load_bytesEPKci/1'
+    fid:             21174
+    hash:            0xD0173276C30E5F0B
+    exec:            0
+    nblocks:         3
+  - name:            '_ZN12_GLOBAL__N_19shift_mixEm/1'
+    fid:             21175
+    hash:            0x3297FCE550BA62A7
+    exec:            0
+    nblocks:         1
+  - name:            _ZSt11_Hash_bytesPKvmm
+    fid:             21176
+    hash:            0x56D5FB1028438E16
+    exec:            0
+    nblocks:         6
+  - name:            _Znwm
+    fid:             21179
+    hash:            0xA5A02DDD7F93938E
+    exec:            0
+    nblocks:         7
+  - name:            _ZnwmRKSt9nothrow_t
+    fid:             21186
+    hash:            0x625A61504EB356D2
+    exec:            0
+    nblocks:         4
+  - name:            _ZNK10__cxxabiv120__si_class_type_info12__do_dyncastElNS_17__class_type_info10__sub_kindEPKS1_PKvS4_S6_RNS1_16__dyncast_resultE
+    fid:             21222
+    hash:            0x1A1CBAADB53C9C5E
+    exec:            0
+    nblocks:         17
+  - name:            _ZNK10__cxxabiv122__base_class_type_info14__is_virtual_pEv
+    fid:             21231
+    hash:            0xAC3BCED0481D3C78
+    exec:            0
+    nblocks:         1
+  - name:            _ZNK10__cxxabiv122__base_class_type_info13__is_public_pEv
+    fid:             21232
+    hash:            0xAC3BCED0481D3C78
+    exec:            0
+    nblocks:         1
+  - name:            _ZNK10__cxxabiv122__base_class_type_info8__offsetEv
+    fid:             21233
+    hash:            0x9E0D51133D6DB596
+    exec:            0
+    nblocks:         1
+  - name:            '_ZN10__cxxabiv112_GLOBAL__N_115convert_to_baseEPKvbl/1'
+    fid:             21234
+    hash:            0x4ED83F05B8CBBD63
+    exec:            0
+    nblocks:         3
+  - name:            _ZNK10__cxxabiv121__vmi_class_type_info12__do_dyncastElNS_17__class_type_info10__sub_kindEPKS1_PKvS4_S6_RNS1_16__dyncast_resultE
+    fid:             21241
+    hash:            0xF700454BEF6C3C0E
+    exec:            0
+    nblocks:         96
+  - name:            '_ZN10__cxxabiv112_GLOBAL__N_114adjust_pointerIvEEPKT_PKvl/3'
+    fid:             21244
+    hash:            0x7828324B73404F55
+    exec:            0
+    nblocks:         1
+  - name:            _ZStorSt13_Ios_FmtflagsS_
+    fid:             21370
+    hash:            0xDD3B51E3EC43F330
+    exec:            0
+    nblocks:         1
+  - name:            _ZNKSt6locale2id5_M_idEv
+    fid:             21433
+    hash:            0x366AA49CD3CFB34B
+    exec:            0
+    nblocks:         6
+  - name:            _ZNSt18_Rb_tree_node_base10_S_minimumEPS_
+    fid:             21569
+    hash:            0x1E96DC9FBF9D1334
+    exec:            0
+    nblocks:         4
+  - name:            '_ZStL23local_Rb_tree_incrementPSt18_Rb_tree_node_base/1'
+    fid:             21571
+    hash:            0xC35023EB0FC5A492
+    exec:            0
+    nblocks:         10
+  - name:            _ZSt18_Rb_tree_incrementPKSt18_Rb_tree_node_base
+    fid:             21573
+    hash:            0x80163331A075E32D
+    exec:            0
+    nblocks:         1
+  - name:            '_ZStL23local_Rb_tree_decrementPSt18_Rb_tree_node_base/1'
+    fid:             21574
+    hash:            0xCC2AC0AD4905AA3D
+    exec:            0
+    nblocks:         13
+  - name:            _ZSt18_Rb_tree_decrementPSt18_Rb_tree_node_base
+    fid:             21575
+    hash:            0x80163331A075E32D
+    exec:            0
+    nblocks:         1
+  - name:            '_ZStL25local_Rb_tree_rotate_leftPSt18_Rb_tree_node_baseRS0_/1'
+    fid:             21577
+    hash:            0xFEB44081C083FF0F
+    exec:            0
+    nblocks:         8
+  - name:            '_ZStL26local_Rb_tree_rotate_rightPSt18_Rb_tree_node_baseRS0_/1'
+    fid:             21579
+    hash:            0xFEB44081C083FF0F
+    exec:            0
+    nblocks:         8
+  - name:            _ZSt29_Rb_tree_insert_and_rebalancebPSt18_Rb_tree_node_baseS0_RS_
+    fid:             21581
+    hash:            0x18C4924E024F12CA
+    exec:            0
+    nblocks:         23
+  - name:            _ZSt28_Rb_tree_rebalance_for_erasePSt18_Rb_tree_node_baseRS_
+    fid:             21582
+    hash:            0x86D0F1CF0BE9BD35
+    exec:            0
+    nblocks:         69
+  - name:            _ZSt4swapISt14_Rb_tree_colorEvRT_S2_
+    fid:             21584
+    hash:            0x5024C717EE9E79BB
+    exec:            0
+    nblocks:         1
+  - name:            _ZNSt6chrono8durationIlSt5ratioILl1ELl1000000000EEEC2IlvEERKT_
+    fid:             21606
+    hash:            0x59CC2016F6D75ABD
+    exec:            0
+    nblocks:         1
+  - name:            _ZNKSt6chrono8durationIlSt5ratioILl1ELl1000000000EEE5countEv
+    fid:             21607
+    hash:            0xB74520ED57CEE4DB
+    exec:            0
+    nblocks:         1
+  - name:            _ZNSt6chrono3_V212steady_clock3nowEv
+    fid:             21609
+    hash:            0xDB05AA5FD3967D89
+    exec:            0
+    nblocks:         1
+  - name:            _ZNKSt6chrono8durationIlSt5ratioILl1ELl1EEE5countEv
+    fid:             21610
+    hash:            0xB74520ED57CEE4DB
+    exec:            0
+    nblocks:         1
+  - name:            _ZNSt6chrono8durationIlSt5ratioILl1ELl1EEEC1IlvEERKT_
+    fid:             21611
+    hash:            0x59CC2016F6D75ABD
+    exec:            0
+    nblocks:         1
+  - name:            _ZNSt6chrono8durationIlSt5ratioILl1ELl1000000000EEEC2IlS1_ILl1ELl1EEvEERKNS0_IT_T0_EE
+    fid:             21612
+    hash:            0x5F07552688CDFC5D
+    exec:            0
+    nblocks:         1
+  - name:            _ZNSt6chrono13duration_castINS_8durationIlSt5ratioILl1ELl1000000000EEEElS2_ILl1ELl1EEEENSt9enable_ifIXsrNS_13__is_durationIT_EE5valueES8_E4typeERKNS1_IT0_T1_EE
+    fid:             21613
+    hash:            0x80163331A075E32D
+    exec:            0
+    nblocks:         1
+  - name:            _ZNSt6chrono20__duration_cast_implINS_8durationIlSt5ratioILl1ELl1000000000EEEES2_ILl1000000000ELl1EElLb0ELb1EE6__castIlS2_ILl1ELl1EEEES4_RKNS1_IT_T0_EE
+    fid:             21614
+    hash:            0x4EC8E5A8B23D04FD
+    exec:            0
+    nblocks:         1
+  - name:            _ZNSt6chronoplIlSt5ratioILl1ELl1EElS1_ILl1ELl1000000000EEEENSt11common_typeIJNS_8durationIT_T0_EENS5_IT1_T2_EEEE4typeERKS8_RKSB_
+    fid:             21615
+    hash:            0x17C86DB57FEE119A
+    exec:            0
+    nblocks:         1
+  - name:            _ZNSt6chrono10time_pointINS_3_V212steady_clockENS_8durationIlSt5ratioILl1ELl1000000000EEEEEC1ERKS6_
+    fid:             21617
+    hash:            0x59CC2016F6D75ABD
+    exec:            0
+    nblocks:         1
+  - name:            '_ZL24__gthread_cond_broadcastP14pthread_cond_t/1'
+    fid:             21625
+    hash:            0x80163331A075E32D
+    exec:            0
+    nblocks:         1
+  - name:            '_ZL21__gthread_cond_signalP14pthread_cond_t/1'
+    fid:             21626
+    hash:            0x80163331A075E32D
+    exec:            0
+    nblocks:         1
+  - name:            '_ZL19__gthread_cond_waitP14pthread_cond_tP15pthread_mutex_t/1'
+    fid:             21627
+    hash:            0xB0F13F0A0616787
+    exec:            0
+    nblocks:         1
+  - name:            _ZNSt5mutex13native_handleEv
+    fid:             21630
+    hash:            0x1AC5A49ECF994BDE
+    exec:            0
+    nblocks:         1
+  - name:            _ZNSt9__condvar4waitERSt5mutex
+    fid:             21633
+    hash:            0x3377C6B978F24D6F
+    exec:            0
+    nblocks:         5
+  - name:            _ZNSt9__condvar10notify_oneEv
+    fid:             21634
+    hash:            0x725EC5C93BA1C76
+    exec:            0
+    nblocks:         5
+  - name:            _ZNSt9__condvar10notify_allEv
+    fid:             21635
+    hash:            0x725EC5C93BA1C76
+    exec:            0
+    nblocks:         5
+  - name:            _ZNSt18condition_variable4waitERSt11unique_lockISt5mutexE
+    fid:             21638
+    hash:            0x44F537C1BEEDCD0E
+    exec:            0
+    nblocks:         1
+  - name:            _ZNSt18condition_variable10notify_oneEv
+    fid:             21639
+    hash:            0xBC3566720518C146
+    exec:            0
+    nblocks:         1
+  - name:            _ZNSt18condition_variable10notify_allEv
+    fid:             21640
+    hash:            0xBC3566720518C146
+    exec:            0
+    nblocks:         1
+  - name:            _ZNKSt11unique_lockISt5mutexE5mutexEv
+    fid:             21651
+    hash:            0xB74520ED57CEE4DB
+    exec:            0
+    nblocks:         1
+  - name:            _ZNSt11char_traitsIcE2eqERKcS2_
+    fid:             21899
+    hash:            0xF1078CD28F806F1B
+    exec:            0
+    nblocks:         1
+  - name:            _ZStanSt13_Ios_OpenmodeS_
+    fid:             23031
+    hash:            0x8B2379EB94877C3F
+    exec:            0
+    nblocks:         1
+  - name:            _ZNSt13basic_filebufIcSt11char_traitsIcEE4openERKNSt7__cxx1112basic_stringIcS1_SaIcEEESt13_Ios_Openmode
+    fid:             23045
+    hash:            0x22363FD529BAC30
+    exec:            0
+    nblocks:         1
+  - name:            _ZNSt13basic_filebufIcSt11char_traitsIcEE8overflowEi
+    fid:             23052
+    hash:            0x8CDFCF400E070B89
+    exec:            0
+    nblocks:         25
+  - name:            _ZNSt14basic_ifstreamIcSt11char_traitsIcEEC1ERKNSt7__cxx1112basic_stringIcS1_SaIcEEESt13_Ios_Openmode
+    fid:             23070
+    hash:            0x631EE805DE025845
+    exec:            0
+    nblocks:         7
+  - name:            _ZSt7forwardIbEOT_RNSt16remove_referenceIS0_E4typeE
+    fid:             23281
+    hash:            0x1AC5A49ECF994BDE
+    exec:            0
+    nblocks:         1
+  - name:            _ZNKSt8__detail20_Prime_rehash_policy14_M_need_rehashEmmm
+    fid:             23368
+    hash:            0x449D19F18C3DED8B
+    exec:            0
+    nblocks:         28
+  - name:            _ZNSt4pairIbmEC1IbiLb1EEEOT_OT0_
+    fid:             23370
+    hash:            0x80DBAA9BBDDB49D8
+    exec:            0
+    nblocks:         1
+  - name:            _ZNSt9basic_iosIcSt11char_traitsIcEEC2Ev
+    fid:             23408
+    hash:            0x10B2B765F9664F8
+    exec:            0
+    nblocks:         1
+  - name:            _ZSt13__check_facetISt5ctypeIcEERKT_PS3_
+    fid:             23448
+    hash:            0x1E0DE91E7CA776C2
+    exec:            0
+    nblocks:         3
+  - name:            _ZSt15__try_use_facetISt7num_getIcSt19istreambuf_iteratorIcSt11char_traitsIcEEEEPKT_RKSt6locale
+    fid:             23704
+    hash:            0xE21792CBD31E6C16
+    exec:            0
+    nblocks:         1
+  - name:            _ZNKSt7num_getIcSt19istreambuf_iteratorIcSt11char_traitsIcEEE6do_getES3_S3_RSt8ios_baseRSt12_Ios_IostateRm
+    fid:             23729
+    hash:            0xA4A942C0B92311F1
+    exec:            0
+    nblocks:         1
+  - name:            _ZNSt6locale13_S_initializeEv
+    fid:             24024
+    hash:            0x5750F01460B25F77
+    exec:            0
+    nblocks:         5
+  - name:            _ZSt16__ostream_insertIcSt11char_traitsIcEERSt13basic_ostreamIT_T0_ES6_PKS3_l
+    fid:             24366
+    hash:            0x3D555882FA000D43
+    exec:            0
+    nblocks:         23
+  - name:            _ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE13_M_local_dataEv
+    fid:             24765
+    hash:            0x160448A7B9BB8C87
+    exec:            0
+    nblocks:         1
+  - name:            _ZNKSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE5c_strEv
+    fid:             24864
+    hash:            0x80163331A075E32D
+    exec:            0
+    nblocks:         1
+  - name:            _ZNSt3_V215system_categoryEv
+    fid:             24949
+    hash:            0x31533CE2F39F36FF
+    exec:            0
+    nblocks:         1
+  - name:            _ZNKSt17basic_string_viewIcSt11char_traitsIcEEixEm
+    fid:             25631
+    hash:            0x87C1F359F22ABB14
+    exec:            0
+    nblocks:         5
+  - name:            _ZNSt10error_code6assignEiRKNSt3_V214error_categoryE
+    fid:             25740
+    hash:            0xF5451026E70FBCC6
+    exec:            0
+    nblocks:         1
+  - name:            _ZNSt10filesystem7__cxx114pathC2EOS1_
+    fid:             25753
+    hash:            0xC466AA16D981F239
+    exec:            0
+    nblocks:         1
+  - name:            _ZNSt10filesystem7__cxx114path5clearEv
+    fid:             25754
+    hash:            0xFDEE12C40A7CF4DC
+    exec:            0
+    nblocks:         1
+  - name:            _ZNKSt10filesystem7__cxx114path5c_strEv
+    fid:             25756
+    hash:            0x80163331A075E32D
+    exec:            0
+    nblocks:         1
+  - name:            _ZNKSt10filesystem7__cxx114path7_M_typeEv
+    fid:             25759
+    hash:            0x160448A7B9BB8C87
+    exec:            0
+    nblocks:         1
+  - name:            _ZNKSt10filesystem7__cxx114path5_List4typeEv
+    fid:             25760
+    hash:            0x36E8924F4D52DAB5
+    exec:            0
+    nblocks:         1
+  - name:            _ZNSt10filesystem7__cxx114_DirC2ERKNS0_4pathEbbbRSt10error_code
+    fid:             25824
+    hash:            0x90ABFB9EA04DCD99
+    exec:            0
+    nblocks:         7
+  - name:            _ZNSt10unique_ptrINSt10filesystem7__cxx114path5_List5_ImplENS3_13_Impl_deleterEED1Ev
+    fid:             25861
+    hash:            0xA68D7D79459490A1
+    exec:            0
+    nblocks:         3
+  - name:            _ZNKSt10unique_ptrINSt10filesystem7__cxx114path5_List5_ImplENS3_13_Impl_deleterEE3getEv
+    fid:             25866
+    hash:            0x80163331A075E32D
+    exec:            0
+    nblocks:         1
+  - name:            _ZNSt5stackINSt10filesystem7__cxx114_DirESt5dequeIS2_SaIS2_EEE3topEv
+    fid:             25895
+    hash:            0x80163331A075E32D
+    exec:            0
+    nblocks:         1
+  - name:            _ZNSt15__uniq_ptr_implINSt10filesystem7__cxx114path5_List5_ImplENS3_13_Impl_deleterEE6_M_ptrEv
+    fid:             25905
+    hash:            0x80163331A075E32D
+    exec:            0
+    nblocks:         1
+  - name:            _ZNKSt15__uniq_ptr_implINSt10filesystem7__cxx114path5_List5_ImplENS3_13_Impl_deleterEE6_M_ptrEv
+    fid:             25910
+    hash:            0x2068FC3EA3D23103
+    exec:            0
+    nblocks:         1
+  - name:            _ZSt3getILm0EJPNSt10filesystem7__cxx114path5_List5_ImplENS3_13_Impl_deleterEEERNSt13tuple_elementIXT_ESt5tupleIJDpT0_EEE4typeERSB_
+    fid:             25952
+    hash:            0x80163331A075E32D
+    exec:            0
+    nblocks:         1
+  - name:            _ZSt3getILm0EJPNSt10filesystem7__cxx114path5_List5_ImplENS3_13_Impl_deleterEEERKNSt13tuple_elementIXT_ESt5tupleIJDpT0_EEE4typeERKSB_
+    fid:             25953
+    hash:            0x80163331A075E32D
+    exec:            0
+    nblocks:         1
+  - name:            _ZNSt11_Tuple_implILm0EJPNSt10filesystem7__cxx114path5_List5_ImplENS3_13_Impl_deleterEEE7_M_headERKS7_
+    fid:             25991
+    hash:            0x80163331A075E32D
+    exec:            0
+    nblocks:         1
+  - name:            _ZNSt10_Head_baseILm0EPNSt10filesystem7__cxx114path5_List5_ImplELb0EE7_M_headERS6_
+    fid:             26018
+    hash:            0x1AC5A49ECF994BDE
+    exec:            0
+    nblocks:         1
+  - name:            _ZNSt10_Head_baseILm0EPNSt10filesystem7__cxx114path5_List5_ImplELb0EE7_M_headERKS6_
+    fid:             26019
+    hash:            0x1AC5A49ECF994BDE
+    exec:            0
+    nblocks:         1
+  - name:            _ZNSt10filesystem6removeERKNS_7__cxx114pathERSt10error_code
+    fid:             26217
+    hash:            0xF4166A36D4D48685
+    exec:            0
+    nblocks:         7
+  - name:            '_ZL10is_dir_sepc/1'
+    fid:             26482
+    hash:            0x85E5A8B360A274D8
+    exec:            0
+    nblocks:         1
+  - name:            _ZNSt10filesystem7__cxx114path5_List5_Impl5clearEv
+    fid:             26499
+    hash:            0xBA225F631564D2A4
+    exec:            0
+    nblocks:         1
+  - name:            _ZNSt10filesystem7__cxx114path5_List5_Impl6notypeEPS3_
+    fid:             26504
+    hash:            0xF437875825BA10B7
+    exec:            0
+    nblocks:         1
+  - name:            _ZNSt10filesystem7__cxx114path5_List4typeENS1_5_TypeE
+    fid:             26509
+    hash:            0x8AB1D4FFC6B22333
+    exec:            0
+    nblocks:         1
+  - name:            _ZNSt10filesystem7__cxx114pathdVERKS1_
+    fid:             26525
+    hash:            0x8086B8FD8AE7C23C
+    exec:            0
+    nblocks:         63
+  - name:            _ZNSt15__uniq_ptr_dataINSt10filesystem7__cxx114path5_List5_ImplENS3_13_Impl_deleterELb1ELb1EECI2St15__uniq_ptr_implIS4_S5_EEPS4_
+    fid:             26601
+    hash:            0x8489917A883909AC
+    exec:            0
+    nblocks:         1
+  - name:            _ZNSt10unique_ptrINSt10filesystem7__cxx114path5_List5_ImplENS3_13_Impl_deleterEEC1IS5_vEEPS4_
+    fid:             26602
+    hash:            0x8489917A883909AC
+    exec:            0
+    nblocks:         1
+  - name:            _ZNKSt10unique_ptrINSt10filesystem7__cxx114path5_List5_ImplENS3_13_Impl_deleterEEptEv
+    fid:             26603
+    hash:            0x80163331A075E32D
+    exec:            0
+    nblocks:         1
+  - name:            _ZNSt15__uniq_ptr_dataINSt10filesystem7__cxx114path5_List5_ImplENS3_13_Impl_deleterELb1ELb1EEC2Ev
+    fid:             26610
+    hash:            0xBC3566720518C146
+    exec:            0
+    nblocks:         1
+  - name:            _ZNSt10unique_ptrINSt10filesystem7__cxx114path5_List5_ImplENS3_13_Impl_deleterEE5resetEPS4_
+    fid:             26615
+    hash:            0x7311B6356233D28
+    exec:            0
+    nblocks:         1
+  - name:            _ZSt20uninitialized_move_nIPNSt10filesystem7__cxx114path5_CmptEiS4_ESt4pairIT_T1_ES6_T0_S7_
+    fid:             26616
+    hash:            0x842B3BDCDD9CFA7
+    exec:            0
+    nblocks:         1
+  - name:            _ZSt10__mismatchINSt10filesystem7__cxx114path8iteratorES3_N9__gnu_cxx5__ops19_Iter_equal_to_iterEESt4pairIT_T0_ES8_S8_S9_S9_T1_
+    fid:             26660
+    hash:            0x842B29008B3630F0
+    exec:            0
+    nblocks:         9
+  - name:            _ZNSt14_Destroy_n_auxILb0EE11__destroy_nIPNSt10filesystem7__cxx114path5_CmptEiEET_S7_T0_
+    fid:             26673
+    hash:            0xE6CF11EBDF958F1A
+    exec:            0
+    nblocks:         4
+  - name:            _ZNKSt13move_iteratorIPNSt10filesystem7__cxx114path5_CmptEEplEl
+    fid:             26700
+    hash:            0x340DF98D5925E1C1
+    exec:            0
+    nblocks:         1
+  - name:            _ZNSt13move_iteratorIPNSt10filesystem7__cxx114path5_CmptEEppEv
+    fid:             26741
+    hash:            0x5098CF4AC1261F21
+    exec:            0
+    nblocks:         1
+  - name:            _ZSt10_ConstructINSt10filesystem7__cxx114path5_CmptEJS3_EEvPT_DpOT0_
+    fid:             26744
+    hash:            0xD8B90368ED13A2B5
+    exec:            0
+    nblocks:         3
+  - name:            'memset@PLT'
+    fid:             26781
+    hash:            0x0
+    exec:            0
+    nblocks:         0
+  - name:            'malloc@PLT'
+    fid:             26786
+    hash:            0x0
+    exec:            0
+    nblocks:         0
+  - name:            'memcpy@PLT'
+    fid:             26787
+    hash:            0x0
+    exec:            0
+    nblocks:         0
+  - name:            'free@PLT'
+    fid:             26788
+    hash:            0x0
+    exec:            0
+    nblocks:         0
+  - name:            'pthread_mutex_trylock@PLT'
+    fid:             26789
+    hash:            0x0
+    exec:            0
+    nblocks:         0
+  - name:            'pthread_mutex_lock@PLT'
+    fid:             26790
+    hash:            0x0
+    exec:            0
+    nblocks:         0
+  - name:            'pthread_mutex_unlock@PLT'
+    fid:             26791
+    hash:            0x0
+    exec:            0
+    nblocks:         0
+  - name:            'strcmp@PLT'
+    fid:             26808
+    hash:            0x0
+    exec:            0
+    nblocks:         0
+  - name:            '__tls_get_addr@PLT'
+    fid:             26823
+    hash:            0x0
+    exec:            0
+    nblocks:         0
+  - name:            'pthread_self@PLT'
+    fid:             26828
+    hash:            0x0
+    exec:            0
+    nblocks:         0
+  - name:            'clock_gettime@PLT'
+    fid:             26832
+    hash:            0x0
+    exec:            0
+    nblocks:         0
+  - name:            'fputc@PLT'
+    fid:             26909
+    hash:            0x0
+    exec:            0
+    nblocks:         0
+...
