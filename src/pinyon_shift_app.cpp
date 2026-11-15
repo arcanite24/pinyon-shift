@@ -178,7 +178,10 @@ std::filesystem::path LongHostPath(std::filesystem::path path) {
 // selections to Vulkan. The legacy backend remains available to developers.
 // Schema 29 writes every keyboard bind into the file: new files get the
 // driving-first keys (#432), older ones the keys they already had.
-constexpr uint32_t kConfigSchema = 29;
+// Schema 30 turns the host presentation limit off again: the menu's one
+// FRAME RATE row now sets only the game's render limit, so a limit saved
+// from the retired FRAME RATE LIMIT row would drop rendered frames unseen.
+constexpr uint32_t kConfigSchema = 30;
 
 // For START IN SINGLE PLAYER, armed once the settings are loaded.
 std::filesystem::path g_user_data_root;
@@ -405,7 +408,7 @@ bool EnsureSupportedConfig(const std::filesystem::path& path, bool& created,
         std::regex::icase);
     migrated_text = std::regex_replace(migrated_text,
                                        rejected_interpolation_pattern, "\n");
-    if (schema < 27) {
+    if (schema < 30) {
       migrated_text = std::regex_replace(
           migrated_text,
           std::regex(R"((host_present_fps_limit\s*=\s*)\d+)",

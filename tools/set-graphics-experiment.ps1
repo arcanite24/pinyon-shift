@@ -52,10 +52,10 @@ $backupDirectory = Join-Path $configDirectory 'backups'
 function Get-DefaultConfigText {
     @'
 # Pinyon Shift host configuration.
-# Schema 29 writes every keyboard bind (#432); schema 28 supports only Vulkan with the split GPU commands thread; schema 26
+# Schema 30 turns the presentation limit off; schema 29 writes every keyboard bind (#432); schema 28 supports only Vulkan with the split GPU commands thread; schema 26
 # stops re-uploading CPU-written memory every frame; schema 25 keeps one
 # occlusion-query path; schema 24 retired the renderer choice.
-pinyon_shift_config_schema = 29
+pinyon_shift_config_schema = 30
 input_backend = "sdl"
 hid_mappings_file = "gamecontrollerdb.txt"
 mnk_mode = true
@@ -257,7 +257,7 @@ function Get-SchemaVersion([string]$Text) {
         '(?m)^\s*pinyon_shift_config_schema\s*=\s*(?<value>[0-9]+)\s*(?:#.*)?$')
     # A file without one was saved by the old F4 overlay with only changed
     # settings; the game keeps them under the current schema, so do the same.
-    if (-not $match.Success) { return 29 }
+    if (-not $match.Success) { return 30 }
     [int]$match.Groups['value'].Value
 }
 
@@ -323,7 +323,7 @@ switch ($Action) {
             Get-Content -LiteralPath $configPath -Raw
         } else { Get-DefaultConfigText }
         $schema = Get-SchemaVersion $text
-        if ($schema -lt 1 -or $schema -gt 29) { throw "Unsupported host configuration schema: $schema" }
+        if ($schema -lt 1 -or $schema -gt 30) { throw "Unsupported host configuration schema: $schema" }
     }
     'Reset' {
         $backup = New-HostConfigBackup $configPath
@@ -340,7 +340,7 @@ switch ($Action) {
         $backup = New-HostConfigBackup $configPath
         $text = Get-Content -LiteralPath $source.FullName -Raw
         $schema = Get-SchemaVersion $text
-        if ($schema -lt 1 -or $schema -gt 29) { throw "Backup uses unsupported schema: $schema" }
+        if ($schema -lt 1 -or $schema -gt 30) { throw "Backup uses unsupported schema: $schema" }
         Write-HostConfig $configPath $text
     }
     'Apply' {
@@ -348,7 +348,7 @@ switch ($Action) {
             Get-Content -LiteralPath $configPath -Raw
         } else { Get-DefaultConfigText }
         $schema = Get-SchemaVersion $text
-        if ($schema -lt 1 -or $schema -gt 29) { throw "Unsupported host configuration schema: $schema" }
+        if ($schema -lt 1 -or $schema -gt 30) { throw "Unsupported host configuration schema: $schema" }
         $backup = New-HostConfigBackup $configPath
         # The retired guest vblank rate became the render limit, which now
         # defaults to 60 (LOW-SPEC 60), not the display's rate.
@@ -374,7 +374,9 @@ switch ($Action) {
                 }
             }
         }
-        $text = Set-TomlValue $text 'pinyon_shift_config_schema' '29'
+        # Schema 30 turns the host presentation limit off (one FRAME RATE row).
+        if ($schema -lt 30) { $text = Set-TomlValue $text 'host_present_fps_limit' '0' }
+        $text = Set-TomlValue $text 'pinyon_shift_config_schema' '30'
         $text = Set-TomlValue $text 'pinyon_shift_fh1_source_presentation' 'true'
         if (-not [regex]::IsMatch($text, '(?m)^[ \t]*xma_relaxed_padding_admission[ \t]*=')) {
             $text = Set-TomlValue $text 'xma_relaxed_padding_admission' 'false'

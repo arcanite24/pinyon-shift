@@ -44,7 +44,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import pinyon_common as common  # noqa: E402
 
-SCHEMA = 29
+SCHEMA = 30
 
 # --- host-config.ps1 ------------------------------------------------------------------
 
@@ -116,10 +116,10 @@ def backup_config(path: Path) -> str | None:
 
 DEFAULT_CONFIG = """\
 # Pinyon Shift host configuration.
-# Schema 29 writes every keyboard bind (#432); schema 28 supports only Vulkan with the split GPU commands thread; schema 26
+# Schema 30 turns the presentation limit off; schema 29 writes every keyboard bind (#432); schema 28 supports only Vulkan with the split GPU commands thread; schema 26
 # stops re-uploading CPU-written memory every frame; schema 25 keeps one
 # occlusion-query path; schema 24 retired the renderer choice.
-pinyon_shift_config_schema = 29
+pinyon_shift_config_schema = 30
 input_backend = "sdl"
 hid_mappings_file = "gamecontrollerdb.txt"
 mnk_mode = true
@@ -413,6 +413,10 @@ def apply_settings(text: str, options: dict) -> str:
         for key, value in SCHEMA_28_KEYS.items():
             if not has_setting(text, key):
                 text = set_value(text, key, f'"{value}"')
+    # Schema 30 turns the host presentation limit off: the game's one FRAME
+    # RATE row sets only the render limit (src/pinyon_shift_app.cpp).
+    if schema < 30:
+        text = set_value(text, "host_present_fps_limit", "0")
     text = set_value(text, "pinyon_shift_config_schema", str(SCHEMA))
     text = set_value(text, "pinyon_shift_fh1_source_presentation", "true")
     if not has_setting(text, "xma_relaxed_padding_admission"):

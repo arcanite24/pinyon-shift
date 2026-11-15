@@ -53,12 +53,12 @@ SCENARIOS = [
                 "fh1_renderer = \"native\"\nocclusion_query = 1\n",
      [("Apply", {"ResolutionScale": "2", "TreasureMap": "false", "Anisotropy": "16",
                  "PostEffect": "fxaa", "DisableBloom": "false", "PresentationFps": "60"})]),
-    ("crlf_keeps_in_game_choices", "pinyon_shift_config_schema = 29\r\nvsync = false\r\n"
+    ("crlf_keeps_in_game_choices", "pinyon_shift_config_schema = 30\r\nvsync = false\r\n"
                                    "user_name = \"Ann\"\r\n",
      [("Apply", {"ResolutionScale": "1", "TreasureMap": "true"}), ("Get", {})]),
     ("reset_then_restore", "pinyon_shift_config_schema = 5\nswap_post_effect = \"fxaa\"\n",
      [("Reset", {}), ("Restore", {})]),
-    ("preset_name", "pinyon_shift_config_schema = 29\n",
+    ("preset_name", "pinyon_shift_config_schema = 30\n",
      [("Apply", {"Preset": "experimental_2x", "ResolutionScale": "4"})]),
 ]
 
@@ -148,7 +148,7 @@ class ConfigCommandTests(unittest.TestCase):
                 self.assertEqual(result["operation"], "apply")
             text = (state / "config/pinyon_shift.toml").read_text(encoding="utf-8")
             self.assertIn("pinyon_shift_dlc_treasure_map = true", text)
-            self.assertIn("pinyon_shift_config_schema = 29", text)
+            self.assertIn("pinyon_shift_config_schema = 30", text)
 
     def test_restore_without_a_backup_fails_as_json(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -166,7 +166,7 @@ class ConfigCommandTests(unittest.TestCase):
             state = Path(directory)
             config = state / "config/pinyon_shift.toml"
             config.parent.mkdir(parents=True)
-            config.write_text('pinyon_shift_config_schema = 29\nswap_post_effect = "fxaa"\n',
+            config.write_text('pinyon_shift_config_schema = 30\nswap_post_effect = "fxaa"\n',
                               encoding="utf-8")
             reset = run_python(state, "reset", {})
             self.assertTrue(Path(reset["backup_path"]).is_file())

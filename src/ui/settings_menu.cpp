@@ -460,12 +460,6 @@ std::unique_ptr<MenuScreen> SettingsPages::Display() {
     }
   }
   rows.push_back(Toggle("VSYNC", "vsync"));
-  rows.push_back(Setting("FRAME RATE LIMIT",
-                         {{"OFF", {{"host_present_fps_limit", "0"}}},
-                          {"30", {{"host_present_fps_limit", "30"}}},
-                          {"60", {{"host_present_fps_limit", "60"}}},
-                          {"120", {{"host_present_fps_limit", "120"}}},
-                          {"240", {{"host_present_fps_limit", "240"}}}}));
   // How the rendered image is scaled to the window: FSR 1 and CAS keep 2x
   // on a 4K display and 3x on 1440p sharp where bilinear blurs. The page's
   // note gives both sizes. Temporal upscalers (UP-8.1) are offered when
@@ -558,26 +552,33 @@ std::unique_ptr<MenuScreen> SettingsPages::Display() {
     }
     rows.push_back(Page("HDR CALIBRATION", &SettingsPages::HdrCalibration));
   }
-  // The rate the game simulates and renders at, which sets every CPU cost
-  // (LS-1.4). DISPLAY follows the refresh rate: 144 Hz and faster displays
-  // then render that many frames. 40 is an even third of 120 Hz (LS-1.6).
-  rows.push_back(Setting("GAME FRAME RATE LIMIT",
-                         {{"DISPLAY", {{"pinyon_shift_fh1_render_fps_limit", "0"}}},
-                          {"30", {{"pinyon_shift_fh1_render_fps_limit", "30"}}},
-                          {"40", {{"pinyon_shift_fh1_render_fps_limit", "40"}}},
-                          {"60", {{"pinyon_shift_fh1_render_fps_limit", "60"}}},
-                          {"120", {{"pinyon_shift_fh1_render_fps_limit", "120"}}}}));
+  // The one frame rate: the rate the game simulates and renders at, which
+  // sets every CPU cost (LS-1.4). DISPLAY follows the refresh rate: 144 Hz
+  // and faster displays then render that many frames. 40 is an even third
+  // of 120 Hz (LS-1.6). The host's own presentation limit stays off (as in
+  // Lavender Shift), so no second limiter drops frames the game rendered;
+  // VSYNC only decides whether presents wait for the display.
+  {
+    std::vector<Choice> rates = {{"DISPLAY", {{"pinyon_shift_fh1_render_fps_limit", "0"},
+                                              {"host_present_fps_limit", "0"}}}};
+    for (const char* rate : {"30", "40", "60", "120", "144", "240"}) {
+      rates.push_back({rate, {{"pinyon_shift_fh1_render_fps_limit", rate},
+                              {"host_present_fps_limit", "0"}}});
+    }
+    rows.push_back(Setting("FRAME RATE", std::move(rates)));
+  }
   rows.push_back(Page("HUD", &SettingsPages::Hud));
   auto note = [this, restart = RestartNote(rows)] {
     const std::string pending = restart ? restart() : std::string();
     if (!pending.empty()) {
       return pending;
     }
-    // A presentation limit below the game's drops frames the game rendered.
+    // A presentation limit below the game's (set outside this menu) drops
+    // frames the game rendered.
     const auto present = Number(Unquote(Saved("host_present_fps_limit")));
     const auto game = Number(Unquote(Saved("pinyon_shift_fh1_render_fps_limit")));
     if (present && *present > 0 && game && (*game == 0 || *game > *present)) {
-      return std::string("THE GAME RENDERS FRAMES THE FRAME RATE LIMIT DROPS");
+      return std::string("THE GAME RENDERS FRAMES THE PRESENTATION LIMIT DROPS");
     }
     if (SameValue(Unquote(Saved("present_hdr")), "true") &&
         !rex::ui::vulkan::GetHdrOutputState().offered) {
