@@ -88,7 +88,7 @@ pinyon = "XInput and SDL controllers with button mapping, keyboard driving with 
 feature = "Saves"
 link = "playing.md#saves"
 xbox = "Console storage"
-pinyon = "Automatic save backups, PNG photos, saves imported from Xenia"
+pinyon = "Automatic save backups, save sync between devices through a sync app, PNG photos, saves imported from Xenia"
 
 [[original]]
 feature = "Achievements"

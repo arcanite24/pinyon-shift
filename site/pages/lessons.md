@@ -127,6 +127,10 @@ phones. See the [Android minimum-requirements audit](https://github.com/arcanite
 
 On Windows, `std::filesystem::path::string()` converts through the ANSI code page and throws when a character has no mapping there. A player's song with a Cyrillic file name crashed the game as soon as the music status line read its title ([#552](https://github.com/arcanite24/pinyon-shift/issues/552)), and the same call sat on mod, LUT and save-backup names. Convert paths to UTF-8 with `u16string()` (`rex::path_to_utf8`), build them from UTF-8 with `rex::to_path`, and test with a file name the test machine's code page can't hold.
 
+## Let the last option win
+
+Launchers and test runners pass defaults first and the player's or test's values after them, so a repeated option must take its last value. By default, the SDK's command-line parser (CLI11) rejects an option given twice, and after that parse error it applies none of the arguments, including the game, update and user folders. Lavender Shift found this on Android, where an intent argument repeated one of the activity's own (it crashed at the title), and worked around it by removing duplicates in the activity. The SDK now registers every setting with CLI11's take-last policy, so every game and platform gets the fix, and a unit test passes the same option twice. Save sync relies on it: Android passes its default sync folder first, and a later argument overrides it.
+
 ## Fix frame rate with the game's own clock
 
 Running above 30 fps needed no engine changes beyond faster vblanks: the game already integrates a real time delta. What remained were systems that add a constant per update. They were found by comparing guest memory snapshots at 30 and 120 fps and trapping writes to the values that drifted. Gate every such change on simulation time against real time, pose drift and the save's hash.
