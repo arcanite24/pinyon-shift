@@ -300,12 +300,14 @@ the fix (Deck, same routes, capped, 35 windows each):
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | 7: everything, fixed | Deck | −2,309 | −15.26 ± 2.60 ms | −3.23 ms | −5.43 ms | −4.26 ms | −1.79 ms |
 | 1: model assets, fixed | Deck | −1,852 | −9.03 ± 2.69 ms | −1.02 ms | −3.98 ms | −3.13 ms | −1.44 ms |
+| 7, fixed, second run | Deck | −2,165 | −12.53 ± 4.64 ms | −2.52 ms | −4.80 ms | −3.57 ms | −1.43 ms |
 
 The model assets are the largest of the three paths. By the reasoning
 below (an owned renderer removes the render thread's and the decoder's
 share and keeps recording and submitting its own draws), the reachable pool
-on the Deck is about 8.7 ms less the native culling it still runs, about
-8.4 ms: over FR-3's −6 ms gate. The Odin rows need the same re-run with a
+on the Deck is about 7.3-8.7 ms less the native culling it still runs,
+about 7.0-8.4 ms over the two skip-7 runs: over FR-3's −6 ms gate either
+way. The Odin rows need the same re-run with a
 v4 build that has the fix. The rest of this section is the original text.
 
 
@@ -355,10 +357,13 @@ native culling hands back to the original) is still open.
 
 - **Who reads the per-pass buckets.** The pass culling pushes 20-byte
   records onto five buckets per pass at `[r3+13844] + (pass × 5 + bucket) ×
-  16` (`site/findings/rendering.toml`, "per-draw pass culling"). Offset
-  13844 is also stored by D3D's constant flush (`82408B70`, `8240DC70`), so
-  `r3` there is the device-side renderer object. Its bucket readers are not
-  found yet. Of the generated functions that load +13844, the ones on this
+  16` (`site/findings/rendering.toml`, "per-draw pass culling"). D3D's
+  device code uses an offset 13844 of its own (the constant flushes
+  `82408B70` and `8240DC70`, and the draw entries below, where it feeds
+  the write pointer at +48); in a Deck race the renderer was at
+  `413FFFC0` and its bucket headers at `4275DDB8`, in a virtual heap,
+  where no command buffer the GPU reads can be, so the two fields are
+  unrelated. Their readers are not found yet. Of the generated functions that load +13844, the ones on this
   object are the pass culling, the procedural culling (`8243EE58`), the
   walk (`82440CF8`) and the free-roam walk parent `82D65608`, which hands
   it to a 39-instruction per-frame list refresh (`82D5C9D0`). The others

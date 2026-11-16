@@ -280,8 +280,14 @@ bit 1 below measured the procedural models and the scene walk only, and the
 "1 + 2" result (no frame or GPU change) was the procedural models alone.
 With the fix, skipping the model assets saves 9.0 ± 2.7 ms of process CPU
 on the Deck at the 60 fps cap, and all three 15.3 ± 2.6 ms
-(docs/FULL_FRAME_RENDERER.md, "FR-3 to FR-6"). The uncapped frame and GPU
-rows have not been re-run.
+(docs/FULL_FRAME_RENDERER.md, "FR-3 to FR-6"). Uncapped on the Deck with
+the fix (the two "fixed" rows in the table), skipping the static world
+alone (3: model assets and procedural models) takes 19 % off the frame
+and 13.2 ms of process CPU, nearly all of the skip-7 ceiling. Skip 7 itself
+didn't grow: with bit 4 on, the model-asset probe ran only 2,949 times in
+the run instead of about 1.4 million, so the scene walk's skip probably
+removes those meshes before their lists are submitted (not traced). The
+Odin rows have not been re-run.
 
 `pinyon_shift_debug_skip_world` (debug, off, hot reload; in
 `src/guest_native/scene_cull.cpp`) stops submission at the owners, so no
@@ -308,10 +314,12 @@ The image is wrong by design. Method:
 | --- | --- | --- | --- | --- | --- |
 | Deck, 7 (from a full scene) | 3,626 → 1,391 | 13.61 → 10.80 ms (−2.88 ± 0.33) | −3.39 ± 0.41 ms | −13.78 ± 2.44 ms | −4.30, −3.59 ms |
 | Deck, 7 (second run) | 2,274 → 1,183 | −2.60 ± 0.42 ms | −2.86 ± 0.52 ms | −10.30 ± 2.66 ms | −2.47, −2.41 ms |
-| Deck, 3 (60 limit, two runs) | −720 to −750 | none | none | −0.4 to −1.6 ms (noise) | −0.7, −0.4 to −0.6 ms |
+| Deck, 3, fixed | 3,610 → 1,560 | 14.23 → 11.46 ms (−2.77 ± 0.77) | −3.45 ± 0.93 ms | −13.15 ± 4.92 ms | −4.02, −3.60 ms |
+| Deck, 7, fixed | 3,367 → 1,267 | 13.59 → 10.74 ms (−2.85 ± 0.60) | −3.34 ± 0.83 ms | −12.83 ± 4.91 ms | −4.02, −3.49 ms |
+| Deck, 3 (60 limit, two runs, bit 1 void) | −720 to −750 | none | none | −0.4 to −1.6 ms (noise) | −0.7, −0.4 to −0.6 ms |
 | Odin, 7 | 2,755 → 954 | 11.56 → 8.62 ms (−3.08 ± 0.43) | −3.06 ± 0.51 ms | −7.24 ± 0.83 ms | −3.42 ms (decoder) |
 | Odin, 7 (second run) | 2,154 → 798 | −2.13 ± 0.16 ms | −2.12 ± 0.28 ms | −5.18 ± 0.80 ms | −2.43 ms |
-| Odin, 3 | −603 | −0.25 ± 0.62 ms | −0.19 ± 0.73 ms | −1.31 ± 1.38 ms | −0.83 ms |
+| Odin, 3 (bit 1 void) | −603 | −0.25 ± 0.62 ms | −0.19 ± 0.73 ms | −1.31 ± 1.38 ms | −0.83 ms |
 
 **Reading.** With everything the scene walk draws free, the frame gets 21 %
 (Deck) to 27 % (Odin) faster:
@@ -319,13 +327,21 @@ The image is wrong by design. Method:
 - GPU time falls by 25-28 %.
 - The Deck's process CPU falls by 13.8 ms, at the −12 ms gate.
 - The model-asset lists and the procedural models, the part an owned
-  *static* world renderer would take first, are worth nothing measurable.
+  *static* world renderer would take first, carry nearly all of it on the
+  Deck once bit 1 applies (skip 3, fixed: −2.77 ms frame, −3.45 ms GPU,
+  −13.2 ms process CPU). The earlier "nothing measurable" was the
+  procedural models alone.
 
 The 1,000-1,400 draws left (post chain, cloned and zone lists, HUD) keep
 about 72-75 % of the GPU frame. An owned renderer would still have to draw
 the world and the cars, so its real gain is a fraction of this ceiling.
-**B4 fails its gate.** The estimates above (−3 to −6 ms GPU, −12 to −18 ms
-CPU) were the ceiling, not the expected result.
+**B4 is reopened.** Its Deck gate (process CPU −12 ms) is met at the
+ceiling by the static world alone, uncapped. That is still a ceiling, not
+the expected result: an owned renderer records and submits its own draws.
+At the 60 fps cap the share it can take (render thread and decoder) is
+about 7-8.4 ms of process CPU on the Deck, which is FR-3's sizing
+(docs/FULL_FRAME_RENDERER.md). The desktop and the Odin with a fixed v4
+build are still to measure.
 
 Two pitfalls:
 
@@ -339,7 +355,10 @@ The desktop wasn't measured, because multivac was busy.
 
 ## Recommendation
 
-Revised after the B4 gate probe (2026-11-15):
+Revised after the B4 gate probe (2026-11-15). The first bullet predates
+the bit-1 fix: with it, the static world carries nearly all of the skip-7
+ceiling on the Deck and B4 is reopened (see "B4 gate probe" above); the
+rest stands.
 
 - **B4 doesn't pay.** It was planned as the knee of the curve. With the
   whole scene walk free, the Deck and the Odin gain only 21-27 %, and
