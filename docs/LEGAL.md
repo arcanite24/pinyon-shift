@@ -82,7 +82,12 @@ licences were read on 2026-10-16 (UP-0.1). The policy:
 
   No terms of use beyond Steam's were found. lsfg-vk, the Linux
   implementation that loads the same DLL, is CC BY-NC-ND since 2026-08, so
-  its newer code is not reused.
+  its newer code is not reused. The in-game path is built from lsfg-vk
+  1.0.0 (MIT) and DXVK's DXBC compiler (zlib); it reads the shaders from
+  the DLL into memory and writes nothing to disk. Until THS gives
+  permission it stays off: it runs only when the player sets
+  `present_lsfg_dll` (or `present_lsfg_experimental`) themselves, and no
+  player page documents it.
 
 Never vendor or link to leaked SDK builds (FSR 4 source, INT8 FSR 4), and
 never document installs that turn off a vendor's signature checks.
