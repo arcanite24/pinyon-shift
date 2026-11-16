@@ -274,12 +274,16 @@ seven a frame, guest memory not written). On the Deck the in-run A/B gave
 frame −0.27 ± 0.74 ms, within noise. The copy was also wrong: the texture
 holds the guest word's channel order and the render target doesn't, so
 red and blue came out swapped and 2_10_10_10 washed out. A correct version
-needs a swizzling shader or an image swap with swizzled views, and the
-copy shows the most either could save. The path was removed.
+needs a swizzling shader or an image swap with swizzled views. A swap
+removes even the copy; its bound is skipping those seven resolves alone,
+about 0.5 ms by their profile share (not isolated in an A/B). The path was
+removed.
 
-**FR-1 is closed.** On the Deck and the Odin the resolves are worth less
-than the gate even when skipped outright, and a copy-free design can only
-reach part of that. `fh1_debug_skip_resolve_classes` stays as the probe.
+**FR-1 is closed.** Skipping every resolve dispatch is worth −1.55 ms of
+GPU on the Deck and −1.36 ms on the Odin, but most of that is resolves a
+copy-free design can't take (depth, multisampled bands, small targets).
+The class it can take is under the gate on both devices, and the swap
+candidates within it are about half of that. `fh1_debug_skip_resolve_classes` stays as the probe.
 
 ## FR-3: what is still unknown
 
