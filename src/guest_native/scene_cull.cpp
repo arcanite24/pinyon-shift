@@ -39,6 +39,7 @@
 // compares the two.
 
 #include <array>
+#include <atomic>
 #include <bit>
 #include <chrono>
 #include <cmath>
@@ -51,6 +52,7 @@
 #include <rex/platform.h>
 #include <rex/ppc/context.h>
 #include <rex/ppc/func.h>
+#include <rex/system/fh1_occlusion_grid.h>
 #include <rex/system/xmemory.h>
 
 #include "fh1_guest_address.h"
@@ -82,6 +84,31 @@ REXCVAR_DEFINE_INT32(pinyon_shift_debug_skip_world, 0, "Pinyon Shift",
                      "Debug ceiling probe: skip world submission (1 model assets, 2 procedural "
                      "models, 4 all scene-walk meshes); the world is not drawn")
     .range(0, 7)
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+// FR-3b (docs/FULL_FRAME_RENDERER.md): drop main-view items hidden in the
+// GPU plugin's occlusion grid, the scene depth of a frame two or three
+// frames back (rex/system/fh1_occlusion_grid.h, published with
+// fh1_occlusion_grid). Things coming into view can pop in a few frames late.
+REXCVAR_DEFINE_BOOL(pinyon_shift_occlusion_cull, false, "Pinyon Shift",
+                    "With native scene culling and fh1_occlusion_grid: skip main-view items "
+                    "hidden behind an earlier frame's depth (may pop in a few frames late)")
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+REXCVAR_DEFINE_BOOL(pinyon_shift_occlusion_flip_z, false, "Pinyon Shift",
+                    "Occlusion culling: negate item z before the world matrix (the culling "
+                    "planes' space is z-flipped)")
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+REXCVAR_DEFINE_DOUBLE(pinyon_shift_occlusion_margin, 0.97, "Pinyon Shift",
+                      "Occlusion culling: an item is hidden only when its nearest point, "
+                      "brought this factor nearer, is behind every tile it covers")
+    .range(0.5, 1.0)
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+REXCVAR_DEFINE_INT32(pinyon_shift_occlusion_max_tiles, 256, "Pinyon Shift",
+                     "Occlusion culling: items covering more grid tiles are not tested")
+    .range(1, 6144)
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+REXCVAR_DEFINE_BOOL(pinyon_shift_occlusion_calibrate, false, "Pinyon Shift",
+                    "Occlusion culling probe: log how many frustum-passing items project on "
+                    "screen with and without the z flip, to check the box space")
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
 
 #if defined(PINYON_SHIFT_TITLE_UPDATE_V4) && PINYON_SHIFT_TITLE_UPDATE_V4
@@ -154,6 +181,113 @@ struct V3 {
 V3 operator-(V3 a, V3 b) { return {a.x - b.x, a.y - b.y, a.z - b.z}; }
 float Dot(V3 a, V3 b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
 V3 LoadV3(const Mem& m, uint32_t a) { return {m.F32(a), m.F32(a + 4), m.F32(a + 8)}; }
+
+// ---- FR-3b occlusion ------------------------------------------------------
+
+// Clip coordinates of p under the grid's row-major matrix.
+struct Clip {
+  float x, y, w;
+};
+Clip Project(const float* mtx, float x, float y, float z) {
+  return {mtx[0] * x + mtx[1] * y + mtx[2] * z + mtx[3],
+          mtx[4] * x + mtx[5] * y + mtx[6] * z + mtx[7],
+          mtx[12] * x + mtx[13] * y + mtx[14] * z + mtx[15]};
+}
+
+void Calibrate(const rex::system::Fh1OcclusionGrid& grid, V3 mn, V3 mx) {
+  static std::atomic<uint64_t> items{0};
+  static std::atomic<uint64_t> on_screen[2] = {};
+  const float cx = 0.5f * (mn.x + mx.x), cy = 0.5f * (mn.y + mx.y), cz = 0.5f * (mn.z + mx.z);
+  for (int flip = 0; flip < 2; ++flip) {
+    const Clip c = Project(grid.wvp, cx, cy, flip ? -cz : cz);
+    if (c.w > 0.0f && std::fabs(c.x) <= 1.1f * c.w && std::fabs(c.y) <= 1.1f * c.w) {
+      on_screen[flip].fetch_add(1, std::memory_order_relaxed);
+    }
+  }
+  const uint64_t n = items.fetch_add(1, std::memory_order_relaxed) + 1;
+  if (n % 100000 == 0) {
+    diagnostics::RecordEvent(
+        "fr.occlusion_calibrate",
+        {{"items", fmt::format("{}", n)},
+         {"on_screen", fmt::format("{}", on_screen[0].load(std::memory_order_relaxed))},
+         {"on_screen_flipped", fmt::format("{}", on_screen[1].load(std::memory_order_relaxed))}});
+  }
+}
+
+// Whether the item's box is behind the grid's farthest depth in every tile
+// it covers. Boxes reaching behind the camera, off the grid or over many
+// tiles are kept.
+std::atomic<uint64_t> g_keep_reason[5] = {};
+void KeepReason(int reason) {
+  static std::atomic<uint64_t> calls{0};
+  g_keep_reason[reason].fetch_add(1, std::memory_order_relaxed);
+  if ((calls.fetch_add(1, std::memory_order_relaxed) + 1) % 20000 == 0) {
+    diagnostics::RecordEvent(
+        "fr.occlusion_keep",
+        {{"near", fmt::format("{}", g_keep_reason[0].load())},
+         {"off_screen", fmt::format("{}", g_keep_reason[1].load())},
+         {"large", fmt::format("{}", g_keep_reason[2].load())},
+         {"visible", fmt::format("{}", g_keep_reason[3].load())},
+         {"culled", fmt::format("{}", g_keep_reason[4].load())}});
+  }
+}
+
+bool OcclusionCulled(const Mem& m, uint32_t item) {
+  if (!REXCVAR_GET(pinyon_shift_occlusion_cull)) return false;
+  const rex::system::Fh1OcclusionGrid* grid = rex::system::LatestFh1OcclusionGrid();
+  if (!grid || !grid->columns || !grid->rows) return false;
+  const V3 mn = LoadV3(m, item + 32), mx = LoadV3(m, item + 44);
+  if (REXCVAR_GET(pinyon_shift_occlusion_calibrate)) Calibrate(*grid, mn, mx);
+  const float zs = REXCVAR_GET(pinyon_shift_occlusion_flip_z) ? -1.0f : 1.0f;
+  float x0 = 1e30f, x1 = -1e30f, y0 = 1e30f, y1 = -1e30f, w_min = 1e30f;
+  for (int i = 0; i < 8; ++i) {
+    const Clip c = Project(grid->wvp, (i & 1) ? mx.x : mn.x, (i & 2) ? mx.y : mn.y,
+                           zs * ((i & 4) ? mx.z : mn.z));
+    // Near the camera or behind it: keep.
+    if (!(c.w > 1.0f)) {
+      rex::system::CountFh1OcclusionTests(1, 0);
+      KeepReason(0);
+      return false;
+    }
+    const float inv = 1.0f / c.w;
+    x0 = std::fmin(x0, c.x * inv), x1 = std::fmax(x1, c.x * inv);
+    y0 = std::fmin(y0, c.y * inv), y1 = std::fmax(y1, c.y * inv);
+    w_min = std::fmin(w_min, c.w);
+  }
+  // Surface coordinates: x right, rows down from the top.
+  const float u0 = std::fmax(0.0f, x0 * 0.5f + 0.5f), u1 = std::fmin(1.0f, x1 * 0.5f + 0.5f);
+  const float v0 = std::fmax(0.0f, 0.5f - y1 * 0.5f), v1 = std::fmin(1.0f, 0.5f - y0 * 0.5f);
+  if (!(u0 <= u1 && v0 <= v1)) {
+    rex::system::CountFh1OcclusionTests(1, 0);
+    KeepReason(1);
+    return false;
+  }
+  const int32_t c0 = int32_t(u0 * float(grid->columns));
+  const int32_t c1 = std::min(int32_t(u1 * float(grid->columns)), int32_t(grid->columns) - 1);
+  const int32_t r0 = int32_t(v0 * float(grid->rows));
+  const int32_t r1 = std::min(int32_t(v1 * float(grid->rows)), int32_t(grid->rows) - 1);
+  if ((c1 - c0 + 1) * (r1 - r0 + 1) > REXCVAR_GET(pinyon_shift_occlusion_max_tiles)) {
+    rex::system::CountFh1OcclusionTests(1, 0);
+    KeepReason(2);
+    return false;
+  }
+  // The box's nearest stored depth (1 near), with the margin.
+  const float nearest =
+      grid->depth_a + grid->depth_b / (w_min * float(REXCVAR_GET(pinyon_shift_occlusion_margin)));
+  for (int32_t r = r0; r <= r1; ++r) {
+    const float* row = grid->farthest + size_t(r) * grid->columns;
+    for (int32_t c = c0; c <= c1; ++c) {
+      if (row[c] <= nearest) {
+        rex::system::CountFh1OcclusionTests(1, 0);
+        KeepReason(3);
+        return false;
+      }
+    }
+  }
+  rex::system::CountFh1OcclusionTests(1, 1);
+  KeepReason(4);
+  return true;
+}
 
 // ---- the helpers' semantics ---------------------------------------------
 
@@ -577,6 +711,7 @@ bool PlanCull(PPCContext& ctx, uint8_t* base, Plan& plan) {
                   m.S32(renderer + 224), probe_flag, value)) {
       continue;
     }
+    if (pass == 9 && OcclusionCulled(m, item)) continue;
     const uint32_t f = m.U32(item + 4);
     if ((f & 0x10000000) == 0x10000000) {
       plan.AddPush(m, list, pass, 2, object, value);
