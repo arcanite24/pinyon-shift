@@ -93,6 +93,11 @@ REXCVAR_DEFINE_BOOL(pinyon_shift_occlusion_cull, false, "Pinyon Shift",
                     "With native scene culling and fh1_occlusion_grid: skip main-view items "
                     "hidden behind an earlier frame's depth (may pop in a few frames late)")
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+REXCVAR_DEFINE_BOOL(pinyon_shift_occlusion_whole, false, "Pinyon Shift",
+                    "With pinyon_shift_occlusion_cull: drop a hidden item from every pass "
+                    "(its shadows too), not only from view 9. The scene walk draws a mesh when "
+                    "any pass keeps it, so view 9 alone only reaches the terrain")
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
 REXCVAR_DEFINE_BOOL(pinyon_shift_occlusion_flip_z, false, "Pinyon Shift",
                     "Occlusion culling: negate item z before the world matrix (the culling "
                     "planes' space is z-flipped)")
@@ -106,10 +111,11 @@ REXCVAR_DEFINE_INT32(pinyon_shift_occlusion_max_tiles, 256, "Pinyon Shift",
                      "Occlusion culling: items covering more grid tiles are not tested")
     .range(1, 6144)
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
-REXCVAR_DEFINE_INT32(pinyon_shift_debug_drop_pass, -1, "Pinyon Shift",
-                     "Debug probe: drop every item of this pass id in the native per-pass "
-                     "culling and log how many items each pass takes (-1 off)")
-    .range(-1, 63)
+REXCVAR_DEFINE_INT32(pinyon_shift_debug_drop_passes, 0, "Pinyon Shift",
+                     "Debug probe: drop every item of the pass ids set in this mask (bit n is "
+                     "pass n, 0-30) in the native per-pass culling, and log how many items "
+                     "each pass takes (0 off)")
+    .range(0, 0x7fffffff)
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
 REXCVAR_DEFINE_BOOL(pinyon_shift_occlusion_calibrate, false, "Pinyon Shift",
                     "Occlusion culling probe: log how many frustum-passing items project on "
@@ -619,10 +625,10 @@ bool PlanCull(PPCContext& ctx, uint8_t* base, Plan& plan) {
   const int32_t pass_count = m.S32(passes + 156);
   const uint32_t pass_ids = m.U32(passes + 148);
   const uint32_t object = m.U32(item);
-  const int32_t drop_pass = REXCVAR_GET(pinyon_shift_debug_drop_pass);
+  const uint32_t drop_passes = uint32_t(REXCVAR_GET(pinyon_shift_debug_drop_passes));
   for (int32_t i = 0; i < pass_count; ++i) {
     const int32_t pass = m.S32(pass_ids + 4 * i);
-    if (drop_pass >= 0) {
+    if (drop_passes) {
       static std::atomic<uint64_t> pass_items[64] = {};
       static std::atomic<uint64_t> calls{0};
       if (pass >= 0 && pass < 64) pass_items[pass].fetch_add(1, std::memory_order_relaxed);
@@ -634,7 +640,7 @@ bool PlanCull(PPCContext& ctx, uint8_t* base, Plan& plan) {
         }
         diagnostics::RecordEvent("fr.pass_items", {{"counts", counts}});
       }
-      if (pass == drop_pass) continue;
+      if (pass >= 0 && pass < 31 && ((drop_passes >> pass) & 1)) continue;
     }
     const uint32_t flags = m.U32(item + 4);
     const bool shadow_item = (flags >> 24) & 1;
@@ -814,9 +820,22 @@ bool CullNative(PPCContext& ctx, uint8_t* base) {
     return true;
   }
   if (!REXCVAR_GET(pinyon_shift_native_scene_cull)) return false;
+  const Mem m{base};
+  // FR-3b: an item of the main view hidden in the occlusion grid is dropped
+  // from every pass. Shadow-only items (no view 9) are left alone.
+  if (REXCVAR_GET(pinyon_shift_occlusion_whole) && REXCVAR_GET(pinyon_shift_occlusion_cull)) {
+    const uint32_t passes = ctx.r5.u32;
+    const int32_t pass_count = m.S32(passes + 156);
+    const uint32_t pass_ids = m.U32(passes + 148);
+    bool main_view = false;
+    for (int32_t i = 0; i < pass_count && !main_view; ++i) main_view = m.S32(pass_ids + 4 * i) == 9;
+    if (main_view && OcclusionCulled(m, ctx.r4.u32)) {
+      ctx.r3.u64 = 0;
+      return true;
+    }
+  }
   Plan plan;
   if (!PlanCull(ctx, base, plan)) return false;
-  const Mem m{base};
   if (!Fits(m, plan)) return false;
   Apply(m, plan);
   ctx.r3.u64 = plan.added ? 1 : 0;
