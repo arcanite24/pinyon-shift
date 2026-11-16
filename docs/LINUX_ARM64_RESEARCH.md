@@ -87,6 +87,27 @@ kernels and Mesa 26.0.5; treat Turnip regressions per kernel as a risk.
   scene culling and UI update (`LINUX && !ANDROID`), the single-pass
   scene (`__linux__`), huge-page code (`LINUX && !ANDROID`).
 
+### LA-1: first build (2026-11-16)
+
+`linux-arm64-release` (base game) cross-built in WSL on multivac with
+`cmake/toolchains/linux-aarch64-steamrt4.cmake`: the pinned LLVM 20.1.8,
+the steamrt4 arm64 SDK sysroot (4.0.20261110.268882, glibc 2.41,
+GCC 14), and the x86-64 toolchain's `ld.lld` and `wayland-scanner`
+wrappers. Generated code is the same as for x86-64 (190 files, 6:48 to
+generate). The build compiled without source changes in 9:44 (16
+threads, 61 CPU minutes).
+
+On the Odin under Armada desktop mode (KDE Wayland; `WAYLAND_DISPLAY`
+is `wayland-1` there), every library resolved, the runtime picked
+Turnip Adreno 740 over llvmpipe, and the opening video played at
+59-60 fps on the internal screen with no errors in the runtime log.
+Huge-page code was refused (`MADV_COLLAPSE` returns `EINVAL` on this
+kernel), so code runs on 4 KiB pages.
+
+Not done yet: the generator was built by hand against the sniper
+sysroot (setup does this with the same flags), the build was copied
+over SSH by hand, and nothing past the opening video was checked.
+
 ## Gaps
 
 | Area | Today | Needed |

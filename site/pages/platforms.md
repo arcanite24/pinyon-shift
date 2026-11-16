@@ -87,6 +87,8 @@ GPU time and APU power did not change; the APU stays at its 15 W limit in both b
 
 One trap: with Manual GPU Clock on in the Quick Access menu, Steam can pin the GPU at 200 MHz. The game drops to about 10 fps while the GPU reports full load at under 1 W, and starting over SSH leaves the clock there too. The launcher's `deck doctor` reports the clock.
 
+**ARM handhelds on Linux (experimental).** The `linux-arm64-*` presets cross-build for AArch64 Linux against Valve's Steam Runtime 4 arm64 SDK sysroot (glibc 2.41), with the same ARMv8.2 baseline as Android. On an AYN Odin 2 Portal running Armada OS (Fedora 44, kernel 7.2.6, 4 KB pages, Turnip on Mesa 26.2.6) the first build ran from the PC on 2026-11-16 and played the opening video at 60 fps on the internal screen; nothing past that has been measured yet. The Android-only GPU defaults and the handheld presets are not applied there yet. See [docs/LINUX_ARM64_RESEARCH.md](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/LINUX_ARM64_RESEARCH.md).
+
 ## macOS on Apple silicon
 
 **Build.** Command Line Tools clang for arm64 with a macOS 13.3 deployment target, and a MoltenVK that ShiftGlue builds and bundles. The generated code is the same C++: VMX operations reach NEON through SIMDe (byte shuffles become `tbl`), FPCR replaces MXCSR, and `std::fma` is one instruction. Guest functions are weak thunks rather than aliases, because Mach-O has no overridable alias. Setup from the disc image to a built game takes about 18–20 minutes on an M4 Pro.
