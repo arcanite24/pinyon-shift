@@ -35,9 +35,15 @@ import re
 import shutil
 import sys
 import tempfile
-import tomllib
 import zipfile
 from pathlib import Path, PurePosixPath
+
+try:
+    import tomllib
+except ModuleNotFoundError:
+    # macOS's /usr/bin/python3 is 3.9: pinyon.py imports this module before
+    # it can switch to the pinned Python that setup provisions (#1051).
+    tomllib = None
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import mod_options  # noqa: E402
@@ -77,6 +83,8 @@ def read_manifest(directory: Path) -> tuple[dict, str | None]:
         text = (directory / "mod.toml").read_text(encoding="utf-8")
     except OSError:
         return {}, "mod.toml cannot be read"
+    if tomllib is None:
+        return {}, "mod.toml needs Python 3.11 or newer: run setup first"
     try:
         return tomllib.loads(text), None
     except tomllib.TOMLDecodeError as error:
