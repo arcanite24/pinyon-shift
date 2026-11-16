@@ -52,8 +52,9 @@ involved anywhere.
 - Publishing a built game in any form: binary, AppImage, Flatpak or Steam
   listing. The launcher, which is independently written, is distributed. The
   game never is.
-- Linux on ARM64 (Asahi, Snapdragon X). AP-0 may add presets; nothing here
-  schedules them.
+- Linux on ARM64 (Asahi, Snapdragon X, ARM handhelds). AP-0 may add
+  presets; nothing here schedules them. What it would take is in
+  [LINUX_ARM64_RESEARCH.md](LINUX_ARM64_RESEARCH.md).
 - 32-bit, musl, or glibc older than the Steam Runtime's 2.31.
 - Valve's Deck Verified programme. A non-Steam game cannot enter it, but its
   checklist (default controls, legible text at 1280x800, suspend, no
