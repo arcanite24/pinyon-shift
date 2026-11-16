@@ -311,13 +311,19 @@ both sides have the same frame time: `pinyon_shift_debug_skip_world` against
 FR-3 failed on paper; switch 7 is B4's.)
 
 With nothing drawn, the scene walk and the procedural models together are
-worth 7-8.7 ms of process CPU, over FR-3's −6 ms gate. An owned renderer
-still records and submits its draws, about 3 ms of that on the Deck, so a
-renderer that only removes the guest's D3D work and the decoder would land
-near the gate rather than clearly over it. The recorder's share has to
-shrink too: draws kept from frame to frame, not derived again. The model
-assets' lists cost nothing. **FR-3 is being built** (user's call,
-2026-11-15), starting with the scene walk's meshes, the largest path.
+worth 7-8.7 ms of process CPU, over FR-3's −6 ms gate. By thread on the
+Deck (switch 7): render thread −1.94 ± 1.07 ms, decoder −2.61, recorder
+−2.21, submission −0.83; the main thread and the workers don't move. (The
+Odin build doesn't log per-thread slots.) An owned renderer in which the
+guest stops submitting these meshes removes the render thread's and the
+decoder's share, about 4.5 ms, less the native culling it still runs
+(about 0.3 ms). It still records and submits its own draws, and DR-4.2's
+buffer replay showed a replayed draw costs the recorder about what a full
+one does. So the reachable pool is about 4.2 ms, under the gate, unless
+the owned path also draws fewer, batched draws. **FR-3 was started anyway**
+(user's call, 2026-11-15). Its next unknowns are who issues each path's
+draws, and whether a draw's per-frame constants can be made without the
+guest.
 
 A run comparing cascade-only and view masks against `skip_world=4` stayed
 on the title menu. Why the cars survive the view mask (perhaps calls the
