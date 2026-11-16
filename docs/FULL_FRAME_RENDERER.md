@@ -70,15 +70,15 @@ FR-2, which is self-contained. FR-3 needs the bucket consumers found
 | --- | --- |
 | FR-1 | Closed: the copy-free class is under the gate on both devices |
 | FR-2 | Closed: folded into FR-1 and FR-6 (the post chain's draws are cheap) |
-| FR-3 | Closed 2026-11-16: replays through the decoder and merging are bounded at about 1 ms each, and a replay that skips the decode and still records the draws (M2's floor) saved 0.43 µs a decoded draw net on the Deck against the 1.50 µs its line needs ("FR-3 M2: the retained path's ceiling") ("FR-3 M2: the retained path's ceiling") |
+| FR-3 | Closed 2026-11-16: replays through the decoder and merging are bounded at about 1 ms each, and a replay of the model-asset lists that skips their decode and still records their draws (M2's floor) cost 1.57 µs a decoded draw on the Deck where its line allows 1.02 ("FR-3 M2: the retained path's ceiling") ("FR-3 M2: the retained path's ceiling") |
 | FR-4 | Closed with FR-3: its passes would go through the same retained path, and the G0 runs that sized it replayed buffers from every pass |
 | FR-5 | Closed with FR-3: the same path, the same ceiling |
-| FR-6 | Closed: it needs FR-3 to FR-5, and on the Deck a buffer replayed instead of decoded saved the decoder less than the recorder then spent applying its full state |
+| FR-6 | Closed: it needs FR-3 to FR-5, and on the Deck a replayed list's draws cost the recorder and submission more than the decode they saved left room for |
 
 The full-frame renderer is not built, and none of its forms pass the
 gates: replays through the decoder and merging were measured or sized at
-about 1 ms each, and a retained path that skips the decode at 0.43 µs a decoded draw net
-of the 1.50 µs it needs, since the recorder then applies the full state ("FR-3 M2: the retained path's
+about 1 ms each, and a retained path that skips the decode over its line (1.57 µs a decoded
+draw left where 1.02 is allowed) ("FR-3 M2: the retained path's
 ceiling"). The CPU the game's draws cost is spread over its guest code,
 the decode, the state that decode leaves behind and the recording, and no
 seam tried here removes enough of it while the draws still have to be
@@ -644,27 +644,43 @@ toggled in-run (`r1a` to `r1c`, the earlier entry build), skip 1 removed
 902-1,397 replayed decoded draws a frame: the model-asset lists M2 would
 own are replayed.
 
-**Against the kill line.** Per decoded draw, with the record thread on
-(the replay's counters are decoded draws, and skip 1's are measured on
-both sides): skip 1 takes 2.38 µs a decoded draw off the decoder (7.17 ms
-over 3,016 decoded draws in `f1`, `f1b` and `f1c`). The line, 2.5 of f1's
-3.98 ms of decoder with the recorder and submission flat (granting M2 all
-of skip 1's render-thread share, 1.0 ms, which a probe can't show), is
-63 % of that: 1.50 µs. Pooled over the five runs (1,299 replayed decoded
-draws a frame on average), the replay took 1.08 µs a decoded draw off the decoder
-with its hashing added back (45 %), and added 0.54 µs to the recorder and
-0.11 µs to submission: 0.43 µs net (18 %). Process CPU rose in all five
-runs. The model-asset lists alone did better on the decoder in `r1a` to
-`r1c` (the replay left 0.70 µs of their 2.38, a saving of 1.68 µs, 71 %),
-but with the same recorder cost that nets about 1.0 µs (43 %), still
-under the line.
+Those runs replayed every repeating buffer, so their per-draw rates are
+not the model-asset lists' rates. The deciding run measures skip 1 itself
+with the replay off and on.
 
-**Why the recorder pays.** A decode that elides unchanged writes and
-repeated shader loads hands the recorder only what changes; a retained
-list that can be entered in any state has to carry all of its state, and
-the recorder then applies every write. Checking the entry state against
-the capture instead puts the per-register comparison back on the decoder,
-which is what the replay removed. Either thread pays for it.
+**The deciding run** (`f2s`, route `fact-long`): 240-frame windows from
+frame 4,600 cycle skip 1 off and on, first with the replay off, then on,
+so skip 1's effect is taken from adjacent windows under both. The capture
+was stripped to what a retained list would record: it elides writes,
+deduplicates shader loads and merges constant runs, but only against what
+the same capture already wrote. A second launch (`f1s`) stopped at the
+title menu. Skip 1's effect, 8-9 window pairs each:
+
+| | Plain | With the replay |
+| --- | --- | --- |
+| Draws removed (decoded, host) | 440, 288 | 746, 460 |
+| Decoder | −1.22 ms | −0.96 ms (hashing −0.32 ms) |
+| Recorder | −0.98 ms | −1.39 ms |
+| Submission | −0.47 ms | −0.54 ms |
+| Process CPU | −2.61 ± 1.72 ms | −4.51 ± 1.93 ms |
+
+With the replay on, what skip 1 still removes from the decoder (less the
+hashing) is what the replay leaves of the lists: 0.85 µs a decoded draw
+(1.37 µs a host draw) against plain decoding's 2.77 (4.22). The replayed
+draws also cost the recorder and submission 0.72 µs a decoded draw (0.84 a
+host draw) more than decoded ones. M2's line, at most 37 % of plain
+decoding (the 63 % saving the kill line asks for, with recorder and
+submission flat), is 1.02 µs a decoded draw (1.56 a host draw); the
+replay's cost is 1.57 (2.21). The decoder alone would pass; the recorder
+and submission excess, which this one run measures only roughly (about
+±0.6 ms on those threads), takes it over the line by both measures. The
+probe favours M2 on every other count: no hashing, no marker, no check
+that the game hasn't rewritten a list, no live re-reads, and all of skip
+1's render-thread share granted.
+
+Why replayed draws cost the recorder more isn't established: the rise
+was the same with entries recorded against the capture's state and with
+complete ones (0.4-0.8 µs a replayed draw in the A/Bs above).
 
 So a retained path that skips the decode can't reach FR-3's gate on the
 Deck, and FR-3 closes with M1 and M3 (merging, about 1 ms). FR-4 and FR-5
@@ -672,5 +688,5 @@ close with it: their passes would use the same path, and the replay
 skipped buffers from every pass of the frame. FR-6 closes because it
 needs FR-3 to FR-5. The Odin wasn't re-run with a fixed v4 build; G0
 failed there in October (NN-0.10). Runs: `g0b` to `g0g`, `u1a`, `u1b`,
-`udc`, `f1b`, `f1c`, `r1a` to `r1c`, `m2a` to `m2o` under
+`udc`, `f1b`, `f1c`, `r1a` to `r1c`, `m2a` to `m2o`, `f2s` under
 `~/pinyon-qual/cg1071/runs` on the Deck.
