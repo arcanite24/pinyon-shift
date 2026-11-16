@@ -26,6 +26,17 @@ source = """docs/TITLE_UPDATE_V4_BACKLOG.md Review of the base-disc Rally adapte
 
 [[finding]]
 group = """Audio engine"""
+base = """82BAF5C8, sub_82BAD518, sub_82BAC498, sub_82450160, sub_823F4FE8"""
+v4 = """82C6DD70, sub_82C6BD58, sub_82C6ACF0, sub_8247F818, sub_82425038"""
+name = """CAudioThread command lists"""
+what = """`CAudioThread` does not call the game's audio objects itself. The game thread posts deferred virtual calls into a list (`sub_823F4FE8` builds each entry: a marshalling thunk, the object and a copy of the arguments, the frame time as a float at +4 of the argument block), and once per rendered frame the audio thread, through `sub_82BAD518` and `sub_82BAC498`, waits up to 40 ms on its event at +444 and drains the list at +24 with the executor `sub_82450160`. In catch-up mode the executor skips entries whose byte at +16 is 0. On the Steam Deck LCD 98 % of the thread's time is inside four thunks: `sub_82BB9CD8` (v4 `sub_82C78718`) calls vtable +88, the car audio model update `sub_82BC8410` (v4 `sub_82C86D38`), once per car with the frame time and a block of car state (58 % on the Deck, 34 % on the Odin); `sub_8249BE98` (v4 `sub_82508890`) calls +44, the audio engine update `sub_824B7EE0` (v4 `sub_825253D0`), with the frame time and a flag byte at +8 (19 %); `sub_8249BFC8` (v4 `sub_825089C0`) calls +52, `sub_824A5F10` (v4 `sub_82512C38`), with no time (19 % on the Deck, 45 % on the Odin); `sub_8249C130` (v4 `sub_82508B40`) calls +64, `sub_824A2918` (v4 `sub_8250F3F0`) (5 %). The thunks are generic: other objects' one-off calls go through the same thunk, so a host gate must check the object's vtable slot before skipping anything. Running these four on one frame in two at 60 fps, with the skipped frame's time added to the next call (NR-1, `pinyon_shift_audio_update_interval`), took 0.67 ± 0.09 ms a frame off the audio thread on the Deck and 0.44-0.63 ms on the Odin; the two timed ones alone 0.55 and 0.22-0.32 ms. Loudness and the 30 Hz component of the loudness envelope of route audio captures did not change beyond run-to-run spread."""
+how = """In-run A/B on a race route (four 240-frame conditions cycled seven times; Deck LCD, Odin 2 v4), per-thread CPU from `perf_thread_cpu`, an audio capture with and without the gate. `perf record -g` with frame pointers on the Deck (race, fp build) and `simpleperf --call-graph fp` on the Odin (v4), inclusive shares under the thread entry; entry layout from the generated code of the poster and the executor; v4 addresses with `tools/map-fh1-v4-addresses.py`, the four thunk hashes checked on both images by the guest-native installer."""
+confidence = """probable"""
+note = """The roles of the +52 and +64 updates are not known."""
+source = """src/guest_native/audio_update.cpp; docs/NATIVE_REPLACEMENT_RESEARCH.md NR-1"""
+
+[[finding]]
+group = """Audio engine"""
 base = """sub_82FA84E8, sub_830072D0"""
 name = """FMOD channel settings race"""
 what = """Cue cleanup `sub_82FA84E8` clears a channel's shared-settings pointer, and the channel-settings update `sub_830072D0` reads that pointer repeatedly. Cleanup on a thread other than the audio thread can crash the update with a null read at `0x38`, so cue work belongs in `CAudioEngine::Update`."""

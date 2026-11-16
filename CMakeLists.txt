@@ -53,6 +53,7 @@ set(PINYON_SHIFT_HOST_SOURCES
     src/guest_native/fmod_dsp.cpp
     src/guest_native/car_physics.cpp
     src/guest_native/ui_update.cpp
+    src/guest_native/audio_update.cpp
     src/guest_native/fmod_reverb.cpp
     src/guest_native/scene_cull.cpp
     src/guest_native/fmod_output.cpp

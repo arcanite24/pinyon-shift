@@ -51,12 +51,14 @@ Most banks are XMA, which FMOD's XMA codec decodes through the console's XMA reg
 FMOD mixes on its own thread, one 256-sample block every 5.33 ms, and it mixes in 5.1: the title never changes FMOD's default speaker mode. Every sample in the banks is mono or stereo, so the six channels come only from the mix buses, and the effect units spend nearly all their time in their six-channel loops before the host folds the result to stereo. On Android and Linux (the Steam Deck) Pinyon Shift now sets FMOD to stereo before it starts (`pinyon_shift_fmod_stereo`), which cut the mixer's instructions by 45 % and its CPU by about 1 ms a frame on the Odin; Windows and macOS keep the 5.1 mix for surround speakers. Each block takes this path (threads on the left, CPU a frame on the Odin at 60 fps from the [research record](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/NEAR_NATIVE_RESEARCH.md#where-the-overhead-is)):
 
 ```text
-CAudioThread, once a frame (2.39 ms)    game sound logic, FMOD Event System
+CAudioThread, once a frame (2.39 ms*)   game sound logic, FMOD Event System
 FMOD mixer thread (4.46 ms)             XMA or MPEG codec > resampler > 5.1 DSP graph > float source voice
 XAudio2 pass thread (0.59 ms)           source voice > six-channel master
 host Audio Worker (0.32 ms)             render-driver callback > XAudioSubmitRenderDriverFrame
 host SDL output                         1,536 floats a block, folded to stereo on Android
 ```
+
+\* Before the audio update gate: at 60 fps the game's audio updates now run at the console's 30 Hz, which takes 0.44-0.63 ms off this thread on the Odin ([Runtime](runtime.md)).
 
 {{findings:audio/Mixer and output}}
 
