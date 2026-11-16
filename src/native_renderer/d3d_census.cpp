@@ -76,6 +76,12 @@ REXCVAR_DEFINE_BOOL(pinyon_shift_d3d_census_hash_lists, true, "Pinyon Shift",
                     "to tell unchanged lists from lists changed by fixups or other writers")
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
 
+REXCVAR_DEFINE_BOOL(pinyon_shift_d3d_census_callers, false, "Pinyon Shift",
+                    "With pinyon_shift_d3d_census (FULL_FRAME_RENDERER FR-3): count the "
+                    "title's D3D draw calls and display-list runs by the guest function that "
+                    "called them, and log the top 40 every window")
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+
 namespace pinyon_shift::native_renderer {
 namespace {
 
@@ -524,8 +530,69 @@ uint32_t FixupBucket(uint32_t fixups) {
 constexpr const char* kStateName[census::kListStateCount] = {
     "first", "unchanged", "fixup_only", "changed_no_fixup", "other_write"};
 
+// --- FR-3 callers ---
+// The guest function that called each draw call and list run: the one that
+// contains the call's return address. Deeper chains come from the guest
+// stack only where the code writes it, and the generated code keeps saved
+// registers and return addresses in host locals, so they come from host call
+// graphs instead (tools/re/draw-chains.py over a frame-pointer build's perf
+// profile).
+enum CallerKind : uint8_t { kCallerDraw, kCallerRun, kCallerKinds };
+constexpr const char* kCallerKindName[kCallerKinds] = {"draw", "run"};
+std::mutex g_callers_mutex;
+std::unordered_map<uint32_t, uint64_t> g_callers[kCallerKinds];
+
+// The generated function containing `address`, or 0 outside the code.
+uint32_t FunctionContaining(uint32_t address) {
+  static const std::vector<uint32_t> starts = [] {
+    std::vector<uint32_t> out;
+    for (size_t i = 0; PPCFuncMappings[i].guest != 0; ++i) {
+      out.push_back(uint32_t(PPCFuncMappings[i].guest));
+    }
+    std::sort(out.begin(), out.end());
+    return out;
+  }();
+  if (starts.empty() || address < starts.front() || address >= 0x84000000u) return 0;
+  return *(std::upper_bound(starts.begin(), starts.end(), address) - 1);
+}
+
+void CountCallers(CallerKind kind, uint32_t lr) {
+  if (!REXCVAR_GET(pinyon_shift_d3d_census_callers)) return;
+  const uint32_t caller = FunctionContaining(lr);
+  std::lock_guard<std::mutex> lock(g_callers_mutex);
+  ++g_callers[kind][caller];
+}
+
+void LogCallers(double frames) {
+  if (!REXCVAR_GET(pinyon_shift_d3d_census_callers)) return;
+  std::lock_guard<std::mutex> lock(g_callers_mutex);
+  for (uint32_t kind = 0; kind < kCallerKinds; ++kind) {
+    std::vector<std::pair<uint64_t, uint32_t>> rows;
+    uint64_t total = 0;
+    for (const auto& [caller, count] : g_callers[kind]) {
+      rows.emplace_back(count, caller);
+      total += count;
+    }
+    std::sort(rows.rbegin(), rows.rend());
+    std::string top;
+    for (size_t i = 0; i < rows.size() && i < 40; ++i) {
+      top += fmt::format("{}{:.1f} {:08X}", top.empty() ? "" : "; ",
+                         double(rows[i].first) / frames, rows[i].second);
+    }
+    REXLOG_INFO("D3D census {} callers ({:.1f}/frame): {}", kCallerKindName[kind],
+                double(total) / frames, top);
+    pinyon_shift::diagnostics::RecordEvent(
+        "d3d.census.callers", {{"kind", kCallerKindName[kind]},
+                               {"per_frame", fmt::format("{:.1f}", double(total) / frames)},
+                               {"callers", std::to_string(rows.size())},
+                               {"top", top}});
+    g_callers[kind].clear();
+  }
+}
+
 void OnRun(uint32_t r1, uint32_t device, uint32_t list, uint32_t lr) {
   Observe(device, kSiteRun, lr);
+  CountCallers(kCallerRun, lr);
   PopReturned(r1);
   if (!GuestPointer(list)) {
     counters.runs_null.fetch_add(1, std::memory_order_relaxed);
@@ -725,6 +792,7 @@ void OnSegmentSubmit(uint32_t device, uint32_t lr) {
 void OnDraw(uint32_t entry, uint32_t r1, uint32_t device, uint32_t lr) {
   if (!GuestPointer(device) || entry >= kDrawEntries) return;
   Observe(device, uint8_t(kSiteDraw0 + entry), lr);
+  CountCallers(kCallerDraw, lr);
   bool nested;
   const uint8_t source = EnterDraw(r1, uint8_t(census::kSourceDrawEntry + entry), &nested);
   counters.draw_calls[entry][TargetOf(device)].fetch_add(1, std::memory_order_relaxed);
@@ -880,6 +948,7 @@ void LogWindow(uint32_t frame) {
   auto per_frame = [&](uint64_t value) { return fmt::format("{:.1f}", double(value) / frames); };
   REXLOG_INFO("D3D census window: frames {}-{} ({} frames)", g_window_first_frame, frame,
               g_window_frames);
+  LogCallers(frames);
 
   // (a) draw entry points by the buffer the device writes into.
   uint64_t top_level_ring = 0;

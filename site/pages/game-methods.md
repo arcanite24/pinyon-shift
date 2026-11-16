@@ -64,6 +64,15 @@ Ghidra rejects a project path with an element that starts with a dot, so on Wind
 claude mcp add ghidra -s local -- python tools/re/ghidra-mcp.py
 ```
 
+### Who issues a draw
+
+The guest stack can't name callers: the generated code keeps saved registers and the return address in host locals, so the return-address slots of guest frames are never written. Two methods work instead.
+
+- `pinyon_shift_d3d_census_callers`, with `pinyon_shift_d3d_census` (base-disc build), counts every D3D draw call and display-list run by the guest function that called it and logs the top 40 each census window (`d3d.census.callers` events). The census also splits each draw entry by where its packets go (ring, recorded command buffer, tiled). Run it once per `pinyon_shift_debug_skip_world` value to see which callers each world path feeds.
+- For whole chains, profile a frame-pointer build (preset `linux-amd64-v3-fp`) with `perf record --call-graph fp`, fold the stacks, and rank the guest functions above each draw entry and the list executor with `tools/re/draw-chains.py`. Guest functions Clang inlined into their caller don't appear.
+
+A watch on guest pages doesn't help here: the SDK's access watch covers the physical heaps only, and the renderer's draw buckets live in a virtual heap.
+
 ### Data files
 
 The game's data is in `media/`: ZIP archives, loose XML, a SQLite database and FMOD sound banks. Python's `zipfile` lists any archive, but most members use the Xbox LZX codec (method 21), so reading them takes the project's extractor:
