@@ -21,7 +21,7 @@ window in the race. The labels are the executor's draw renderings (`base
 tile/pitch/MSAA/format`, `+` joins depth and colour), `R` marks resolves
 and `T` transfers:
 
-| Part | Full frame | Scene walk skipped (`pinyon_shift_debug_skip_world` 7) |
+| Part | Full frame | Scene walk and procedural models skipped (`pinyon_shift_debug_skip_world` 7, which before 231b0482 left the model assets drawn) |
 | --- | --- | --- |
 | GPU frame | 11.8 | 7.8 |
 | Main scene, 4x (`1024/32/4x/d1+0/32/4x/c3`) | 5.87 (17.2 renderings) | 1.98 (12.2) |
@@ -287,6 +287,28 @@ candidates within it are about half of that. `fh1_debug_skip_resolve_classes` st
 
 ## FR-3 to FR-6: the CPU ceiling, capped (2026-11-15)
 
+**Correction (2026-11-15, later).** `skip_world` bit 1 (the model assets,
+`824365B0`) never applied before commit 231b0482: the function was
+missing from `host_overridden_functions`, so its only caller reached the
+original directly and the probe never ran (no `scene.model_asset_skip_probe`
+summary in any run). Every switch 1 and 7 row below the first table was
+measured with bits 2 and 4 only, on the Deck and on the Odin's v4 build
+alike, and so was the "switch 7" column of the GPU profile at the top. With
+the fix (Deck, same routes, capped, 35 windows each):
+
+| Skipped | Device | Draws | Process CPU | Render | Decoder | Recorder | Submission |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 7: everything, fixed | Deck | −2,309 | −15.26 ± 2.60 ms | −3.23 ms | −5.43 ms | −4.26 ms | −1.79 ms |
+| 1: model assets, fixed | Deck | −1,852 | −9.03 ± 2.69 ms | −1.02 ms | −3.98 ms | −3.13 ms | −1.44 ms |
+
+The model assets are the largest of the three paths. By the reasoning
+below (an owned renderer removes the render thread's and the decoder's
+share and keeps recording and submitting its own draws), the reachable pool
+on the Deck is about 8.7 ms less the native culling it still runs, about
+8.4 ms: over FR-3's −6 ms gate. The Odin rows need the same re-run with a
+v4 build that has the fix. The rest of this section is the original text.
+
+
 B4's process CPU saving (−13.8 ms on the Deck) came from uncapped runs, where
 every millisecond of frame also costs CPU: the process keeps about three
 cores busy. This round's uncapped A/Bs show the same ratio for work that
@@ -336,9 +358,45 @@ native culling hands back to the original) is still open.
   16` (`site/findings/rendering.toml`, "per-draw pass culling"). Offset
   13844 is also stored by D3D's constant flush (`82408B70`, `8240DC70`), so
   `r3` there is the device-side renderer object. Its bucket readers are not
-  found yet: no generated function loads 13844 other than the culling, the
-  walk and a setter (`82461978`). The readers likely take the bucket base
-  from a register or a copy.
+  found yet. Of the generated functions that load +13844, the ones on this
+  object are the pass culling, the procedural culling (`8243EE58`), the
+  walk (`82440CF8`) and the free-roam walk parent `82D65608`, which hands
+  it to a 39-instruction per-frame list refresh (`82D5C9D0`). The others
+  (`82461978`, and the draw entries `823FA0A8` and `824610C0`) are D3D
+  device code whose own +13844 field sets the write pointer at +48. So the
+  readers take the base from a register or a copy, and a static search
+  doesn't reach them.
+- **A page watch can't find them either.** A probe wrapped the walk and
+  armed the SDK's guest access watch on the bucket pages after it
+  returned. The bucket headers are at `4275DDB8`, in a virtual heap, and
+  the watch only covers the physical heaps (0xA0000000 and up), so it
+  never armed. Finding the readers this way would need a virtual-heap
+  watch in the SDK. The probe was removed.
+- **Who issues the draws (Deck race, 2026-11-15).** The guest stack's
+  return-address slots are never written (the generated code keeps saved
+  registers and the return address in host locals), so deep chains come
+  from the frame-pointer race profile of 2026-11-13 through
+  `tools/re/draw-chains.py`, and per-setting counts from the census's
+  direct-caller histogram (`pinyon_shift_d3d_census_callers`, one race per
+  `skip_world` value). Both are probable, one run each:
+  - The procedural models draw immediately: entry 1 (`82415F68`) takes
+    about 373 calls a frame, half into the ring and half into the tiled
+    path, none recorded into a command buffer, from
+    `82415CE0 < 82417418 < 824170D8 < 8243D2A0`. `skip_world` 2 takes it
+    to 29 and removes that caller.
+  - The scene-walk meshes reach the GPU as display-list runs: `skip_world`
+    4 leaves the procedural caller and drops the runs from about 536 to
+    331 a frame and the drawn draws from about 2,500 to 1,700. In the
+    profile, about 30 % of the list executor's time (`82416A00`, run from
+    `824167F8`) comes through `82437218 < 8243D340 < 82447490 < 82441718`:
+    `82447490` is the car presentation (`CCarPresentation` slot 106), whose
+    cloned lists these are (rendering findings, "display-list owners"). So
+    cars are walk meshes drawn through their presentation; the bucket
+    drain for the rest of the walk is still not named.
+  - The model assets (`824365B0`) also run display lists, about 47 % of
+    the executor's time, through `82417060 < 824365B0 < 82436468`.
+  - `82439B70 < 8244CA98` is the common parent of the model-asset,
+    procedural and `8243BD40` paths.
 - What a record's object holds: mesh, vertex and index buffers, material,
   constants. Then how the game binds a material per draw: the
   `CD3D9GraphicsDevice` slots.

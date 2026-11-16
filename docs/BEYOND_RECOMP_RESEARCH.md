@@ -273,6 +273,16 @@ subsystem pays only its share of a flat profile.
 
 ### B4 gate probe: measured 2026-11-15
 
+**Correction (2026-11-15, later).** Bit 1 never applied in these runs:
+`824365B0` was missing from `host_overridden_functions`, so its only
+caller reached the original directly (fixed in 231b0482). Every row with
+bit 1 below measured the procedural models and the scene walk only, and the
+"1 + 2" result (no frame or GPU change) was the procedural models alone.
+With the fix, skipping the model assets saves 9.0 ± 2.7 ms of process CPU
+on the Deck at the 60 fps cap, and all three 15.3 ± 2.6 ms
+(docs/FULL_FRAME_RENDERER.md, "FR-3 to FR-6"). The uncapped frame and GPU
+rows have not been re-run.
+
 `pinyon_shift_debug_skip_world` (debug, off, hot reload; in
 `src/guest_native/scene_cull.cpp`) stops submission at the owners, so no
 PM4 is built or decoded for what it skips:
