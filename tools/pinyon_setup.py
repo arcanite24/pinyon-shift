@@ -181,6 +181,48 @@ def free_space_gb(path: Path) -> float:
     return free / (1 << 30)
 
 
+def mount_filesystem(path: Path, mount_output: str | None = None) -> str:
+    """The file system type of the mount holding path, from mount(8)'s
+    "<device> on <point> (<type>, ...)" lines, or "" when unknown."""
+    if mount_output is None:
+        try:
+            mount_output = subprocess.run(["mount"], capture_output=True, text=True,
+                                          timeout=10).stdout
+        except (OSError, subprocess.SubprocessError):
+            return ""
+    # realpath on macOS, where /tmp is /private/tmp.
+    target = os.path.realpath(str(path)) if sys.platform == "darwin" else path.as_posix()
+    best, kind = "", ""
+    for line in mount_output.splitlines():
+        match = re.match(r".+? on (.+) \(([^,)]+)", line)
+        if not match:
+            continue
+        point = match.group(1)
+        inside = target == point or target.startswith(point.rstrip("/") + "/")
+        if inside and len(point) > len(best):
+            best, kind = point, match.group(2).strip().lower()
+    return kind
+
+
+# macOS keeps extended attributes on these as protected ._<name> files, which
+# CMake then reads as its own modules (#1053).
+MACOS_UNSUPPORTED_FILESYSTEMS = ("exfat", "msdos")
+
+
+def check_install_filesystem(path: Path) -> None:
+    if sys.platform != "darwin":
+        return
+    kind = mount_filesystem(path)
+    if kind in MACOS_UNSUPPORTED_FILESYSTEMS:
+        raise SetupError(
+            f"This install is on a drive formatted as {kind}. On macOS the build "
+            "can't run there: macOS adds a hidden ._ file beside every file, and "
+            "the build tools read them as their own. Install on an APFS or Mac OS "
+            "Extended drive, or create an APFS disk image on this drive (Disk "
+            "Utility > File > New Image > Blank Image, format APFS) and install "
+            "inside it.", "verify")
+
+
 def used_space_gb(*paths: Path) -> float:
     """What an earlier, interrupted setup already put on disk."""
     total = 0
@@ -280,7 +322,9 @@ def unpack(archive: Path, install: Path, strip_top: bool = True) -> None:
     else:
         with tarfile.open(str(archive)) as tarred:
             _extract_all(tarred, staging)
-    entries = list(staging.iterdir())
+    # macOS writes an AppleDouble ._<name> file beside each entry on exFAT
+    # and FAT drives; it is not part of the archive (#1052).
+    entries = [entry for entry in staging.iterdir() if not entry.name.startswith("._")]
     source = entries[0] if strip_top and len(entries) == 1 and entries[0].is_dir() else staging
     if install.exists():
         shutil.rmtree(install)
@@ -1464,6 +1508,7 @@ def run_setup(args: argparse.Namespace) -> int:
     if error_file.exists():
         error_file.unlink()
     try:
+        check_install_filesystem(ROOT)
         python = provision_python(progress, config, name)
         if Path(sys.executable).resolve() != python.resolve():
             # Hand over to the pinned Python (macOS ships 3.9).

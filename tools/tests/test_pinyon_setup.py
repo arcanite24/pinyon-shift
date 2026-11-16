@@ -494,6 +494,32 @@ class UnpackTests(unittest.TestCase):
             self.assertGreater(len(str(install)) + len(self.DEEP), 260)
             self.assertTrue(os.path.isfile(inner), archive.name)
 
+    def test_appledouble_files_do_not_keep_the_top_folder(self):
+        # #1052: on exFAT, macOS writes ._python beside the unpacked python/.
+        import shutil
+        import zipfile
+        base = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, base, True)
+        archive = base / "python.zip"
+        with zipfile.ZipFile(archive, "w") as stream:
+            stream.writestr("python/bin/python3", "x")
+            stream.writestr("._python", "apple double")
+        install = base / "python-3.13"
+        pinyon_setup.unpack(archive, install)
+        self.assertTrue((install / "bin" / "python3").is_file())
+
+    def test_the_install_drive_file_system_comes_from_mount(self):
+        # #1053: setup stops on exFAT and FAT drives on macOS.
+        output = ("/dev/disk3s1s1 on / (apfs, sealed, local, read-only, journaled)\n"
+                  "/dev/disk3s5 on /System/Volumes/Data (apfs, local, journaled, nobrowse)\n"
+                  "/dev/disk4s1 on /Volumes/T7 Shield (exfat, local, nodev, nosuid, noowners)\n"
+                  "/dev/disk5s1 on /Volumes/T7 Shield/image (apfs, local, nodev, nosuid)\n")
+        kind = pinyon_setup.mount_filesystem
+        self.assertEqual(kind(Path("/Volumes/T7 Shield/PinyonShift"), output), "exfat")
+        self.assertEqual(kind(Path("/Volumes/T7 Shield/image/PinyonShift"), output), "apfs")
+        self.assertEqual(kind(Path("/Volumes/T7 Shieldx"), output), "apfs")
+        self.assertIn("exfat", pinyon_setup.MACOS_UNSUPPORTED_FILESYSTEMS)
+
     def test_download_progress_accepts_a_plain_callable(self):
         # #1041/#1042: the Android build passed a lambda, which has no stage.
         payload = b"x" * (3 << 20)
