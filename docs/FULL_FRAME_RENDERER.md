@@ -262,16 +262,24 @@ the profile's own overhead) splits class 12 by surface:
 - outside class 12, the 1280 × 720 depth resolve takes 0.32 ms.
 
 So even all of class 12 is under the −1 ms gate, and the part an image
-swap could take (the four 1280 × 720 resolves) is about half of it. Before
-choosing a design, the next steps are:
+swap could take (the four 1280 × 720 resolves) is about half of it.
 
-- log, for those four resolves, the surface's and texture's host formats,
-  what next touches the surface, and whether the texture is sampled while
-  the surface is still bound (two resolves a surface a frame suggest
-  snapshots, which rules out a swap);
-- time a plain image copy for them, which is the floor for a cheaper
-  resolve;
-- run the class A/Bs on the Odin, whose surfaces differ.
+**Odin** (v4 APK, same route and switch, 35 windows): skipping class 12
+gave frame −0.65 ± 0.88 ms and GPU −0.57 ± 1.06 ms, also under the gate.
+
+**The cheapest replacement keeps most of the cost.** A test path replaced
+the resolve shader with a plain `vkCmdCopyImage` from the surface into the
+current texture, for whole single-sampled 32-bit colour resolves (about
+seven a frame, guest memory not written). On the Deck the in-run A/B gave
+frame −0.27 ± 0.74 ms, within noise. The copy was also wrong: the texture
+holds the guest word's channel order and the render target doesn't, so
+red and blue came out swapped and 2_10_10_10 washed out. A correct version
+needs a swizzling shader or an image swap with swizzled views, and the
+copy shows the most either could save. The path was removed.
+
+**FR-1 is closed.** On the Deck and the Odin the resolves are worth less
+than the gate even when skipped outright, and a copy-free design can only
+reach part of that. `fh1_debug_skip_resolve_classes` stays as the probe.
 
 ## FR-3: what is still unknown
 
