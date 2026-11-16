@@ -344,8 +344,8 @@ At the 60 fps cap the share it can take (render thread and decoder) is
 about 7-8.4 ms of process CPU on the Deck, which is FR-3's sizing
 (docs/FULL_FRAME_RENDERER.md). **Closed again (2026-11-16)** with FR-3 to
 FR-6: on the Deck a retained path that skips the static world's decode
-measured at most about 1 µs a draw of the 2.2 µs it needs, since applying
-the skipped lists' state cost about what decoding them did ("FR-3 M2" in
+reached 25-31 % of the decode share its line needs 63 % of, since
+applying the skipped lists' state cost about what decoding them did ("FR-3 M2" in
 docs/FULL_FRAME_RENDERER.md). The Odin wasn't re-run with a fixed v4
 build.
 

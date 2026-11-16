@@ -70,15 +70,15 @@ FR-2, which is self-contained. FR-3 needs the bucket consumers found
 | --- | --- |
 | FR-1 | Closed: the copy-free class is under the gate on both devices |
 | FR-2 | Closed: folded into FR-1 and FR-6 (the post chain's draws are cheap) |
-| FR-3 | Closed 2026-11-16: replays through the decoder and merging are bounded at about 1 ms each, and a retained path that skips the decode (M2) measured at most about 1 µs a draw on the Deck against the 2.2 µs it needs ("FR-3 M2: the retained path's ceiling") |
+| FR-3 | Closed 2026-11-16: replays through the decoder and merging are bounded at about 1 ms each, and a retained path that skips the decode (M2) reaches 25-31 % of the decode share its line needs 63 % of, by G0 on the Deck ("FR-3 M2: the retained path's ceiling") |
 | FR-4 | Closed with FR-3: its passes would go through the same retained path, and the G0 runs that sized it replayed buffers from every pass |
 | FR-5 | Closed with FR-3: the same path, the same ceiling |
 | FR-6 | Closed: it needs FR-3 to FR-5, and on the Deck applying a skipped buffer's state cost about what decoding it did |
 
 The full-frame renderer is not built, and none of its forms pass the
 gates: replays through the decoder and merging were measured or sized at
-about 1 ms each, and a retained path that skips the decode at about 1 µs a
-draw, under half of what it needs ("FR-3 M2: the retained path's
+about 1 ms each, and a retained path that skips the decode at 25-31 % of the decode
+share, under half of what it needs ("FR-3 M2: the retained path's
 ceiling"). The CPU the game's draws cost is spread over its guest code,
 the decode, the state that decode leaves behind and the recording, and no
 seam tried here removes enough of it while the draws still have to be
@@ -582,34 +582,49 @@ probe's skippable set fell from 747 to 218 drawn draws: the model-asset
 draws M2 would own sit in buffers that repeat byte for byte and hold no
 side effects, so G0 skips them, and a G0 ceiling covers M2.
 
-**G0 toggled 0/2 in-run** (`g0-long`; a fourth run, `g0a`, stopped at the
-title menu and is left out):
+**G0 toggled 0/2 in-run** (`g0-long`; `g0a` stopped at the title menu and
+is left out). Host draws is the drop in `draw_calls` between the sides;
+the decoder column holds decoding and recording:
 
-| Run | Draws | Skipped draws | Process CPU | Render | Decoder | Submission | Hashing | Applying |
+| Run | Draws | Host draws | Process CPU | Render | Decoder | Submission | Hashing | Applying |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| g0b | 1,326 | 538 | −2.07 ± 2.21 ms | −0.52 ms | −0.55 ms | −0.64 ms | 0.76 ms | 0.87 ms |
-| g0d | 2,841 | 1,262 | +0.09 ± 2.58 ms | −0.05 ms | −0.61 ms | −0.92 ms | 1.52 ms | 1.99 ms |
-| g0e | 2,138 | 1,100 | −3.36 ± 3.54 ms | −0.21 ms | −1.82 ms | −0.95 ms | 1.01 ms | 1.41 ms |
+| g0b | 1,326 | −379 | −2.07 ± 2.21 ms | −0.52 ms | −0.55 ms | −0.64 ms | 0.76 ms | 0.87 ms |
+| g0d | 2,841 | −1,147 | +0.09 ± 2.58 ms | −0.05 ms | −0.61 ms | −0.92 ms | 1.52 ms | 1.99 ms |
+| g0e | 2,138 | −984 | −3.36 ± 3.54 ms | −0.21 ms | −1.82 ms | −0.95 ms | 1.01 ms | 1.41 ms |
+| g0f | 1,952 | −816 | +0.01 ± 1.87 ms | −0.02 ms | −0.57 ms | −0.60 ms | 1.27 ms | 1.79 ms |
+| g0g | 1,922 | −880 | −0.97 ± 1.77 ms | −0.12 ms | −0.85 ms | −0.76 ms | 1.20 ms | 1.87 ms |
 
-Without the hashing the decoder thread would save 1.31, 2.13 and 2.83 ms.
-Recording the draws again, at the 1.5-2.3 µs a draw IssueDraw costs
-(RR-0.1), takes 0.8-1.2, 1.9-2.9 and 1.7-2.5 ms back: the decode a
-retained draw removes is worth −0.5 to +0.8 ms on these runs, at most
-about 1 µs a draw. Applying the captured state alone cost 1.3-1.6 µs a
-draw, about what the decode it replaced cost.
+**Skip 1 in the same layout** (`sw1-long`, record thread off): `g0c`
+(with the probe counting, so less its hashing drop of 0.33 ms), `u1a` and
+`u1b` took 1.71, 2.04 and 0.78 ms off the decoder thread for 500, 335 and
+395 host draws. Recording a draw in this layout (`udc`, `race-long` with
+`gpu_draw_cost_model`, gameplay band) costs 1.84-1.87 µs (IssueDraw).
 
-**Against the kill line.** Skip 1 (f1, 1,140 host draws) took 5.0 ms off
-the render thread and the decoder; the line, −3.5 ms, is 3.1 µs a draw.
-Granting M2 all of skip 1's render-thread share (1.0 ms, 0.9 µs a draw,
-which G0 cannot show), the decode side has to reach 2.2 µs a draw. G0's
-corrected ceiling is at most about 1 µs. Two more skip-1 runs (`f1b`,
-`f1c`, lighter scenes: 331 and 409 host draws) took 2.2 and 2.6 ms off the
-render thread and the decoder (6.4-6.6 µs a draw), so the line is not
-tighter than the f1 run made it.
+**Against the kill line, like for like.** All per host draw, the decoder
+thread, record thread off:
+
+| | µs a draw |
+| --- | --- |
+| Skip 1: decode and recording gone (pooled, 1,230 draws) | 3.68 |
+| G0 without its hashing (pooled, 4,206 draws; 2.31 in the four full scenes) | 2.42 |
+| Recording, which M2 keeps | 1.84-1.87 |
+| Skip 1's decode share (what M2 could remove at most) | 1.83 |
+| M2's share by G0 | 0.46-0.57 |
+
+The line asks the decode side for 2.5 of f1's 3.98 ms of decoder, 63 % of
+skip 1's decoder share (granting M2 all of skip 1's render-thread share,
+1.0 ms, which G0 cannot show). G0 puts M2 at 25-31 % of it. Per run,
+G0 less recording ranges from 0.0 to 1.6 µs a draw; only `g0b`, a light
+scene, comes near the line. Applying the captured state alone cost 1.4-2.3
+µs a draw, about what the decode it replaced cost, which is why the
+replay saves so little. Two more skip-1 runs with the record thread on
+(`f1b`, `f1c`, lighter scenes: 331 and 409 host draws) took 2.2 and 2.6 ms
+off the render thread and the decoder.
 
 So a retained path that skips the decode can't reach FR-3's gate on the
 Deck, and FR-3 closes with M1 and M3 (merging, about 1 ms). FR-4 and FR-5
 close with it: their passes would use the same path, and G0 replayed
 buffers from every pass of the frame. FR-6 closes because it needs FR-3 to
-FR-5. Runs: `g0c`, `g0b`, `g0d`, `g0e`, `f1b`, `f1c` under
-`~/pinyon-qual/cg1071/runs` on the Deck.
+FR-5. The Odin wasn't re-run with a fixed v4 build; G0 failed there in
+October (NN-0.10). Runs: `g0c`, `g0b`, `g0d` to `g0g`, `u1a`, `u1b`,
+`udc`, `f1b`, `f1c` under `~/pinyon-qual/cg1071/runs` on the Deck.
