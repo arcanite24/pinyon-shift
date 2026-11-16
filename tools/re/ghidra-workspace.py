@@ -43,8 +43,9 @@ def find_one(pattern: str) -> Path | None:
 def short_path(path: Path) -> str:
     """Ghidra refuses a project path with an element starting with '.', as
     `.local` does; on Windows its 8.3 form (`LOCAL~1`) is accepted."""
+    # Resolve first: `.local/re/ghidra` may be a junction to a dot-free path.
     if not any(part.startswith(".") for part in path.resolve().parts) or os.name != "nt":
-        return str(path)
+        return str(path.resolve())
     import ctypes
     buffer = ctypes.create_unicode_buffer(32768)
     if ctypes.windll.kernel32.GetShortPathNameW(str(path.resolve()), buffer, len(buffer)):
@@ -147,6 +148,10 @@ def main() -> int:
                "-process", Path(args.xex).name, "-noanalysis",
                "-scriptPath", str(ROOT / "tools" / "re" / "ghidra"),
                "-postScript", "ApplyPinyonKnowledge.java", str(table),
+               # The save/restore helpers fall through into each other, so
+               # analysis marks them non-returning and cuts every caller after
+               # its prologue; RepairHelperFlow.java restores that flow.
+               "-postScript", "RepairHelperFlow.java",
                "-log", str(RE / "ghidra-reapply.log")]
     return subprocess.call(reapply, env=env)
 

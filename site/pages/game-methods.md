@@ -46,10 +46,22 @@ rg -n "REX_LOAD_\w+\(ctx\.r\d+\.u32 \+ 10488\)" generated/
 
 ### A Ghidra workspace
 
-For browsing call graphs and cross-references, `tools/re/ghidra-workspace.py` builds a Ghidra project in `.local/re/ghidra` from your own `default.xex`. It needs Ghidra 12.1.3, a JDK 21 and the XEXLoaderWV extension in `.local/re/tools` ([NL-2.2](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/NEXT_LEVEL_RESEARCH.md) lists the sources). The tool imports the executable headlessly and applies what the repository already knows: ShiftGlue's function starts, so Ghidra's functions match the generated `sub_` functions one for one, the recorded names (a "guess" stays a comment) and the vtables from `classes.json`. Analysis turns about 11,000 of the 76,885 starts into data, so the tool applies the table a second time after it. Ghidra's PowerPC language doesn't decode VMX128, so the generated C++ stays the reference for vector code. The project never leaves `.local`.
+For browsing call graphs and cross-references, `tools/re/ghidra-workspace.py` builds a Ghidra project in `.local/re/ghidra` from your own `default.xex`. It needs Ghidra 12.1.3, a JDK 21 and the XEXLoaderWV extension in `.local/re/tools` ([NL-2.2](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/NEXT_LEVEL_RESEARCH.md) lists the sources). The tool imports the executable headlessly and applies what the repository already knows: ShiftGlue's function starts, so Ghidra's functions match the generated `sub_` functions one for one, the recorded names (a "guess" stays a comment) and the vtables from `classes.json`. Analysis turns about 11,000 of the 76,885 starts into data, so the tool applies the table a second time after it. Ghidra's PowerPC language doesn't decode VMX128, so the generated C++ stays the reference for vector code. The project stays on your machine.
 
 ```sh
 python -I tools/re/ghidra-workspace.py --generated .local/generated/default
+```
+
+After the import, the tool runs `RepairHelperFlow.java` over the project. ShiftGlue splits each register save and restore helper (`__savegprlr_14` and the like) into one function a register, each falling through into the next, so Ghidra's analysis marks them non-returning and turns every prologue call into a tail call. Unrepaired, most functions end after their prologue and lose their callers and callees; on the FH1 workspace the pass cleared about 24,000 such call overrides and changed about 18,000 bodies. Flow also stops at the first VMX128 instruction, so the pass extends each body up to the next ShiftGlue start (13,760 functions). The decompiler still can't read past a vector instruction, but cross-references and call graphs then cover the whole function. `--reapply-only` runs the table and the repair again on an existing project.
+
+Ghidra rejects a project path with an element that starts with a dot, so on Windows keep the project outside `.local` (for example `%LOCALAPPDATA%\PinyonRE\ghidra`) and make `.local/re/ghidra` a junction to it. Remove that junction with `rmdir`, never a recursive delete, which would follow it.
+
+### Ghidra over MCP
+
+`tools/re/ghidra-mcp.py` serves that project to an agent over MCP (stdio), headless, through [GhidraMCP](https://github.com/LaurieWired/GhidraMCP) 2.0 and pyghidra. Its docstring has the one-time setup (a venv under `.local/re/tools` and the release's `GhidraMCP.jar`). Once registered, an agent can ask for functions, callers and callees, cross-references, strings, disassembly and decompilation without the GUI. By default the session discards its changes, so renames and comments never drift from the findings records; record a result in `site/findings` instead, and the next workspace build applies it.
+
+```sh
+claude mcp add ghidra -s local -- python tools/re/ghidra-mcp.py
 ```
 
 ### Data files
