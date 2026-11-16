@@ -571,8 +571,14 @@ std::unique_ptr<MenuScreen> SettingsPages::Display() {
   }
   // UP-8.2: a generated frame after each real one. The game then renders at
   // most half the refresh (UP-4.2), so a 60 Hz display shows 30 real frames
-  // and 30 generated ones.
-  if (services_.frame_generators) {
+  // and 30 generated ones. Offered only where it has run (Linux and the Steam
+  // Deck); elsewhere present_frame_generation still takes it.
+#if defined(__linux__) && !defined(__ANDROID__)
+  const bool frame_generation_tested = true;
+#else
+  const bool frame_generation_tested = false;
+#endif
+  if (services_.frame_generators && frame_generation_tested) {
     std::vector<Choice> generators = {{"OFF", {{"present_frame_generation", "off"}}}};
     const std::string saved = Unquote(Saved("present_frame_generation"));
     for (const rex::ui::UpscalerInfo& info : services_.frame_generators()) {
