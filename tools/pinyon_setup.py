@@ -1356,6 +1356,20 @@ def build_v4(progress: Progress, tools: dict, sdk: Path, python: Path, name: str
                     stamp.unlink()
             raise SetupError("v4 code generation failed; incomplete generation stamps were "
                              f"removed. See {LOGS / 'codegen-v4-console.log'}", "build")
+        # Check the fresh translation only, as build-v4.ps1 does: the build's
+        # own regeneration step appends to the same log, so a later check
+        # reads older translations' warnings (#1046: 0.7.1's 1 MiB split).
+        check = subprocess.run([str(python), str(ROOT / "tools" / "verify-codegen-log.py"),
+                                str(log), "--allowlist",
+                                str(ROOT / "config/rexglue/accepted-codegen-warnings-v4.json")],
+                               capture_output=True, text=True)
+        if check.returncode:
+            for tree in V4_TREES:
+                stamp = generated / tree / "codegen.build.stamp"
+                if stamp.is_file():
+                    stamp.unlink()
+            raise SetupError("The v4 code generation log has unreviewed warnings.\n"
+                             f"{check.stdout}{check.stderr}", "build")
     preset = f"{presets['game']}-v4"
     baseline = cpu_baseline(name)
     flags = []
@@ -1386,14 +1400,6 @@ def build_v4(progress: Progress, tools: dict, sdk: Path, python: Path, name: str
     runtime = directory / ("librexruntime.dylib" if sys.platform == "darwin" else "librexruntime.so")
     if not runtime.is_file():
         raise SetupError(f"the v4 build finished without {runtime}", "build")
-    if log.is_file():
-        check = subprocess.run([str(python), str(ROOT / "tools" / "verify-codegen-log.py"),
-                                str(log), "--allowlist",
-                                str(ROOT / "config/rexglue/accepted-codegen-warnings-v4.json")],
-                               capture_output=True, text=True)
-        if check.returncode:
-            raise SetupError("The v4 code generation log has unreviewed warnings.\n"
-                             f"{check.stdout}{check.stderr}", "build")
     write_provenance(directory, executable, sdk, "Release", baseline, title_update="v4")
     controller_db = ROOT / "config" / "gamecontrollerdb.txt"
     if controller_db.is_file():
