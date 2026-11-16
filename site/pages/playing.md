@@ -51,6 +51,8 @@ Keys can be rebound in **F6 > CONTROLS**, and **RESET KEYS** returns to this lay
 
 When the game asks for text, for example a name on its on-screen keyboard, you can type it on the keyboard.
 
+The mouse pointer hides over the game window after about three idle seconds and comes back when you move the mouse.
+
 ## Achievements
 
 <kbd>F7</kbd> (or **ACHIEVEMENTS** in <kbd>F6</kbd>) opens the achievements screen. The header shows your gamerscore and the festival wristband it has reached: the bands go from Yellow at 5 % of the gamerscore you can earn offline to Gold at 90 %. The first tab, **ALL**, shows everything; the others split the achievements into Career, Racing, Fame, Explore, Festival and Online, with Rally and 1000 Club when those packages are installed.

@@ -1266,6 +1266,16 @@ void PinyonShiftApp::OnPostSetup() {
     window()->AddListener(&resize_listener_);
     resize_listener_added_ = true;
   }
+#if !defined(__ANDROID__)
+  // The pointer hides over the game window after a few idle seconds and
+  // comes back when the mouse moves (#1076). Mouse capture hides it and
+  // then restores this.
+  if (window()) {
+    window()->app_context().CallInUIThreadDeferred([this] {
+      if (window()) window()->SetCursorVisibility(rex::ui::Window::CursorVisibility::kAutoHidden);
+    });
+  }
+#endif
   rex::cvar::RegisterChangeCallback("pinyon_shift_hor_plus",
                                     [this](std::string_view, std::string_view) {
                                       if (window()) {
