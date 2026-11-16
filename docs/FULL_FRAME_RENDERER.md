@@ -497,20 +497,47 @@ What else the census found:
   skip-off side, where runs without it drew 2,793-4,142), and write 98-115
   MB a run.
 
-**The merged form, sized.** By the census, merging the scene walk's draws
-by pipeline and textures needs about 2.4 times fewer draws, and 4 times
-with bindless textures. At the cap that could leave most of skip 7's
-12.5-15.3 ms, but it needs, all of them new:
+**What a merged draw would still cost.** The recorder's step model
+(`gpu_draw_cost_model`, RR-0.1; Deck race at the cap, 3,800-4,600 draws a
+frame, IssueDraw 1.5 µs a draw on `fr3p0`, 2.3 µs on `race-long`) splits a
+draw's sampled time into steps a merged batch pays once (samplers, texture
+requests, targets, pipeline, dynamic state, image infos, descriptor sets and
+binds, rendering: about 60 %) and steps that stay per draw (analysis,
+primitive processing, system constants, constant uploads, vertex residency,
+the draw command: about 40 %, of which a retained path keeps the constant
+upload and the draw command). For the 1,189 host draws skip 7 removes, at
+about 495 batches (the 2.4x factor), recorder and submission would cost
+roughly 1.5-2.5 ms, and the guest side (native culling and constant blocks)
+about 0.5 ms. Against the 12.5-15.3 ms pool, that passes the −6 ms gate on
+paper; DR-4.2's lesson is that it holds only if per-draw validation goes
+with the derivation.
+
+**Bindless textures don't help on the Deck.** ShiftGlue's bindless path
+(PD-4, `vulkan_bindless_textures`, on by default only on Android), two
+runs each on `fr3p0` at the cap: the texture steps halve (image infos 150
+to 85 ns a draw, binds 72 to 37 ns), but IssueDraw stays at 1.5-1.6 µs a
+draw, the recorder at 8.4-8.5 against 8.1-8.3 ms a frame, and the
+submission thread rises from 3.2-3.3 to 4.5-5.6 ms (process CPU 55.9-58.0
+against 52.7-55.5 ms). So the merged form plans on the 2.4x factor of
+pipeline and textures, not the 4x of bindless.
+
+**The merged form, sized.** It needs, all of them new:
 
 1. translated shaders that read float constants and fetch constants for
    each draw from a table indexed by the draw (multi-draw indirect, or an
    instance index), so draws with different constants can merge;
-2. bindless textures, for the 4x factor;
-3. per-mesh draw records captured on the game's side and kept while the
+2. per-mesh draw records captured on the game's side and kept while the
    asset's list doesn't change, with the vertex fetch supplied live (it
    changes from one frame to the next for about a tenth of the draws);
-4. insertion at the list's place in the stream, as DL-1.2's marker does.
+3. insertion at the list's place in the stream, as DL-1.2's marker does.
 
-That is a multi-week ShiftGlue and game project. It is recorded here as
-sized and not started, for the maintainer to decide; nothing short of it
-reaches FR-3's gate.
+Slices, each behind a switch with the PM4 path as fallback:
+
+| Slice | What | Kill line (Deck, in-run, capped) |
+| --- | --- | --- |
+| M1 | Per-draw constant tables: a translated-shader variant that reads its float and fetch constants from a table row selected by the draw, recorded for ordinary draws | constant uploads and system constants not above today's per draw; no capture difference |
+| M2 | Model-asset draws retained at `824365B0` (main view, opaque): captured at their first decode by (asset list, view, slot), replayed from a marker without the guest list run or the decoder | render thread and decoder −3.5 ms of skip 1's 5.0 with recorder and submission flat |
+| M3 | Merging M2's draws by pipeline and textures into multi-draw batches | recorder and submission −2 ms more |
+| M4 | The scene walk's other meshes and the cars (FR-3 complete), then shadows and reflections (FR-4) and sky, terrain, roads and HUD (FR-5) | FR-3's −6 ms, then FR-4 and FR-5 as their rows say |
+
+That is a multi-week ShiftGlue and game project, not started.

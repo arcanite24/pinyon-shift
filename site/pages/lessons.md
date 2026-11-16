@@ -417,6 +417,7 @@ Negative results, so they aren't retried without a new reason:
 | Culling hidden world draws before the game builds them (#784) | 48 % (multivac) and 60-70 % (Odin) of the main scene's depth-writing draws pass no samples, and dropping all of them would save 2.2-3.2 ms of the Odin's main-pass GPU time. Most are occluded, though, and removing occluded draws safely needs this frame's depth. Draws that pass no samples even without the depth test, the most a frustum test could remove, saved 0.6-1.4 ms at best |
 | Owned draw programs for the vegetation lists (`gpu_d3d_program`, #753) | exact (4.6 million draws compared), but matching a draw against its record cost what deriving it did: per program draw even on multivac (925/962 and 865/860 ns) and 5-58 ns slower in 5 of 6 Odin windows |
 | Bindless textures on NVIDIA | ±1.5 % |
+| Bindless textures on the Steam Deck (`vulkan_bindless_textures`, 2026-11-16) | two runs each at the 60 fps cap: the texture steps of a draw halve (image infos 150 to 85 ns, binds 72 to 37 ns), but a draw still costs the recorder 1.5-1.6 µs and the submission thread rises 1.1-2.5 ms a frame; Android only |
 | Forcing tiled on-chip rendering on Adreno | about twice as slow |
 | `VK_KHR_present_wait` | worse spacing |
 | Store-op tuning, render-area trimming on tilers | too few cases, or the driver already did it |
