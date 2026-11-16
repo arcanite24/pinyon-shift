@@ -110,7 +110,11 @@ void FlushAudioProbeCapture() {
     diagnostics::RecordEvent("dlc.rally.audio_capture_error", {{"error", "native PCM capture empty"}});
     return;
   }
-  const auto path = fh1_render_test::OutputDirectory() / "rally-audio-probe.wav";
+  // A route may capture more than once: the first keeps the plain name,
+  // later ones are numbered (rally-audio-probe-2.wav, ...).
+  static int captures = 0;
+  const std::string suffix = ++captures == 1 ? "" : "-" + std::to_string(captures);
+  const auto path = fh1_render_test::OutputDirectory() / ("rally-audio-probe" + suffix + ".wav");
   std::ofstream file(path, std::ios::binary | std::ios::trunc);
   auto u16 = [&](uint16_t v) { char b[]{char(v), char(v >> 8)}; file.write(b, 2); };
   auto u32 = [&](uint32_t v) { char b[]{char(v), char(v >> 8), char(v >> 16), char(v >> 24)}; file.write(b, 4); };
@@ -132,8 +136,9 @@ void FlushAudioProbeCapture() {
   file.write(reinterpret_cast<const char*>(pcm.data()), std::streamsize(size));
   file.close();
   {
-    std::ofstream times(fh1_render_test::OutputDirectory() / "rally-audio-probe-submits.csv",
-                        std::ios::trunc);
+    std::ofstream times(
+        fh1_render_test::OutputDirectory() / ("rally-audio-probe" + suffix + "-submits.csv"),
+        std::ios::trunc);
     times << "submit_ns\n";
     for (size_t i = 0; i < submits; ++i) times << submit_ns[i] << '\n';
   }
