@@ -206,17 +206,31 @@ What it found:
 - In-run A/B of culling pass 9: about 62 items a frame reach the test,
   46-49 % of them culled; frame +0.19 ± 0.32 ms, GPU +0.17 ± 0.41 ms, draws
   −56 ± 354: nothing.
-- Ceiling: dropping the whole of pass 9 took about 200 draws a frame and
-  left the frame at 14.37 ms against 14.42 and 14.41 ms in the windows
-  either side. B4 already measured that skipping the model assets and
-  procedural models moves no frame time on the Deck or the Odin, so no
-  list this culling could reach has a ceiling.
+- The view buckets do not decide what the main view draws. Dropping all
+  four view passes (6, 9, 11, 24) still removes only the terrain. The walk
+  draws a mesh whenever `824400B0` returns that some pass kept it, and
+  cars, trees and props are kept by the shadow cascades. With
+  `pinyon_shift_debug_skip_world=4` (return 0, nothing pushed) the whole
+  world goes, which is B4's −21 %.
+- Ceilings, in-run A/Bs (`pinyon_shift_debug_drop_passes`, 35 windows):
+  dropping pass 9 (the terrain) saved 0.59 ± 0.47 ms of frame and
+  0.62 ± 0.55 ms of GPU (−238 draws). Dropping all view passes saved
+  0.71 ± 0.41 ms of frame and 0.93 ± 0.49 ms of GPU (−374 draws). Culling
+  only the hidden part of the terrain reached none of that.
 
-**FR-3b is closed.** The hidden draws #784 counted are cheap where they
-are rejected by early depth (the Deck), and on the Odin FR-3a's 1.3 ms
-came from draws this per-item test does not see. The Odin A/B was not run:
-with no ceiling on the Deck and the pass-9 drop removing only terrain, it
-cannot reach the gate. Next is FR-1's copy-free resolves (1.4-1.55 ms).
+- So the test moved to the whole item (`pinyon_shift_occlusion_whole`): a
+  main-view item hidden in the grid returns 0 from every pass, shadows
+  included. Captures showed nothing missing, but only about 130 items a
+  frame reach it (36 % culled), and the in-run A/B moved the frame by
+  +0.17 ± 0.44 ms and draws by +22 ± 410: nothing. A second run stayed on
+  the title menu and was discarded.
+
+**FR-3b is closed.** The items the scene walk tests are few and coarse.
+Most of the main view's draws (B4's −21 %) come from what those items
+expand into, and the grid hides too few of them to matter. On the Deck,
+hidden draws are also cheap, because early depth rejects them. The Odin
+was not run: with no gain on the Deck at 36 % culled, it can't reach the
+gate. Next is FR-1's copy-free resolves (1.4-1.55 ms).
 
 ## FR-3: what is still unknown
 
