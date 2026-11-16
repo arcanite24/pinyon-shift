@@ -300,9 +300,15 @@ else()
     endif()
     # A cross build's kit (the Android shell, TP-5) holds no generator for
     # the build host; it passes the host kit's or source tree's instead.
-    set(PINYON_SHIFT_REXGLUE_CODEGEN
-        "${PINYON_SHIFT_SHIFTGLUE_KIT}/bin/rexglue${CMAKE_HOST_EXECUTABLE_SUFFIX}"
-        CACHE FILEPATH "The ReXGlue generator for the build host")
+    # A kit that has one always uses it: a build tree first configured
+    # against the source SDK caches .local/rexglue's generator, which is
+    # either gone (#1081) or the old one that produced the stale tree (#1046).
+    set(_pinyon_kit_codegen
+        "${PINYON_SHIFT_SHIFTGLUE_KIT}/bin/rexglue${CMAKE_HOST_EXECUTABLE_SUFFIX}")
+    if(EXISTS "${_pinyon_kit_codegen}" OR NOT EXISTS "${PINYON_SHIFT_REXGLUE_CODEGEN}")
+        set(PINYON_SHIFT_REXGLUE_CODEGEN "${_pinyon_kit_codegen}"
+            CACHE FILEPATH "The ReXGlue generator for the build host" FORCE)
+    endif()
     set(PINYON_SHIFT_REXGLUE_CODEGEN_DEPENDS "${PINYON_SHIFT_REXGLUE_CODEGEN}")
     message(STATUS "Using the prebuilt ShiftGlue kit: ${PINYON_SHIFT_SHIFTGLUE_KIT}")
 endif()
