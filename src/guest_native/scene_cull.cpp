@@ -106,6 +106,11 @@ REXCVAR_DEFINE_INT32(pinyon_shift_occlusion_max_tiles, 256, "Pinyon Shift",
                      "Occlusion culling: items covering more grid tiles are not tested")
     .range(1, 6144)
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+REXCVAR_DEFINE_INT32(pinyon_shift_debug_drop_pass, -1, "Pinyon Shift",
+                     "Debug probe: drop every item of this pass id in the native per-pass "
+                     "culling and log how many items each pass takes (-1 off)")
+    .range(-1, 63)
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
 REXCVAR_DEFINE_BOOL(pinyon_shift_occlusion_calibrate, false, "Pinyon Shift",
                     "Occlusion culling probe: log how many frustum-passing items project on "
                     "screen with and without the z flip, to check the box space")
@@ -614,8 +619,23 @@ bool PlanCull(PPCContext& ctx, uint8_t* base, Plan& plan) {
   const int32_t pass_count = m.S32(passes + 156);
   const uint32_t pass_ids = m.U32(passes + 148);
   const uint32_t object = m.U32(item);
+  const int32_t drop_pass = REXCVAR_GET(pinyon_shift_debug_drop_pass);
   for (int32_t i = 0; i < pass_count; ++i) {
     const int32_t pass = m.S32(pass_ids + 4 * i);
+    if (drop_pass >= 0) {
+      static std::atomic<uint64_t> pass_items[64] = {};
+      static std::atomic<uint64_t> calls{0};
+      if (pass >= 0 && pass < 64) pass_items[pass].fetch_add(1, std::memory_order_relaxed);
+      if ((calls.fetch_add(1, std::memory_order_relaxed) + 1) % 500000 == 0) {
+        std::string counts;
+        for (int32_t p = 0; p < 64; ++p) {
+          const uint64_t n = pass_items[p].load(std::memory_order_relaxed);
+          if (n) counts += fmt::format("{}{}:{}", counts.empty() ? "" : " ", p, n);
+        }
+        diagnostics::RecordEvent("fr.pass_items", {{"counts", counts}});
+      }
+      if (pass == drop_pass) continue;
+    }
     const uint32_t flags = m.U32(item + 4);
     const bool shadow_item = (flags >> 24) & 1;
     if (pass > 5 ? shadow_item : !shadow_item) continue;
