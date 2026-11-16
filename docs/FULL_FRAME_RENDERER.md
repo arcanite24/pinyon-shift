@@ -212,9 +212,9 @@ What it found:
   −56 ± 354: nothing.
 - The view buckets do not decide what the main view draws. Dropping all
   four view passes (6, 9, 11, 24) still removes only the terrain. The walk
-  draws a mesh whenever `824400B0` returns that some pass kept it.
-  Cars, trees and props are probably kept by the shadow cascades (a mask
-  with the cascades too was not run). With
+  draws a mesh whenever `824400B0` returns that some pass kept it. Trees
+  and props come through the procedural-model culling, which the mask
+  doesn't touch. Why the cars stay is open. With
   `pinyon_shift_debug_skip_world=4` (return 0, nothing pushed) the whole
   world goes, which is B4's −21 %.
 - Ceilings, in-run A/Bs (`pinyon_shift_debug_drop_passes`, 35 windows):
@@ -320,8 +320,8 @@ assets' lists cost nothing. **FR-3 is being built** (user's call,
 2026-11-15), starting with the scene walk's meshes, the largest path.
 
 A run comparing cascade-only and view masks against `skip_world=4` stayed
-on the title menu. Which pass keeps the cars and props (the cascades or
-the culling's fallback to the original) is still open.
+on the title menu. Why the cars survive the view mask (perhaps calls the
+native culling hands back to the original) is still open.
 
 ## FR-3: what is still unknown
 
