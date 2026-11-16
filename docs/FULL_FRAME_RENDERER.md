@@ -473,16 +473,19 @@ the three keys.
 
 What else the census found:
 
-- **The draws repeat, their buffers don't.** 92 % of a frame's draws have
-  a pipeline, textures, vertex fetch and index base that also occur in the
-  previous frame (as a multiset; the order changes). But only 3 % of the
-  innermost indirect buffers recur at the same address a frame later: the
-  game's command buffers are per frame. A retained path has to be keyed on
-  the game's side (the asset and its list), not by buffer.
+- **The draws repeat; a third of their buffers are new each frame.**
+  89-90 % of a frame's draws have a pipeline, textures, vertex fetch and
+  index base that also occur in the previous frame (as a multiset; the order
+  changes). Of the about 260-280 innermost indirect buffers a frame, 89 %
+  recur at the same address a frame later, but those carry only 60-64 % of
+  the draws: the rest, about 450-500 draws a frame, come through about 15
+  buffers that are new every frame. A retained path keyed by buffer would
+  miss them, so it has to be keyed on the game's side (the asset and its
+  list).
 - **Tagging draws by buffer doesn't find an owner's set.** Buffers that run
   on the skip-off side and never on the skip-on side carried about 500
   draws a frame, but the mirror count (skip-on draws in buffers never seen
-  skip-off) was about 450, so the test only picks up per-frame addresses.
+  skip-off) was about 450: the test picks up the per-frame buffers.
 - **Skip 1's draws.** Of the 1,852 decoded draws skip 1 removes in a full
   scene, 1,140 are host draws and 714 later-tile copies the untiling drops
   early (`fh1_untile_skipped_draws`), the same ratio as the whole frame.
@@ -490,9 +493,9 @@ What else the census found:
   ended up spinning at 8 mph on bare ground instead of driving at 35, while
   everything still drawn (sky, ground, cars, HUD) drew correctly. Measure
   with in-run A/Bs, where both sides share the route.
-- The census itself costs enough on the Deck (a 98-115 MB file a run) that
-  its run drew a lighter scene: 2,669 decoded draws a frame against 4,142 in
-  the same route without it.
+- The census runs drew light scenes (2,669 decoded draws a frame on the
+  skip-off side, where runs without it drew 2,793-4,142), and write 98-115
+  MB a run.
 
 **The merged form, sized.** By the census, merging the scene walk's draws
 by pipeline and textures needs about 2.4 times fewer draws, and 4 times
@@ -504,8 +507,8 @@ with bindless textures. At the cap that could leave most of skip 7's
    instance index), so draws with different constants can merge;
 2. bindless textures, for the 4x factor;
 3. per-mesh draw records captured on the game's side and kept while the
-   asset's list doesn't change, with the vertex fetch supplied live (a
-   quarter of the vertex fetch changes from frame to frame);
+   asset's list doesn't change, with the vertex fetch supplied live (it
+   changes from one frame to the next for about a tenth of the draws);
 4. insertion at the list's place in the stream, as DL-1.2's marker does.
 
 That is a multi-week ShiftGlue and game project. It is recorded here as
