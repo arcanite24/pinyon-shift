@@ -147,7 +147,9 @@ endif()
 # later, so atomics compile to LSE instructions instead of LL/SC loops and
 # calls to the __aarch64_* outline helpers, in the SDK and its libraries too
 # (the Android shell's kit is built with the same -march, TP-5).
-if(ANDROID)
+# ARM Linux handhelds (Armada OS on Snapdragon 865 and later) are ARMv8.2
+# too, so linux-arm64 builds use the same baseline (LINUX_ARM64_RESEARCH.md).
+if(ANDROID OR (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$"))
     set(PINYON_SHIFT_ANDROID_MARCH "armv8.2-a" CACHE STRING
         "-march for every Android target, the SDK and its libraries included")
     add_compile_options(-march=${PINYON_SHIFT_ANDROID_MARCH})

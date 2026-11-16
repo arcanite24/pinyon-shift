@@ -156,6 +156,53 @@
       }
     },
     {
+      "name": "linux-arm64-base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/out/build/${presetName}",
+      "toolchainFile": "${sourceDir}/cmake/toolchains/linux-aarch64-steamrt4.cmake",
+      "cacheVariables": {
+        "PINYON_SHIFT_CPU_BASELINE": "armv8-a",
+        "REXSDK_DIR": "${sourceDir}/thirdparty/shiftglue-sdk",
+        "REXGLUE_USE_VULKAN": "ON",
+        "PINYON_SHIFT_GENERATED_ROOT": "${sourceDir}/.local/generated",
+        "PINYON_SHIFT_GENERATED_DIR": "${sourceDir}/.local/generated/default"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      }
+    },
+    {
+      "name": "linux-arm64-release",
+      "displayName": "Linux ARM64 Release",
+      "inherits": "linux-arm64-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "linux-arm64-relwithdebinfo",
+      "displayName": "Linux ARM64 RelWithDebInfo",
+      "inherits": "linux-arm64-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo"
+      }
+    },
+    {
+      "name": "linux-arm64-v4",
+      "displayName": "Linux ARM64 Release, FH1 v4 title update",
+      "inherits": "linux-arm64-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "PINYON_SHIFT_TITLE_UPDATE_V4": "ON",
+        "PINYON_SHIFT_MANIFEST": "${sourceDir}/config/rexglue/pinyon_shift_v4_manifest.toml",
+        "PINYON_SHIFT_GENERATED_ROOT": "${sourceDir}/.local/generated-v4",
+        "PINYON_SHIFT_GENERATED_DIR": "${sourceDir}/.local/generated-v4/default"
+      }
+    },
+    {
       "name": "macos-base",
       "hidden": true,
       "generator": "Ninja",
@@ -360,6 +407,18 @@
     {
       "name": "linux-amd64-v4",
       "configurePreset": "linux-amd64-v4"
+    },
+    {
+      "name": "linux-arm64-release",
+      "configurePreset": "linux-arm64-release"
+    },
+    {
+      "name": "linux-arm64-relwithdebinfo",
+      "configurePreset": "linux-arm64-relwithdebinfo"
+    },
+    {
+      "name": "linux-arm64-v4",
+      "configurePreset": "linux-arm64-v4"
     },
     {
       "name": "macos-arm64-debug",
