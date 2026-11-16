@@ -170,19 +170,53 @@ How to read it:
   the recorder all skip them (about 4.2 µs of process CPU a draw on the
   Deck, from the B4 probe).
 
-**Next design (FR-3b):** test each item's box in the game's own per-pass
-culling (`824400B0`, which our native version runs on Linux) against a
-small max-depth grid of an earlier frame's main view:
+## FR-3b: occlusion culling in the game's own pass culling
 
-- The executor reduces the scene depth to tiles in one compute pass after
-  the main scene and copies the grid into a host-visible ring, 2-3 frames
-  deep.
-- The native culling projects the box with that frame's view-projection
-  and drops the item from the view passes when every tile it covers is
-  nearer than the box.
-- The shadow passes are left alone.
-- Still needed: the view's projection matrix on the guest side, the guest
-  depth convention, and which views count as the main scene.
+Built and measured 2026-11-15 on the Deck (race-long, uncapped). Rejected;
+the code stays in, off by default.
+
+How it works:
+
+- ShiftGlue (`fh1_occlusion_grid`, `src/graphics/vulkan/fh1_occlusion.cpp`)
+  reduces the main scene's depth to 16-pixel tiles of their farthest depth
+  (80 × 45 at 1280 × 720) with one compute pass at the scene's first
+  resolve. Untiled, that is the one point where the depth is whole; by
+  the HUD the last band has been copied over it. A four-slot ring is read
+  back a few frames late and published through rexruntime
+  (`rex/system/fh1_occlusion_grid.h`) with that frame's world-view-projection
+  (c128-c131) and depth constants (stored depth = A + B / view z). A grid
+  whose matrix drifted more than `fh1_occlusion_max_drift` from the current
+  one is not published, and a grid older than four frames is cleared.
+- The native pass culling (`pinyon_shift_occlusion_cull`,
+  `src/guest_native/scene_cull.cpp`) projects an item's box with that
+  matrix and drops it from the pass when every tile its rectangle covers is
+  farther than its nearest corner. Items crossing the near plane, off
+  screen, or covering more than 256 tiles are kept.
+
+What it found:
+
+- The grid fills (3,210-3,366 of 3,600 tiles hold depth) and is oriented
+  right (`fh1_occlusion_dump_dir` writes it as PGM images). Captures with
+  culling on showed nothing missing.
+- Only passes 0-5 (cascades), 6, 9, 11 and 24 get items in a race. Pass 9
+  is the main view's **terrain**: dropping all of it
+  (`pinyon_shift_debug_drop_pass=9`) leaves grey ground and bare hills,
+  while trees, props and cars stay. They come through the procedural-model
+  culling and other lists, not this one.
+- In-run A/B of culling pass 9: about 62 items a frame reach the test,
+  46-49 % of them culled; frame +0.19 ± 0.32 ms, GPU +0.17 ± 0.41 ms, draws
+  −56 ± 354: nothing.
+- Ceiling: dropping the whole of pass 9 took about 200 draws a frame and
+  left the frame at 14.37 ms against 14.42 and 14.41 ms in the windows
+  either side. B4 already measured that skipping the model assets and
+  procedural models moves no frame time on the Deck or the Odin, so no
+  list this culling could reach has a ceiling.
+
+**FR-3b is closed.** The hidden draws #784 counted are cheap where they
+are rejected by early depth (the Deck), and on the Odin FR-3a's 1.3 ms
+came from draws this per-item test does not see. The Odin A/B was not run:
+with no ceiling on the Deck and the pass-9 drop removing only terrain, it
+cannot reach the gate. Next is FR-1's copy-free resolves (1.4-1.55 ms).
 
 ## FR-3: what is still unknown
 

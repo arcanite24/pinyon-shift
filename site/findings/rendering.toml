@@ -1022,6 +1022,7 @@ how = """Field accesses and call sequences in the generated code; a native versi
 confidence = """confirmed"""
 issue = """#1071"""
 source = """src/guest_native/scene_cull.cpp; GitHub issue #1071 P2"""
+note = """FR-3b probes (Deck race, 2026-11-15): in a free-roam race only passes 0-5, 6, 9, 11 and 24 receive items, and 6, 9, 11 and 24 receive the same number (about 4 million per run against about 170 thousand per cascade). Dropping every item of pass 9 removes the terrain from the main view (grey ground, bare hills) while trees, props and cars stay; dropping 6, 11 or 24 changes nothing visible. Projecting the item's box (min at item+32, max at item+44) with the frame's world-view-projection from c128-c131 needs no axis flip: 86 % of frustum-passing items then land on screen, against 43 % with z negated."""
 
 [[finding]]
 group = """Frame structure and views"""
