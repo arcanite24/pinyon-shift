@@ -70,15 +70,19 @@ FR-2, which is self-contained. FR-3 needs the bucket consumers found
 | --- | --- |
 | FR-1 | Closed: the copy-free class is under the gate on both devices |
 | FR-2 | Closed: folded into FR-1 and FR-6 (the post chain's draws are cheap) |
-| FR-3 | Replays through the decoder and merging alone are bounded at about 1 ms each; slice M2, a retained path that skips the decoder for the model-asset lists, is in progress and decides FR-3 ("FR-3: can an owned path merge draws") |
-| FR-4 | Waits on FR-3: it uses the same retained path for shadows, camera depth and reflections |
-| FR-5 | Waits on FR-3: the sky, terrain and road lists go through the same path |
-| FR-6 | Waits on FR-3 to FR-5: it needs every part of a frame owned |
+| FR-3 | Closed 2026-11-16: replays through the decoder and merging are bounded at about 1 ms each, and a retained path that skips the decode (M2) measured at most about 1 µs a draw on the Deck against the 2.2 µs it needs ("FR-3 M2: the retained path's ceiling") |
+| FR-4 | Closed with FR-3: its passes would go through the same retained path, and the G0 runs that sized it replayed buffers from every pass |
+| FR-5 | Closed with FR-3: the same path, the same ceiling |
+| FR-6 | Closed: it needs FR-3 to FR-5, and on the Deck applying a skipped buffer's state cost about what decoding it did |
 
-The full-frame renderer is not built. What can still pass its gates is a
-retained path that keeps the decoder off the owned lists (slice M2 of FR-3
-below); replays through the decoder and merging alone measured or sized
-under them.
+The full-frame renderer is not built, and none of its forms pass the
+gates: replays through the decoder and merging were measured or sized at
+about 1 ms each, and a retained path that skips the decode at about 1 µs a
+draw, under half of what it needs ("FR-3 M2: the retained path's
+ceiling"). The CPU the game's draws cost is spread over its guest code,
+the decode, the state that decode leaves behind and the recording, and no
+seam tried here removes enough of it while the draws still have to be
+recorded.
 
 ## FR-1: frame structure
 
@@ -526,7 +530,15 @@ pipeline and textures, not the 4x of bindless.
 recorder draws from captured records and the decoder never processes the
 owned lists' register writes (90 % of its thread). Replaying the lists
 through the decoder, as DL-2.1 and DL-3 did, keeps those writes, and that
-is why they gained about 1 ms. A retained path therefore needs:
+is why they gained about 1 ms. G0 (NN-0.10, `gpu_replay_floor_probe`,
+2026-10-13) is the one earlier probe that skipped the decode: it applied
+the captured exit registers of any buffer whose bytes repeated and dropped
+its draws, a wrong image, and on the Odin race saved 2.54 ms of process
+CPU (decoder −1.68) against a 6 ms bar, with 42 % of drawn draws in
+skippable buffers and 0.9 ms of its own hashing. M2 differs in its key
+(the game's asset, so no hashing and the per-frame buffers covered) and
+in drawing the records instead of dropping them. A retained path
+therefore needs:
 
 1. a game-side identity for the lists' draws, kept while the asset's list
    doesn't change (the command buffers carrying them are partly per frame);
@@ -546,4 +558,58 @@ Slices, each behind a switch with the PM4 path as fallback:
 If M2 fails its line, FR-3 closes: merging can't add more than about
 1.3 ms.
 
-M2 started 2026-11-16.
+M2 failed its line before it was built: G0 on the Deck, which skips the
+same draws' decode, sets its ceiling below the line (next section).
+
+## FR-3 M2: the retained path's ceiling on the Deck (2026-11-16)
+
+M2 would replace the decode of the model-asset lists with records captured
+from an earlier decode. G0's probe (`gpu_replay_floor_probe`) is the
+cheapest form of that: it skips a buffer whose bytes repeat, applies the
+captured exit registers and shaders, and drops the draws. Its result is a
+ceiling for M2 once it is corrected for what differs: M2 would not hash
+(add the probe's hashing back) and would still record its draws (take
+their recording off).
+
+All runs on the Deck, capped at 60, `pinyon_shift_native_scene_cull=true`,
+single-pass scene on, `gpu_record_thread=false` on both sides (the probe
+needs the decode and the recording on one thread, so the decoder column
+holds both), 240-frame in-run windows from frame 4,600, 35 windows each.
+
+**Coverage.** With the probe counting only (2 skips off) and `skip_world`
+1 toggled in-run (`g0c`), skip 1 removed 500 host draws a frame and the
+probe's skippable set fell from 747 to 218 drawn draws: the model-asset
+draws M2 would own sit in buffers that repeat byte for byte and hold no
+side effects, so G0 skips them, and a G0 ceiling covers M2.
+
+**G0 toggled 0/2 in-run** (`g0-long`; a fourth run, `g0a`, stopped at the
+title menu and is left out):
+
+| Run | Draws | Skipped draws | Process CPU | Render | Decoder | Submission | Hashing | Applying |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| g0b | 1,326 | 538 | −2.07 ± 2.21 ms | −0.52 ms | −0.55 ms | −0.64 ms | 0.76 ms | 0.87 ms |
+| g0d | 2,841 | 1,262 | +0.09 ± 2.58 ms | −0.05 ms | −0.61 ms | −0.92 ms | 1.52 ms | 1.99 ms |
+| g0e | 2,138 | 1,100 | −3.36 ± 3.54 ms | −0.21 ms | −1.82 ms | −0.95 ms | 1.01 ms | 1.41 ms |
+
+Without the hashing the decoder thread would save 1.31, 2.13 and 2.83 ms.
+Recording the draws again, at the 1.5-2.3 µs a draw IssueDraw costs
+(RR-0.1), takes 0.8-1.2, 1.9-2.9 and 1.7-2.5 ms back: the decode a
+retained draw removes is worth −0.5 to +0.8 ms on these runs, at most
+about 1 µs a draw. Applying the captured state alone cost 1.3-1.6 µs a
+draw, about what the decode it replaced cost.
+
+**Against the kill line.** Skip 1 (f1, 1,140 host draws) took 5.0 ms off
+the render thread and the decoder; the line, −3.5 ms, is 3.1 µs a draw.
+Granting M2 all of skip 1's render-thread share (1.0 ms, 0.9 µs a draw,
+which G0 cannot show), the decode side has to reach 2.2 µs a draw. G0's
+corrected ceiling is at most about 1 µs. Two more skip-1 runs (`f1b`,
+`f1c`, lighter scenes: 331 and 409 host draws) took 2.2 and 2.6 ms off the
+render thread and the decoder (6.4-6.6 µs a draw), so the line is not
+tighter than the f1 run made it.
+
+So a retained path that skips the decode can't reach FR-3's gate on the
+Deck, and FR-3 closes with M1 and M3 (merging, about 1 ms). FR-4 and FR-5
+close with it: their passes would use the same path, and G0 replayed
+buffers from every pass of the frame. FR-6 closes because it needs FR-3 to
+FR-5. Runs: `g0c`, `g0b`, `g0d`, `g0e`, `f1b`, `f1c` under
+`~/pinyon-qual/cg1071/runs` on the Deck.

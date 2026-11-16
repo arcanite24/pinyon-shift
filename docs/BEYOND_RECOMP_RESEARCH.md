@@ -342,8 +342,12 @@ ceiling by the static world alone, uncapped. That is still a ceiling, not
 the expected result: an owned renderer records and submits its own draws.
 At the 60 fps cap the share it can take (render thread and decoder) is
 about 7-8.4 ms of process CPU on the Deck, which is FR-3's sizing
-(docs/FULL_FRAME_RENDERER.md). The desktop and the Odin with a fixed v4
-build are still to measure.
+(docs/FULL_FRAME_RENDERER.md). **Closed again (2026-11-16)** with FR-3 to
+FR-6: on the Deck a retained path that skips the static world's decode
+measured at most about 1 µs a draw of the 2.2 µs it needs, since applying
+the skipped lists' state cost about what decoding them did ("FR-3 M2" in
+docs/FULL_FRAME_RENDERER.md). The Odin wasn't re-run with a fixed v4
+build.
 
 Two pitfalls:
 
@@ -359,8 +363,8 @@ The desktop wasn't measured, because multivac was busy.
 
 Revised after the B4 gate probe (2026-11-15). The first bullet predates
 the bit-1 fix: with it, the static world carries nearly all of the skip-7
-ceiling on the Deck and B4 is reopened (see "B4 gate probe" above); the
-rest stands.
+ceiling on the Deck and B4 was reopened (see "B4 gate probe" above), then
+closed again with the full-frame renderer on 2026-11-16; the rest stands.
 
 - **B4 doesn't pay.** It was planned as the knee of the curve. With the
   whole scene walk free, the Deck and the Odin gain only 21-27 %, and
