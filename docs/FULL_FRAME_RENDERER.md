@@ -64,6 +64,21 @@ Order: FR-1 first, because it has no game-side unknowns, and its ceiling
 FR-2, which is self-contained. FR-3 needs the bucket consumers found
 (below).
 
+**Where each stage stands (2026-11-16):**
+
+| Stage | State |
+| --- | --- |
+| FR-1 | Closed: the copy-free class is under the gate on both devices |
+| FR-2 | Closed: folded into FR-1 and FR-6 (the post chain's draws are cheap) |
+| FR-3 | Unmerged forms closed; the merged form is sized and not started, a multi-week SDK project waiting for the maintainer's decision ("FR-3: can an owned path merge draws") |
+| FR-4 | Waits on FR-3: it uses the same retained path for shadows, camera depth and reflections |
+| FR-5 | Waits on FR-3: the sky, terrain and road lists go through the same path |
+| FR-6 | Waits on FR-3 to FR-5: it needs every part of a frame owned |
+
+The full-frame renderer is not built. What would pass its gates is the
+merged form of FR-3 below; every form that keeps the game's draws one for
+one has been measured under them.
+
 ## FR-1: frame structure
 
 Known from MR-6
@@ -411,3 +426,88 @@ native culling hands back to the original) is still open.
 - What a record's object holds: mesh, vertex and index buffers, material,
   constants. Then how the game binds a material per draw: the
   `CD3D9GraphicsDevice` slots.
+
+
+## FR-3: can an owned path merge draws (2026-11-16)
+
+An owned path that keeps every draw still pays the recorder and submission
+for it. In full Deck scenes at the cap a skipped draw is worth about 6-7 µs
+of process CPU: the render thread about 1.1, the decoder about 2.3, the
+recorder about 1.9 and submission about 0.7 µs (from the skip 7 rows
+above). So an unmerged owned path has the render-thread and decoder share
+to win, and only by drawing fewer, merged draws can it reach the rest.
+
+**Unmerged forms are bounded by earlier work.** DL-3 compiled every display
+list and replayed it without parsing (D3D_RENDERER_RESEARCH.md): on the
+Deck the decoder fell 1.03 ± 0.10 ms and process CPU 0.91 ± 0.37 ms, and
+NA-2.4's owned programs per list came out even. A replay of the model-asset
+lists' decoded records at `824365B0` hands the recorder the same register
+runs and draws, so it can't take the 3.5 ms of render and decoder time a
+slice of the gate needs. It was not built. The Deck's decoder profile says
+why (frame-pointer race profile, 2026-11-13): about 90 % of the decoder
+thread is register writes (copying and swapping runs, comparing them with
+the register file, recording them for the recorder), and deriving draws is
+1.4 %; skipping the parse leaves the writes.
+
+**Batch census.** ShiftGlue's ordered frame census
+(`fh1_frame_census_ordered`, a build with `REXGPU_FH1_ORDERED_CENSUS`) now
+writes, for every host draw, its rendering instance, pipeline, a hash of
+the texture and vertex fetch constants its shaders read, the guest index
+base, `RB_BLENDCONTROL0`, the innermost indirect buffer and a hash of the
+dynamic state (viewport, scissors, window offset, depth bias, stencil
+reference, face mode). `tools/re/batch-census.py` counts the batches a frame
+would need if opaque draws were reordered within their rendering instance and
+blended ones kept in order. Deck race at the cap, skip-off frames of the
+in-run `sw1-long` and `sw7-long` routes, frame pairs every 30 frames:
+
+| Draws merged by | Batches a frame (1,613-1,617 host draws) | Factor |
+| --- | --- | --- |
+| pipeline, textures, vertex fetch (only constants per draw) | 1,076-1,135 | 1.4-1.5 |
+| pipeline and textures (vertex fetch per draw too) | 664-669 | 2.4 |
+| pipeline only (bindless textures) | 383-408 | 4.0-4.2 |
+
+Adding the dynamic state changes no count by more than 1 %. Two fixed-skip
+runs (skip 0 against skip 7, different scenes, so a lower bound) put the
+skipped set at 1,239 host draws, 97 % opaque: 870, 492 and 109 batches by
+the three keys.
+
+What else the census found:
+
+- **The draws repeat, their buffers don't.** 92 % of a frame's draws have
+  a pipeline, textures, vertex fetch and index base that also occur in the
+  previous frame (as a multiset; the order changes). But only 3 % of the
+  innermost indirect buffers recur at the same address a frame later: the
+  game's command buffers are per frame. A retained path has to be keyed on
+  the game's side (the asset and its list), not by buffer.
+- **Tagging draws by buffer doesn't find an owner's set.** Buffers that run
+  on the skip-off side and never on the skip-on side carried about 500
+  draws a frame, but the mirror count (skip-on draws in buffers never seen
+  skip-off) was about 450, so the test only picks up per-frame addresses.
+- **Skip 1's draws.** Of the 1,852 decoded draws skip 1 removes in a full
+  scene, 1,140 are host draws and 714 later-tile copies the untiling drops
+  early (`fh1_untile_skipped_draws`), the same ratio as the whole frame.
+- **Fixed-skip runs leave the race.** With skip 7 from frame 4,600 the car
+  ended up spinning at 8 mph on bare ground instead of driving at 35, while
+  everything still drawn (sky, ground, cars, HUD) drew correctly. Measure
+  with in-run A/Bs, where both sides share the route.
+- The census itself costs enough on the Deck (a 98-115 MB file a run) that
+  its run drew a lighter scene: 2,669 decoded draws a frame against 4,142 in
+  the same route without it.
+
+**The merged form, sized.** By the census, merging the scene walk's draws
+by pipeline and textures needs about 2.4 times fewer draws, and 4 times
+with bindless textures. At the cap that could leave most of skip 7's
+12.5-15.3 ms, but it needs, all of them new:
+
+1. translated shaders that read float constants and fetch constants for
+   each draw from a table indexed by the draw (multi-draw indirect, or an
+   instance index), so draws with different constants can merge;
+2. bindless textures, for the 4x factor;
+3. per-mesh draw records captured on the game's side and kept while the
+   asset's list doesn't change, with the vertex fetch supplied live (a
+   quarter of the vertex fetch changes from frame to frame);
+4. insertion at the list's place in the stream, as DL-1.2's marker does.
+
+That is a multi-week ShiftGlue and game project. It is recorded here as
+sized and not started, for the maintainer to decide; nothing short of it
+reaches FR-3's gate.
