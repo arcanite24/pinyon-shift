@@ -1197,6 +1197,11 @@ void PinyonShiftApp::OpenSettingsMenu() {
     auto* presenter = graphics ? graphics->presenter() : nullptr;
     return presenter ? presenter->GetUpscalers() : rex::ui::GetSpatialUpscalerInfos();
   };
+  services.frame_generators = [this]() -> std::vector<rex::ui::UpscalerInfo> {
+    auto* graphics = runtime() ? runtime()->graphics_system() : nullptr;
+    auto* presenter = graphics ? graphics->presenter() : nullptr;
+    return presenter ? presenter->GetFrameGenerators() : std::vector<rex::ui::UpscalerInfo>{};
+  };
   services.save_photo = [this] {
     pinyon_shift::ui::SavePhoto(runtime() && runtime()->graphics_system()
                                     ? runtime()->graphics_system()->presenter()

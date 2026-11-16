@@ -569,6 +569,22 @@ std::unique_ptr<MenuScreen> SettingsPages::Display() {
     }
     rows.push_back(Setting("FRAME RATE", std::move(rates)));
   }
+  // UP-8.2: a generated frame after each real one. The game then renders at
+  // most half the refresh (UP-4.2), so a 60 Hz display shows 30 real frames
+  // and 30 generated ones.
+  if (services_.frame_generators) {
+    std::vector<Choice> generators = {{"OFF", {{"present_frame_generation", "off"}}}};
+    const std::string saved = Unquote(Saved("present_frame_generation"));
+    for (const rex::ui::UpscalerInfo& info : services_.frame_generators()) {
+      if (info.available || SameValue(saved, info.id)) {
+        generators.push_back({SameValue(info.id, "fsr3") ? std::string("FSR 3") : Upper(info.id),
+                              {{"present_frame_generation", info.id}}});
+      }
+    }
+    if (generators.size() > 1) {
+      rows.push_back(Setting("FRAME GENERATION", std::move(generators)));
+    }
+  }
   rows.push_back(Page("HUD", &SettingsPages::Hud));
   auto note = [this, restart = RestartNote(rows)] {
     const std::string pending = restart ? restart() : std::string();
@@ -585,6 +601,18 @@ std::unique_ptr<MenuScreen> SettingsPages::Display() {
     if (SameValue(Unquote(Saved("present_hdr")), "true") &&
         !rex::ui::vulkan::GetHdrOutputState().offered) {
       return std::string("HDR NEEDS HDR TURNED ON FOR THIS DISPLAY");
+    }
+    if (!SameValue(Unquote(Saved("present_frame_generation")), "off")) {
+      if (SameValue(Unquote(Saved("present_hdr")), "true")) {
+        return std::string("FRAME GENERATION IS NOT USED WITH HDR");
+      }
+      // Below about 50 real frames a second the generated ones show their
+      // errors and the input lag grows (AMD's and NVIDIA's guidance).
+      const auto refresh = Number(Unquote(Saved("video_mode_refresh_rate")));
+      if (refresh && *refresh > 0 && *refresh < 100) {
+        return "FRAME GENERATION: THE GAME RENDERS " + std::to_string(int(*refresh / 2 + 0.5)) +
+               " FPS, BEST ON 100 HZ AND FASTER";
+      }
     }
     return ResolutionLine();
   };

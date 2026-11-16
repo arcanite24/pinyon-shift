@@ -23,6 +23,9 @@ namespace pinyon_shift::ui {
 // before the first save of the session.
 // What the settings screen can reach besides the settings file.
 struct SettingsServices {
+  // The presenter's frame generators (UP-8.2); no FRAME GENERATION row
+  // without one available.
+  std::function<std::vector<rex::ui::UpscalerInfo>()> frame_generators;
   // Builds the ACHIEVEMENTS page; no page without it.
   std::function<std::unique_ptr<hostui::MenuScreen>()> achievements;
   // Lists and restores save backups under PROFILE; no rows without it.
