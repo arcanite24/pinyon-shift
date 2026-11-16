@@ -97,7 +97,7 @@ Where the sun's shadows are off (**SHADOWS > OFF BY DAY**, Ultra Low 30, and the
 
 ## Frame generation
 
-**F6 > DISPLAY > FRAME GENERATION > FSR 3** shows a generated frame between each two real ones (AMD FSR 3.1 frame generation, from the game's depth and camera motion). The game then renders at no more than half your display's refresh rate, so a 60 Hz display shows 30 real and 30 generated frames a second; it works best on a display of 100 Hz or more, where the game still renders 50 or more. It applies at once, is off in menus, and is not used with HDR. The HUD is generated with the scene, so its text can smear in fast changes. It has been tested on the Steam Deck; on Windows it uses AMD's runtime that setup provides, not yet tested there.
+**F6 > DISPLAY > FRAME GENERATION > FSR 3** shows a generated frame between each two real ones (AMD FSR 3.1 frame generation, from the game's depth and camera motion). The game then renders at no more than half your display's refresh rate, so a 60 Hz display shows 30 real and 30 generated frames a second; it works best on a display of 100 Hz or more, where the game still renders 50 or more. It applies at once, is off in menus, and is not used with HDR. The HUD is generated with the scene, so its text can smear in fast changes. The setting is offered on Linux and the Steam Deck, where it has been tested; on Windows, Android and macOS it has not been run yet and is left out of the menu.
 
 ### Lossless Scaling
 
