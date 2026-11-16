@@ -195,6 +195,10 @@ How it works:
 
 What it found:
 
+- Open: on untiled platforms the camera depth copy is still taken when
+  the HUD starts. While building the grid, a copy at that point read
+  zeros. The copy feeds ambient occlusion and the upscalers, and whether
+  they see zeros there was not checked.
 - The grid fills (3,210-3,366 of 3,600 tiles hold depth) and is oriented
   right (`fh1_occlusion_dump_dir` writes it as PGM images). Captures with
   culling on showed nothing missing.
@@ -208,8 +212,9 @@ What it found:
   −56 ± 354: nothing.
 - The view buckets do not decide what the main view draws. Dropping all
   four view passes (6, 9, 11, 24) still removes only the terrain. The walk
-  draws a mesh whenever `824400B0` returns that some pass kept it, and
-  cars, trees and props are kept by the shadow cascades. With
+  draws a mesh whenever `824400B0` returns that some pass kept it.
+  Cars, trees and props are probably kept by the shadow cascades (a mask
+  with the cascades too was not run). With
   `pinyon_shift_debug_skip_world=4` (return 0, nothing pushed) the whole
   world goes, which is B4's −21 %.
 - Ceilings, in-run A/Bs (`pinyon_shift_debug_drop_passes`, 35 windows):
@@ -220,17 +225,53 @@ What it found:
 
 - So the test moved to the whole item (`pinyon_shift_occlusion_whole`): a
   main-view item hidden in the grid returns 0 from every pass, shadows
-  included. Captures showed nothing missing, but only about 130 items a
-  frame reach it (36 % culled), and the in-run A/B moved the frame by
-  +0.17 ± 0.44 ms and draws by +22 ± 410: nothing. A second run stayed on
-  the title menu and was discarded.
+  included. Captures showed nothing missing. In the A/B race about 490
+  calls a frame list view 9, but most are kept before the grid is
+  consulted: a box corner behind or at the camera (shadow casters around
+  it, 67 %), off screen (15 %), or more than 256 tiles (3 %). About 48 items
+  a frame were culled, some 2 % of the draws. The in-run A/B moved the
+  frame by +0.17 ± 0.44 ms and draws by +22 ± 410: nothing. A second run
+  stayed on the title menu and was discarded.
 
-**FR-3b is closed.** The items the scene walk tests are few and coarse.
-Most of the main view's draws (B4's −21 %) come from what those items
-expand into, and the grid hides too few of them to matter. On the Deck,
-hidden draws are also cheap, because early depth rejects them. The Odin
-was not run: with no gain on the Deck at 36 % culled, it can't reach the
-gate. Next is FR-1's copy-free resolves (1.4-1.55 ms).
+**FR-3b is closed.** Few of the items the walk tests are on screen and
+in front of the camera, and the grid hides about 48 of them a frame. On
+the Deck hidden draws are also cheap, because early depth rejects them.
+The Odin was not run: with no gain on the Deck, it can't reach the gate.
+
+## FR-1: which resolves hold the pool
+
+`fh1_debug_skip_resolve_classes` skips resolve dispatches by class: bit 0
+of the class is a multisampled host surface, bit 1 depth, bit 2 a current
+texture written by the same dispatch, and bit 3 a rectangle spanning the
+surface's width. It also counts resolved pixels per class. Bit 0 never
+fired on the Deck, even for the guest's 4x and 2x surfaces, so it does not
+tell their resolves apart. In-run A/Bs, `race-long`, uncapped, 35 windows:
+
+| Skipped class | Frame | GPU | Process CPU |
+| --- | --- | --- | --- |
+| 12: colour, whole width, writes a texture (two runs) | −0.83 ± 0.49, −0.87 ± 0.42 ms | −0.87, −0.97 ms | −3.5, −3.2 ms |
+| 14: depth, whole width, writes a texture | −0.25 ± 0.54 ms | −0.25 ms | −0.6 ms |
+
+The GPU profile (`fh1_native_gpu_profile`, Deck, 3.1 ms of resolves with
+the profile's own overhead) splits class 12 by surface:
+
+- the four 1280 × 720 single-sampled colour resolves (two each from two
+  surfaces) take 0.94 ms of profiled time;
+- the 4x scene bands (1280 × 256 and 1280 × 208) take 0.43 ms;
+- the 256 × 256 2x target, resolved six times, takes 0.17 ms;
+- outside class 12, the 1280 × 720 depth resolve takes 0.32 ms.
+
+So even all of class 12 is under the −1 ms gate, and the part an image
+swap could take (the four 1280 × 720 resolves) is about half of it. Before
+choosing a design, the next steps are:
+
+- log, for those four resolves, the surface's and texture's host formats,
+  what next touches the surface, and whether the texture is sampled while
+  the surface is still bound (two resolves a surface a frame suggest
+  snapshots, which rules out a swap);
+- time a plain image copy for them, which is the floor for a cheaper
+  resolve;
+- run the class A/Bs on the Odin, whose surfaces differ.
 
 ## FR-3: what is still unknown
 
