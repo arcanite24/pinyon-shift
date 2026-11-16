@@ -22,7 +22,7 @@ pinyon = "1x to 4x internal resolution, or the game's own scene at 960 × 540 fo
 feature = "Frame rate"
 link = "playing.md#graphics-presets"
 xbox = "30 fps"
-pinyon = "60 or 120 fps at the correct game speed"
+pinyon = "60 or 120 fps at the correct game speed, and FSR 3 frame generation"
 
 [[original]]
 feature = "Graphics"

@@ -95,9 +95,13 @@ Where the sun's shadows are off (**SHADOWS > OFF BY DAY**, Ultra Low 30, and the
 
 **POST-PROCESS AA** (FXAA) smooths the game world only, so HUD text stays sharp; **AA ON THE HUD** smooths everything, as before. **ANISOTROPIC FILTERING** and **TEXTURE DETAIL** apply to the world's textures. **TEXTURE SIZE** (1024, 512 or 256) loads large textures from a smaller level for graphics cards with little memory: the world is softer up close. It applies at the next start; the sun's shadows and the HUD keep the game's own filtering. **COLOUR LUT** gives the world a different look from a `.cube` colour table (17 or 33 points, as photo and video editors export) put in a `luts` folder you create in the state folder (`%LOCALAPPDATA%\PinyonShift\source\<version>\.local\preview\luts`); **LUT STRENGTH** blends it with the game's colours. The HUD keeps its colours, though translucent HUD panels show the game's colours behind them. These apply at once on the Vulkan renderer.
 
-## Frame generation with Lossless Scaling
+## Frame generation
 
-The game has no built-in frame generation yet ([planned](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/UPSCALING_BACKLOG.md)). If you own [Lossless Scaling](https://store.steampowered.com/app/993090/Lossless_Scaling/), you can run it over the game window on Windows:
+**F6 > DISPLAY > FRAME GENERATION > FSR 3** shows a generated frame between each two real ones (AMD FSR 3.1 frame generation, from the game's depth and camera motion). The game then renders at no more than half your display's refresh rate, so a 60 Hz display shows 30 real and 30 generated frames a second; it works best on a display of 100 Hz or more, where the game still renders 50 or more. It applies at once, is off in menus, and is not used with HDR. The HUD is generated with the scene, so its text can smear in fast changes. It has been tested on the Steam Deck; on Windows it uses AMD's runtime that setup provides, not yet tested there.
+
+### Lossless Scaling
+
+If you own [Lossless Scaling](https://store.steampowered.com/app/993090/Lossless_Scaling/), you can run it over the game window on Windows:
 
 1. Play in a window or in fullscreen (<kbd>F11</kbd>). Both are borderless windows, which Lossless Scaling can capture.
 2. In **F6 > DISPLAY**, set **FRAME RATE** to half your display's refresh rate, for example 60 on a 120 Hz display.
