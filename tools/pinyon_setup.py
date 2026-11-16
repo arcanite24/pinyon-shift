@@ -227,7 +227,8 @@ def download(item: dict, progress: Progress, label: str) -> Path:
                     done += len(block)
                     if total and time.monotonic() - last > 2:
                         last = time.monotonic()
-                        progress(progress.stage, None, f"Downloading {label}: "
+                        progress(getattr(progress, "stage", "setup"), None,
+                                 f"Downloading {label}: "
                                  f"{done >> 20} of {total >> 20} MB")
             break
         except OSError as error:
@@ -251,8 +252,20 @@ def _extract_all(archive: tarfile.TarFile, destination: Path) -> None:
         archive.extractall(str(destination))
 
 
+def long_path(path: Path) -> Path:
+    """On Windows, the extended-length form of path, so files nested deeper
+    than MAX_PATH (the NDK's, under a long install folder) can be written
+    without the LongPathsEnabled policy (#1072)."""
+    path = Path(os.path.abspath(str(path)))
+    value = str(path)
+    if os.name != "nt" or value.startswith("\\\\?\\"):
+        return path
+    return Path("\\\\?\\UNC\\" + value[2:] if value.startswith("\\\\") else "\\\\?\\" + value)
+
+
 def unpack(archive: Path, install: Path, strip_top: bool = True) -> None:
     """Unpacks into install, dropping the archive's single top folder."""
+    install = long_path(install)
     staging = install.with_name(install.name + ".staging")
     if staging.exists():
         shutil.rmtree(staging)

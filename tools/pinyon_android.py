@@ -514,7 +514,7 @@ def build(args: argparse.Namespace) -> int:
         # TP-3 host split: the release's prebuilt host objects for Android.
         import pinyon_setup
         host_objects = pinyon_setup.install_host_objects(
-            lambda _stage, _percent, message: print(message, flush=True), "android-arm64",
+            pinyon_setup.Progress(False), "android-arm64",
             "v4" if args.title_update_v4 else "base")
         sdk = ["-DREXSDK_DIR=", f"-DPINYON_SHIFT_SHIFTGLUE_KIT={shell.as_posix()}",
                f"-DPINYON_SHIFT_HOST_OBJECTS={Path(host_objects).as_posix() if host_objects else ''}"]
