@@ -275,18 +275,20 @@ subsystem pays only its share of a flat profile.
 
 **Correction (2026-11-15, later).** Bit 1 never applied in these runs:
 `824365B0` was missing from `host_overridden_functions`, so its only
-caller reached the original directly (fixed in 231b0482). Every row with
-bit 1 below measured the procedural models and the scene walk only, and the
-"1 + 2" result (no frame or GPU change) was the procedural models alone.
+caller reached the original directly (fixed in 231b0482). The rows with
+bit 1 but not bit 4 below measured the procedural models alone, including
+the "1 + 2" result (no frame or GPU change). The skip 7 rows stand: with bit
+4 on, the model assets are dropped with the scene walk's meshes before
+`824365B0` runs.
 With the fix, skipping the model assets saves 9.0 ± 2.7 ms of process CPU
 on the Deck at the 60 fps cap, and all three 15.3 ± 2.6 ms
 (docs/FULL_FRAME_RENDERER.md, "FR-3 to FR-6"). Uncapped on the Deck with
 the fix (the two "fixed" rows in the table), skipping the static world
 alone (3: model assets and procedural models) takes 19 % off the frame
 and 13.2 ms of process CPU, nearly all of the skip-7 ceiling. Skip 7 itself
-didn't grow: with bit 4 on, the model-asset probe ran only 2,949 times in
-the run instead of about 1.4 million, so the scene walk's skip probably
-removes those meshes before their lists are submitted (not traced). The
+didn't grow: with bit 4 on, the model-asset probe ran only 268-2,949 times
+in a run instead of about 1.4 million, so the scene walk's skip removes
+those meshes before their lists are submitted. The
 Odin rows have not been re-run.
 
 `pinyon_shift_debug_skip_world` (debug, off, hot reload; in

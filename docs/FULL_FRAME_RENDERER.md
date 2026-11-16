@@ -21,7 +21,7 @@ window in the race. The labels are the executor's draw renderings (`base
 tile/pitch/MSAA/format`, `+` joins depth and colour), `R` marks resolves
 and `T` transfers:
 
-| Part | Full frame | Scene walk and procedural models skipped (`pinyon_shift_debug_skip_world` 7, which before 231b0482 left the model assets drawn) |
+| Part | Full frame | Scene walk and procedural models skipped (`pinyon_shift_debug_skip_world` 7) |
 | --- | --- | --- |
 | GPU frame | 11.8 | 7.8 |
 | Main scene, 4x (`1024/32/4x/d1+0/32/4x/c3`) | 5.87 (17.2 renderings) | 1.98 (12.2) |
@@ -287,14 +287,18 @@ candidates within it are about half of that. `fh1_debug_skip_resolve_classes` st
 
 ## FR-3 to FR-6: the CPU ceiling, capped (2026-11-15)
 
-**Correction (2026-11-15, later).** `skip_world` bit 1 (the model assets,
+**Correction (2026-11-16).** `skip_world` bit 1 (the model assets,
 `824365B0`) never applied before commit 231b0482: the function was
 missing from `host_overridden_functions`, so its only caller reached the
 original directly and the probe never ran (no `scene.model_asset_skip_probe`
-summary in any run). Every switch 1 and 7 row below the first table was
-measured with bits 2 and 4 only, on the Deck and on the Odin's v4 build
-alike, and so was the "switch 7" column of the GPU profile at the top. With
-the fix (Deck, same routes, capped, 35 windows each):
+summary in any run). That voided the switch 1 rows below, not the switch 7
+ones: with bit 4 on, `824365B0` is reached only 268-2,949 times in a whole
+run (against about 1.4 million with bit 1 alone), so the model assets are
+part of the scene walk's meshes, dropped before their lists are submitted,
+not a separate path. The old and new switch 7 rows differ by the scene
+instead: the old run skipped 1,182 draws a frame and the new ones 2,165-2,309,
+at a similar 6-7 µs of process CPU a skipped draw (the light-scene pitfall of
+B4). With the fix (Deck, same routes, capped, 35 windows each):
 
 | Skipped | Device | Draws | Process CPU | Render | Decoder | Recorder | Submission |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -302,13 +306,15 @@ the fix (Deck, same routes, capped, 35 windows each):
 | 1: model assets, fixed | Deck | −1,852 | −9.03 ± 2.69 ms | −1.02 ms | −3.98 ms | −3.13 ms | −1.44 ms |
 | 7, fixed, second run | Deck | −2,165 | −12.53 ± 4.64 ms | −2.52 ms | −4.80 ms | −3.57 ms | −1.43 ms |
 
-The model assets are the largest of the three paths. By the reasoning
+Skip 4 alone (s4) and skip 5 (s5) on the fixed build drew light scenes
+again (−1,190 and −916 draws; −3.9 ± 4.6 and −5.5 ± 5.3 ms), so they don't
+size anything. In full scenes, by the reasoning
 below (an owned renderer removes the render thread's and the decoder's
 share and keeps recording and submitting its own draws), the reachable pool
 on the Deck is about 7.3-8.7 ms less the native culling it still runs,
 about 7.0-8.4 ms over the two skip-7 runs: over FR-3's −6 ms gate either
-way. The Odin rows need the same re-run with a
-v4 build that has the fix. The rest of this section is the original text.
+way. The Odin's switch 7 rows stand; its switch 1 rows are void. The rest of
+this section is the original text, measured in a lighter scene.
 
 
 B4's process CPU saving (−13.8 ms on the Deck) came from uncapped runs, where
