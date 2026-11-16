@@ -292,32 +292,36 @@ every millisecond of frame also costs CPU: the process keeps about three
 cores busy. This round's uncapped A/Bs show the same ratio for work that
 removes no CPU at all (skipping class-12 resolves: −0.85 ms frame, −3.3 ms
 process CPU). So the ceiling was measured again at the 60 fps cap, where
-both sides have the same frame time: `pinyon_shift_debug_skip_world` 0
-against 4 (every scene-walk mesh skipped, nothing drawn for it), 35 windows.
+both sides have the same frame time: `pinyon_shift_debug_skip_world` against
+0, by submission path, 35 windows each.
 
-| Device | Draws | Process CPU | Decoder | Recorder | Submission |
-| --- | --- | --- | --- | --- | --- |
-| Deck, run 1 | −1,108 | −4.81 ± 4.16 ms | −1.97 ms | −1.64 ms | −0.57 ms |
-| Deck, run 2 | −710 | −4.77 ± 4.28 ms | −1.52 ms | −1.15 ms | −0.51 ms |
-| Odin (v4) | −1,260 | −5.34 ± 0.64 ms | −2.69 ms | (none) | −0.95 ms |
+| Skipped | Device | Draws | Process CPU | Decoder | Recorder | Submission |
+| --- | --- | --- | --- | --- | --- | --- |
+| 7: everything (B4's switch) | Deck | −1,182 | −8.68 ± 4.23 ms | −2.61 ms | −2.21 ms | −0.81 ms |
+| 7 | Odin (v4) | −1,784 | −6.96 ± 1.62 ms | −3.51 ms | (inline) | −0.79 ms |
+| 4: scene-walk meshes, run 1 | Deck | −1,108 | −4.81 ± 4.16 ms | −1.97 ms | −1.64 ms | −0.57 ms |
+| 4, run 2 | Deck | −710 | −4.77 ± 4.28 ms | −1.52 ms | −1.15 ms | −0.51 ms |
+| 4 | Odin | −1,260 | −5.34 ± 0.64 ms | −2.69 ms | (inline) | −0.95 ms |
+| 2: procedural models | Deck | −856 | −2.53 ± 4.65 ms | −1.53 ms | −0.70 ms | −0.15 ms |
+| 2 | Odin | −636 | −1.64 ± 0.89 ms | −0.83 ms | (inline) | 0.00 ms |
+| 1: model assets | Deck | +25 | −0.41 ± 3.66 ms | | | |
+| 1 | Odin | +80 | +0.20 ± 0.85 ms | | | |
 
-With nothing drawn, the removable CPU is about 5 ms on both devices. That
-is under FR-3's −6 ms gate before an owned renderer pays for its own
-recording and submission. The lessons table puts native code at only
-1.2-1.5 times faster than the translation, and DL-2.1's decoder saving
-moved to the recorder. **FR-3 fails on paper.** FR-4 and FR-5 put more
-passes through the same retained path, and FR-6 needs FR-3 to FR-5 to own
-a frame, so none of them can reach its gate either. Scaling the 5 ms for
-about 1,200 draws to all of the Deck's 3,200, a frame with nothing drawn
-would save about 13 ms, still under FR-6's −15 ms gate (an estimate, not a
-measurement). **The full-frame renderer plan is closed by measurement.**
+(A first version of this section used switch 4 alone and concluded that
+FR-3 failed on paper; switch 7 is B4's.)
 
-One question was not settled: masking the view passes takes about 374
-draws, but skipping the walk's meshes takes 700-1,260. A run comparing
-cascade-only, views-plus-cascades and `skip_world=4` masks stayed on the
-title menu, so whether the extra draws come through the cascades or a side
-effect of the culling's plan is open. It only matters if FR-3 is
-reconsidered.
+With nothing drawn, the scene walk and the procedural models together are
+worth 7-8.7 ms of process CPU, over FR-3's −6 ms gate. An owned renderer
+still records and submits its draws, about 3 ms of that on the Deck, so a
+renderer that only removes the guest's D3D work and the decoder would land
+near the gate rather than clearly over it. The recorder's share has to
+shrink too: draws kept from frame to frame, not derived again. The model
+assets' lists cost nothing. **FR-3 is being built** (user's call,
+2026-11-15), starting with the scene walk's meshes, the largest path.
+
+A run comparing cascade-only and view masks against `skip_world=4` stayed
+on the title menu. Which pass keeps the cars and props (the cascades or
+the culling's fallback to the original) is still open.
 
 ## FR-3: what is still unknown
 
