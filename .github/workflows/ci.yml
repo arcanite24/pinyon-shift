@@ -65,6 +65,70 @@ jobs:
         shell: powershell
         run: .\tools\ci-host-tests.ps1
 
+  linux-arm64:
+    # Linux AArch64 (docs/LINUX_ARM64_RESEARCH.md LA-5): the runtime, GPU
+    # plugin and host tests built natively on an arm64 runner against the
+    # pinned LLVM and the Steam Runtime 4 arm64 SDK sysroot, as the
+    # linux-arm64 presets do, then the host tests run. No game files.
+    if: github.event.repository.visibility == 'public'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 120
+    env:
+      LLVM_URL: https://github.com/llvm/llvm-project/releases/download/llvmorg-20.1.8/LLVM-20.1.8-Linux-ARM64.tar.xz
+      LLVM_SHA256: b855cc17d935fdd83da82206b7a7cfc680095efd1e9e8182c4a05e761958bef8
+      SYSROOT_URL: https://repo.steampowered.com/steamrt4/images/4.0.20261110.268882/com.valvesoftware.SteamRuntime.Sdk-arm64-steamrt4-sysroot.tar.gz
+      SYSROOT_SHA256: 3062a5a92c920e37bdcba9817a2b23a25d7da3f711a3e05ecbb51da091912657
+      PINYON_LINUX_TOOLCHAIN: ${{ github.workspace }}/.local/toolchain/linux-aarch64
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+      - name: Install CMake, Ninja, pkg-config and wayland-scanner
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q cmake ninja-build pkg-config libwayland-bin
+      - name: Fetch the pinned LLVM and the steamrt4 arm64 sysroot
+        run: |
+          tc="$PINYON_LINUX_TOOLCHAIN"
+          mkdir -p "$tc/llvm" "$tc/steamrt4-sdk" /tmp/dl
+          curl -fsSL -o /tmp/dl/llvm.tar.xz "$LLVM_URL"
+          echo "$LLVM_SHA256  /tmp/dl/llvm.tar.xz" | sha256sum -c -
+          tar -xJf /tmp/dl/llvm.tar.xz -C "$tc/llvm" --strip-components=1
+          rm /tmp/dl/llvm.tar.xz
+          curl -fsSL -o /tmp/dl/sysroot.tar.gz "$SYSROOT_URL"
+          echo "$SYSROOT_SHA256  /tmp/dl/sysroot.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/dl/sysroot.tar.gz -C "$tc/steamrt4-sdk" --no-same-owner
+          rm /tmp/dl/sysroot.tar.gz
+          # Absolute links point at the build host's /: point them inside
+          # the sysroot, as setup does for the x86-64 one.
+          python3 -c "import sys; sys.path.insert(0, 'tools'); import pinyon_setup; from pathlib import Path; print(pinyon_setup.make_links_relative(Path(sys.argv[1])), 'links made relative')" "$tc/steamrt4-sdk"
+      - name: Configure for linux-arm64
+        run: >
+          cmake --preset linux-arm64-release -B out/build/linux-arm64-ci
+          -DPINYON_SHIFT_HOST_TESTS_ONLY=ON
+          -DPYTHON_EXECUTABLE=$(command -v python3)
+          -DPython3_EXECUTABLE=$(command -v python3)
+      - name: Build the runtime, GPU plugin and host tests
+        run: cmake --build out/build/linux-arm64-ci --target pinyon_shift_host_tests rexgpu-fh1
+      - name: Run the host tests
+        run: |
+          build=out/build/linux-arm64-ci
+          export LD_LIBRARY_PATH="$PWD/$build/rexglue-artifacts:$PWD/$build"
+          failed=""
+          for test in pinyon_shift_fh1_ui_api_tests pinyon_shift_frame_inspector_tests \
+              pinyon_shift_frame_inspector_input_tests pinyon_shift_hostui_tests \
+              pinyon_shift_host_config_tests pinyon_shift_profile_body_tests \
+              pinyon_shift_car_recovery_tests pinyon_shift_rally_progress_tests \
+              pinyon_shift_rally_pace_tests pinyon_shift_car_cards_tests \
+              pinyon_shift_save_backups_tests pinyon_shift_content_roots_tests \
+              pinyon_shift_telemetry_tests pinyon_shift_overlay_device_tests \
+              pinyon_shift_shader_override_tests pinyon_shift_fh1_edram_tiles_tests \
+              pinyon_shift_head_tracking_tests; do
+            echo "== $test"
+            "$build/$test" || failed="$failed $test"
+          done
+          if [ -n "$failed" ]; then echo "Failed:$failed"; exit 1; fi
+
   android:
     # The Android runtime, GPU plugin and host tests cross-compiled with the
     # pinned NDK (AP-8.2), without game files: no generated code, no package.
