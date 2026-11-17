@@ -14,7 +14,7 @@ Most settings live in the game, on <kbd>F6</kbd>, and apply at once. MSAA and th
 | Key | Action |
 | --- | --- |
 | <kbd>F6</kbd> | Settings. Also **SETTINGS** in the pause menu |
-| <kbd>F3</kbd> | Performance panel, with the build line (version, commits, build time) to quote in a bug report |
+| <kbd>F3</kbd> | Performance panel: the game's frame rate, the frames shown (real and generated with frame generation), render and output size, HDR and V-sync, and the build line (version, commits, build time) to quote in a bug report. It grows with the window; `debug_overlay_scale` sets its size |
 | <kbd>F7</kbd> | [Achievements](#achievements) |
 | <kbd>F2</kbd> | Hide or show the HUD (minimap, speedometer, banners), for screenshots. Menus and photo mode still draw |
 | <kbd>F8</kbd> | Save the current frame as a PNG photo |
@@ -97,7 +97,7 @@ Where the sun's shadows are off (**SHADOWS > OFF BY DAY**, Ultra Low 30, and the
 
 ## Frame generation
 
-**F6 > DISPLAY > FRAME GENERATION > FSR 3** shows a generated frame between each two real ones (AMD FSR 3.1 frame generation, from the game's depth and camera motion). The game then renders at no more than half your display's refresh rate, so a 60 Hz display shows 30 real and 30 generated frames a second; it works best on a display of 100 Hz or more, where the game still renders 50 or more. It applies at once, is off in menus, and is not used with HDR. The HUD is generated with the scene, so its text can smear in fast changes. The setting is offered on Linux and the Steam Deck, where it has been tested; on Windows, Android and macOS it has not been run yet and is left out of the menu.
+**F6 > DISPLAY > FRAME GENERATION > FSR 3** shows a generated frame between each two real ones (AMD FSR 3.1 frame generation, from the game's depth and camera motion). The game then renders at no more than half your display's refresh rate, so a 60 Hz display shows 30 real and 30 generated frames a second; it works best on a display of 100 Hz or more, where the game still renders 50 or more. It applies at once, is off in menus, and works with HDR. The HUD and the F3 panel are drawn on every frame, not generated, so they stay sharp. **DLSS** (NVIDIA RTX 40 and newer) is listed beside FSR 3 when your graphics card can run it. The setting is offered on Windows, Linux and the Steam Deck, where it has been tested; on Android and macOS it has not been run yet and is left out of the menu.
 
 ### Lossless Scaling
 
