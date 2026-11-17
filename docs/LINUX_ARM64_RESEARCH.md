@@ -104,6 +104,77 @@ Turnip Adreno 740 over llvmpipe, and the opening video played at
 Huge-page code was refused (`MADV_COLLAPSE` returns `EINVAL` on this
 kernel), so code runs on 4 KiB pages.
 
+The v4 build (`linux-arm64-v4`, 196 generated files, 9:4x to build)
+reached the title screen with a copy of the reference save (21 DLC, v4
+title update and the offline 1000 Club on) and drew it correctly.
+
+Controller: Armada's InputPlumber hides the built-in gamepad and
+presents a virtual Steam Deck controller over uhid (`deck-uhid`, USB
+`28de:12f0`). Steam reads it; SDL's Steam Deck driver only matches the
+real Deck's `28de:1205`, so a game started outside Steam sees no
+gamepad. Switching InputPlumber's target to an Xbox 360 pad at run time
+(`busctl --system call org.shadowblip.InputPlumber
+/org/shadowblip/InputPlumber/CompositeDevice0
+org.shadowblip.Input.CompositeDevice SetTargetDevices as 3 xb360
+keyboard mouse`) made SDL find it at once. That lasts until a reboot or
+a mode change; a launch from Steam (Steam Input's virtual pad) is the
+player path to check next.
+
+FidelityFX: with the copied Windows config, switching OUTPUT SCALING
+from FSR 3 to FSR 2 to FSR 1 hung the GPU about a second later
+(Turnip `VK_ERROR_DEVICE_LOST` from `tu_knl_drm_msm`). Android keeps the
+FidelityFX upscalers off on Adreno, but that check is keyed on
+`REX_PLATFORM_ANDROID` (`vulkan_ffx_upscaler.cpp`), so Linux on Adreno
+offers them. They should follow the mobile-GPU predicate (LA-3). The
+test state now uses SMOOTH 60's values (1x, bilinear output, 2X MSAA,
+no shadows, quarter-rate reflections, 60 fps cap) and HDR off.
+
+Performance vs Android: with SMOOTH 60 in free roam the run was
+GPU-bound at 17.1 ms GPU per frame (median of 600 frames, 872 draws),
+with the GPU at its 680 MHz top clock (`simple_ondemand`) and the CPU
+capped by Armada's power profile (X3 2.09 of 2.96 GHz, `conservative`).
+Five GPU cvars default on only for Android (`vulkan_bindless_textures`,
+`spirv_ieee_vertex_math`, `spirv_fast_pixel_math`,
+`spirv_specialize_texture_signs`, `vulkan_shared_memory_texel_buffer`).
+They now default on for Linux on AArch64 as well (SDK `41cb287e`,
+`REX_MOBILE_GPU_DEFAULTS` in `spirv_translator.cpp`). Measured with a
+scripted free-roam drive (title to free roam, throttle with weaving)
+from a reflink copy of the reference v4 save, in Game Mode, SMOOTH 60
+values, both runs stopping at the same spot (1,392 draws):
+
+| Run | Frame median / p95 | Frames over 17.5 ms | GPU median / p95 |
+|---|---|---|---|
+| Five off (old Linux defaults) | 20.65 / 22.63 ms | 99.8 % | 20.42 / 22.38 ms |
+| Five on | 16.67 / 16.79 ms | 0.1 % | 16.44 / 17.02 ms |
+
+The new build with no flags logs bindless and the texel buffer as
+active and held 60 fps over a 3.7-minute drive (2.9 % of frames over
+17.5 ms, a lighter scene). No stall or device loss in three runs with
+the five on (about ten minutes). An earlier interactive run with them
+on, started from the desktop session, froze the guest about a minute
+into free roam (host still presenting, every guest thread in a wait);
+it has not come back, so it is not tied to these cvars yet.
+
+The other platforms keep their defaults, from earlier measurements:
+bindless costs the submission thread 1.1-2.5 ms a frame on the Steam
+Deck and gave nothing on desktop (PD-4); the texel buffer gave nothing
+on the RTX 4080, M4 Pro or Deck (it exists for Adreno's 128 MB storage
+buffer range); fast pixel math and texture-sign specialization are
+already on for macOS, and fast pixel math was within noise on the
+RTX 4080 (PB-1.8). Not measured yet: fast pixel math on the Deck
+(LX-7.2), and texture-sign specialization and IEEE vertex math on the
+Deck and Windows.
+
+Two GPU hangs (`VK_ERROR_DEVICE_LOST`, kernel `a6xx_irq` gpu fault)
+came from switching FidelityFX options within seconds: OUTPUT SCALING
+FSR 3 to FSR 2 to FSR 1, and FRAME GENERATION FSR 3 off and on again.
+FSR 2/3 upscaling ran on the Odin under Android, so the cause is open.
+Game Mode notes: a launch from SSH needs `DISPLAY=:0` (gamescope's
+Xwayland) and the window tagged with `STEAM_GAME` plus
+`GAMESCOPECTRL_BASELAYER_APPID`, or Steam keeps focus and scripted
+input is ignored. The Odin has 7.3 GiB of RAM; the hang above came with
+kernel page-allocation failures in `kswapd`.
+
 Not done yet: the generator was built by hand against the sniper
 sysroot (setup does this with the same flags), the build was copied
 over SSH by hand, and nothing past the opening video was checked.
@@ -130,11 +201,13 @@ Keyed on the driver or vendor already (carry over to Linux Turnip):
 `spirv_implicit_lod_2d_turnip`, Turnip sparse shared memory, push
 descriptors disabled on Qualcomm and Intel Mesa.
 
-Keyed on `REX_PLATFORM_ANDROID` / `__ANDROID__` (lost on Linux):
+Shader translator defaults now on for Linux AArch64 too (SDK
+`41cb287e`): `vulkan_bindless_textures`, `spirv_ieee_vertex_math`,
+`spirv_fast_pixel_math`, `spirv_specialize_texture_signs`,
+`vulkan_shared_memory_texel_buffer`.
 
-- shader translator: `vulkan_bindless_textures`, `spirv_ieee_vertex_math`,
-  `spirv_fast_pixel_math`, `spirv_specialize_texture_signs`,
-  `vulkan_shared_memory_texel_buffer`;
+Still keyed on `REX_PLATFORM_ANDROID` / `__ANDROID__` (lost on Linux):
+
 - pipelines: `vulkan_async_pipeline_wait_ms`, prewarm threads, async
   pipeline settings;
 - textures: preallocation, the resolution-scale cap;
