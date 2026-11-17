@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.1 - 2026-11-17
+
+- Fixed: setup stopped on the first build after updating to 0.9.0 with
+  "modified since the precompiled header" (#1096, #1097, #1098).
+
 ## 0.9.0 - 2026-11-17
 
 - New: frame generation with FSR 3 and DLSS on Windows, Linux and the
