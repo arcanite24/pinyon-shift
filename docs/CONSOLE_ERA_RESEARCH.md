@@ -125,7 +125,7 @@ the minimum gone, what is left is the game's own sequential work.
 | CE-7 | 20,850 non-resolve texture loads, 60 ms of CPU per route. Not pursued |
 | CE-8, CE-9 | Not run: in-place ISO reads are deferred, and STFS is install-time only |
 | CE-10 | Held 299 ms per route. Skipping the bracket broke loading (car-select thumbnails never arrived). Rejected |
-| CE-11 | Defaults read (systems, "memory arenas sized at boot"). Not tried: nothing pointed at arena evictions, and resizing is the riskiest row |
+| CE-11 | Defaults read (systems, "memory arenas sized at boot"). `streamsize` at 1.5x (204 MiB), alone and with `d3dfixedsize` at 96 MiB, booted and raced normally but changed nothing: title to free roam 0.47-0.53 s and car select to race 1.67-1.75 s against 0.51 s and 1.67 s, the same slow transition frames, and texture reloads within run-to-run spread (the race's resolve reloads are host-side). Rejected |
 | CE-12 | `filecachesize` 30 MiB, `filechunksize` 1 MiB, `checkzipcrc` already 0. A 4 MiB chunk (with `keepcarpartmemory` on) gave 0.44 s and 1.73 s against 0.51 s and 1.71 s: no change. Rejected |
 | CE-13 | The flow-graph gates are the game's own; the fixed wait that mattered was the renderer's minimum above |
 | CE-14 | `dvdsafe` has no reader (static). `keepcarpartmemory` on changed neither load into the race (above); with the 4 MiB chunk it retired to free roam in 1.30 s against 1.32 s. Rejected. `enablepvspredictahead` is already 1 and `pausephysicsonstreaming` 0, so nothing is held back by default |
