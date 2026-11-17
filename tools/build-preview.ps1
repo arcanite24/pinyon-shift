@@ -162,6 +162,7 @@ try {
     Invoke-PinyonBuildCommand $environment.CMake (@('--preset', $previewPreset) + $sdkArguments +
         $cpu.CMakeArguments + @("-DPYTHON_EXECUTABLE=$(Get-PinyonPython)")) `
         (Join-Path $logs 'preview-configure.log') 'Preview configuration failed.' -Step 'Configure the game build'
+    Remove-PinyonStalePch -BuildDirectory (Join-Path $root "out/build/$previewPreset")
     Invoke-PinyonBuildCommand $environment.CMake @('--build', '--preset', $previewPreset, '--parallel', "$Parallel") `
         (Join-Path $logs 'preview-build.log') 'Preview compilation failed.' -Step 'Compile the game'
 }

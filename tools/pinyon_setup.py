@@ -842,10 +842,41 @@ def kit_ready(config: dict, name: str) -> Path | None:
     return KIT
 
 
+def freshen_times(root: Path, key: str) -> None:
+    """Give an unpacked release archive the current time, once per key.
+
+    The archives store a fixed 1980 date so they are reproducible, and an
+    unpacked file keeps it: a kit header that changed with an update then
+    looks older than the objects and precompiled headers built from the old
+    one, Ninja rebuilds none of them, and clang stops with "has been
+    modified since the precompiled header was built" (#1097, #1098)."""
+    stamp = root / ".pinyon-fresh"
+    try:
+        if stamp.read_text(encoding="ascii").strip() == key:
+            return
+    except OSError:
+        pass
+    now = time.time()
+    for directory, _, files in os.walk(str(root)):
+        for name in files:
+            path = os.path.join(directory, name)
+            # A link's target is in the tree too; Windows cannot set a
+            # link's own time (follow_symlinks=False).
+            if os.path.islink(path):
+                continue
+            try:
+                os.utime(path, (now, now))
+            except OSError:
+                pass
+    stamp.write_text(key + "\n", encoding="ascii")
+
+
 def install_kit(progress: Progress, config: dict, name: str) -> Path | None:
     """The unpacked kit, or None (setup then clones and builds ShiftGlue)."""
     ready = kit_ready(config, name)
     entry = kit_entry(config, name)
+    if ready:
+        freshen_times(ready, config["rexglue"]["revision"])
     if ready or not entry:
         return ready
     progress("tools", 92, "Getting the prebuilt ShiftGlue kit")
@@ -857,7 +888,10 @@ def install_kit(progress: Progress, config: dict, name: str) -> Path | None:
         progress("tools", 92, f"The prebuilt ShiftGlue kit could not be installed ({error}); "
                  "building ShiftGlue from source instead")
         return None
-    return kit_ready(config, name)
+    ready = kit_ready(config, name)
+    if ready:
+        freshen_times(ready, config["rexglue"]["revision"])
+    return ready
 
 
 def is_kit(sdk: Path) -> bool:
@@ -883,6 +917,7 @@ def install_host_objects(progress: Progress, name: str, variant: str) -> str:
     try:
         archive = download(entry, progress, "the prebuilt host objects")
         unpack(archive, target)
+        freshen_times(target, entry["sha256"].upper())
         stamp.write_text(entry["sha256"].upper() + "\n", encoding="ascii")
     except (SetupError, OSError, tarfile.TarError) as error:
         progress("build", 28, f"The prebuilt host objects could not be installed ({error}); "
@@ -1028,6 +1063,38 @@ def discard_unfinished_configure(directory: Path) -> None:
         shutil.rmtree(directory / "CMakeFiles", ignore_errors=True)
 
 
+def drop_stale_pch(directory: Path, environment: dict) -> None:
+    """Remove a build tree's precompiled headers when the compiler setup they
+    were made with changed: the ShiftGlue kit or the pinned revision, the
+    compiler or the MSVC headers. Clang refuses a PCH from another MSVC
+    version (#1096) or whose headers changed size (#1097), and Ninja sees
+    neither, since no command line changes and no newer file appears. A
+    tree without the record (built before it existed) loses its PCHs once."""
+    if not directory.is_dir():
+        return
+    kit = ""
+    try:
+        kit = json.loads((KIT / "kit.json").read_text(encoding="utf-8")).get("shiftglue_revision", "")
+    except (OSError, ValueError):
+        pass
+    key = json.dumps({"kit": kit, "compiler": environment.get("CXX", ""),
+                      "msvc": environment.get("VCToolsVersion", ""),
+                      "revision": toolchain_config()["rexglue"]["revision"]}, sort_keys=True)
+    record = directory / ".pinyon-pch-key"
+    try:
+        if record.read_text(encoding="utf-8").strip() == key:
+            return
+    except OSError:
+        pass
+    for path in directory.rglob("cmake_pch*"):
+        if path.is_file() and path.suffix in (".pch", ".gch"):
+            try:
+                path.unlink()
+            except OSError:
+                pass
+    record.write_text(key + "\n", encoding="utf-8")
+
+
 def run_game_build(command: list, log: Path, progress: Progress, start: float, message: str,
                    environment: dict, directory: Path, generated: Path) -> None:
     """The game build. Its dependency-tracked translation step can rewrite a
@@ -1035,6 +1102,7 @@ def run_game_build(command: list, log: Path, progress: Progress, start: float, m
     generated file (pinyon_shift_folds.cpp). The graph Ninja started with
     then misses that file and the link fails; one more build reconfigures
     from the new lists and finishes. Any other failure stands."""
+    drop_stale_pch(directory, environment)
     ninja = directory / "build.ninja"
     configured = ninja.stat().st_mtime if ninja.is_file() else 0.0
     try:

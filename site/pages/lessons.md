@@ -300,6 +300,16 @@ it was most of the time (TP-1 to TP-7 in
   still compile on the player's machine. A fingerprint of the compiler,
   C++ library version, kit, sources and flags gates the prebuilt
   objects, so any difference falls back to compiling them.
+- **Reproducible archives hide updates from the build.** Our archives
+  store every file with one fixed 1980 date, so an updated kit's headers
+  looked older than the player's last build, Ninja rebuilt nothing, and
+  clang refused the old precompiled header ("modified since the
+  precompiled header") on the first build after 0.9.0 (#1096-#1098). A
+  new MSVC from a Build Tools update did the same. Date unpacked files to
+  the install time once per kit revision, and keep a key of the kit
+  revision, compiler and MSVC version beside the build: when it changes,
+  delete the precompiled headers so Ninja makes them, and the objects that
+  use them, again.
 - **The translation needs only the executables.** Copying the three
   `.xex` files off the disc (25 MB, under a second) lets the build start
   while the rest of the disc extracts in the background. Swap the full

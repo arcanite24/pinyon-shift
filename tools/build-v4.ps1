@@ -110,6 +110,7 @@ $sdkArguments = if ($kitRoot) { @('-DREXSDK_DIR=', "-DPINYON_SHIFT_SHIFTGLUE_KIT
 Invoke-PinyonBuildCommand $environment.CMake (@('--preset', 'win-amd64-v4') + $sdkArguments + $cpu.CMakeArguments +
     @("-DPYTHON_EXECUTABLE=$(Get-PinyonPython)")) `
     (Join-Path $logs 'v4-configure.log') 'v4 configuration failed.' -Step 'Configure the v4 build'
+Remove-PinyonStalePch -BuildDirectory (Join-Path $root 'out/build/win-amd64-v4')
 Invoke-PinyonBuildCommand $environment.CMake @('--build', 'out/build/win-amd64-v4', '--parallel', "$Parallel",
     '--target', 'pinyon_shift', 'pinyon_shift_fh1_archive_extract') `
     (Join-Path $logs 'v4-build.log') 'v4 build failed.' -Step 'Build the v4 executable'
