@@ -7,7 +7,8 @@ with six hardware threads, a fixed GPU, a console-paced system layer), and
 which could be replaced so that boot, loads, fast travel and streaming
 behave like a native PC or phone game on an SSD or NVMe drive?
 
-Nothing was built or run for this page. It combines a static census of the
+The research (everything below Results) was written before anything was
+built or run; [Results](#results-2026-11-16) holds what was measured. It combines a static census of the
 game executable (strings, the launch-options object, the generated code),
 a read of the ShiftGlue runtime, the existing research pages and a short
 survey of other ports. Numbers marked *estimate* are arithmetic, not
@@ -20,6 +21,13 @@ Reverse-engineering results from this census are recorded in
 
 ## Summary
 
+- **Measured since ([Results](#results-2026-11-16)):** the console-era
+  wait that mattered was the loading screen's minimum time on screen, not
+  the disc. Clearing it saves 1.0 s into free roam and 2.9 s into and out
+  of each race on multivac, and is the default now. The disc lock, the XAM
+  sleeps, guest inflate, occlusion queries and scatter reads were measured
+  and rejected or found moot. The bullets below are the research as
+  written before measuring.
 - **The disk is not the bottleneck, and the game knows it was.** A play
   session read 189 MB in 4,538 reads for 91 ms, and 1,203 opens took
   108 ms ([files](../site/findings/files.toml), "loading is guest work, not
@@ -52,6 +60,79 @@ Reverse-engineering results from this census are recorded in
   FH1-ReImagined found cold pipelines and texture reloads, not file IO,
   in its FH1 loads. DirectStorage does not apply: our IO is 91 ms and our
   formats are LZX and deflate. Sources in [Outside evidence](#outside-evidence).
+
+## Results (2026-11-16)
+
+Measured on multivac (RTX 4080, Windows, Vulkan, base build, warm cache)
+with one probe build: the counters of CE-0.4 in the ShiftGlue perf log,
+`process_us` on the render-test wait and input events (CE-0.1), the
+launch-option dump `pinyon_shift_console_option_census` (CE-0.3) and the
+`ce-load` route, which syncs on Press Start, the car in free roam, the
+car-select thumbnails and the race's replay stream from the
+`appdata-2026-09-27` seed. Loads are timed from the button press to the
+state the route waits for.
+
+**The one big console-era wait was not the disc.** The tip loading screen
+has a minimum time on screen: 1 s from the title screen to free roam, 3 s
+into an event. The main thread yields until the renderer's deadline
+passes, however early loading finished ([threads](../site/findings/threads.toml),
+"loading screen minimum time"). Clearing the deadline as soon as it is set:
+
+| Load | Console minimum | Cleared |
+| --- | --- | --- |
+| Title screen to free roam | 1.56 s | 0.55 s |
+| Car select to race loaded | 4.62 s | 1.66 s |
+| Retiring from a race to free roam | 4.22 s | 1.32 s |
+
+Race captures after the load were pixel-identical, and the loading screen
+still appears and fades. `pinyon_shift_loading_screen_minimum` (off by
+default; base and v4) keeps the console behaviour. A second build with the
+replacement in `src/guest_native/loading_screen.cpp` gave 0.51 s and 1.71 s
+against 1.52 s and 4.65 s with the minimum kept. The exit is timed from
+confirming the retire to the free-roam fade-in; there the game held a black
+screen for most of the 3 s before its loading screen appeared. Fast travel
+does not set the minimum. On the v4 build (seed `backport-1115-v4`) the same
+route went from 1.70 s and 4.53 s to 0.73 s and 1.59 s.
+
+Where the rest of a load goes (one run; boot is process start to Press
+Start, 6.45 s):
+
+| Counter | Boot | Title to free roam | Free roam to car select | Car select to race loaded | Whole route |
+| --- | --- | --- | --- | --- | --- |
+| File opens (ms) | 757 (106) | 209 (47) | 177 (41) | 210 (36) | 1,355 (230) |
+| File reads (MB, ms) | 43, 18 | 59, 25 | 85, 43 | 37, 15 | 263, 122 |
+| LZX, native (calls, ms) | 547, 29 | 1,643, 120 | 5,907, 404 | 2,522, 181 | 11,305, 776 |
+| Deflate, guest (calls, ms) | 0 | 2, 0.2 | 46, 14 | 50, 13 | 98, 27 |
+| Disc lock held (ms) | 129 | 102 | 35 | 22 | 299 |
+| XAM sleeps (ms) | 0 | 151 | 0 | 0 | 151 |
+| GPU allocations (count, ms) | 17, 1.8 | 44, 1.8 | 879, 11 | 5, 0.2 | 1,293, 18 |
+| Texture loads (count, CPU ms) | 8, 11 | 3,126, 4 | 6,286, 16 | 1,377, 3 | 20,850, 60 |
+
+During the title-to-free-roam load the main thread and the asset workers
+spent 75-90 % of their time waiting (thread sampler), not computing: with
+the minimum gone, what is left is the game's own sequential work.
+
+| Row | Result |
+| --- | --- |
+| CE-0.1, 0.3, 0.4 | Done on multivac as above. The Deck and the Odin were not run: the one kept change is a wait that does not depend on the device |
+| CE-0.2 | Warm runs only; a cold-cache run was not made. Reads are 122 ms of a whole route warm |
+| CE-1 | Two deferred completions and one dialog close, 151 ms of sleeps. Setting `xam_deferred_completion_ms` and `xam_ui_close_delay_ms` to 0 moved Press Start and both loads by +0.09 s, within noise. Rejected; the delays stay as cvars at 25 and 100 ms |
+| CE-2 | No host occlusion-query ends on Windows: host queries turn themselves off and the game reads emulated counts. Nothing to remove here |
+| CE-3 | 1,355 opens in 230 ms (170 µs each) and 7,760 queries in 29 ms per route. At most 0.2 s per session; not pursued |
+| CE-4 | No scatter reads. Dropped |
+| CE-5 | Not measured cold; 88 % of reads are on asynchronous handles completed inline, 122 ms in all warm |
+| CE-6 | 1,293 allocations, 18 ms per route. Not worth committing the mirror up front |
+| CE-7 | 20,850 non-resolve texture loads, 60 ms of CPU per route. Not pursued |
+| CE-8, CE-9 | Not run: in-place ISO reads are deferred, and STFS is install-time only |
+| CE-10 | Held 299 ms per route. Skipping the bracket broke loading (car-select thumbnails never arrived). Rejected |
+| CE-11 | Defaults read (systems, "memory arenas sized at boot"). Not tried: nothing pointed at arena evictions, and resizing is the riskiest row |
+| CE-12 | `filecachesize` 30 MiB, `filechunksize` 1 MiB, `checkzipcrc` already 0. A 4 MiB chunk (with `keepcarpartmemory` on) gave 0.44 s and 1.73 s against 0.51 s and 1.71 s: no change. Rejected |
+| CE-13 | The flow-graph gates are the game's own; the fixed wait that mattered was the renderer's minimum above |
+| CE-14 | `dvdsafe` has no reader (static). `keepcarpartmemory` on changed neither load into the race (above); with the 4 MiB chunk it retired to free roam in 1.30 s against 1.32 s. Rejected. `enablepvspredictahead` is already 1 and `pausephysicsonstreaming` 0, so nothing is held back by default |
+| CE-15 | Guest deflate is 27 ms per route. NR-8 is not worth doing for loading |
+| CE-16 | Not needed: decompression is 0.8 s per route, all of it native LZX |
+| CE-17, CE-18 | Not loading; left to the audio research (NN-4.2, NR-6) |
+| CE-19 | No guest delay was truncated to whole milliseconds in the route. Dropped |
 
 ## CE-0: measure loads first
 

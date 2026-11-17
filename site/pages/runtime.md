@@ -96,6 +96,7 @@ Small changes in how the host waits paid off more than most code generation work
 | The XHV2 voice-chat thread's tick is skipped while no voice session exists, and the thread waits 50 ms instead | Odin race, in-run: that thread 0.121 to 0.013 ms of CPU a frame, instructions −92 % |
 | POSIX multi-object and alertable waits wake on signal instead of polling every 1 ms | Odin process CPU −6 to −9 %, audio thread −9 to −12 % |
 | Vblank timing with high-resolution waitable timers and a spin tail | vblank lateness 43 µs mean |
+| The tip loading screen's minimum time on screen (1 s from the title, 3 s into and out of events), which the main thread waited out however early loading finished, is cleared as soon as the screen is shown ([finding](game-threads.md)) | multivac: title to free roam 1.56 to 0.55 s, car select to race 4.62 to 1.66 s, retire to free roam 4.22 to 1.32 s |
 
 Two host behaviours to watch for: Windows rounds a sub-millisecond `Sleep` to a yield, and a yield that returns at once can expose races the console's scheduler hid. The game's job producer gave up after 1,000 `NtYieldExecution` calls on Android; a hook now waits in host time there.
 

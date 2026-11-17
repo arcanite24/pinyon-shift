@@ -459,5 +459,16 @@ name = """exclusive disc IO bracket"""
 what = """Nineteen functions that load in the foreground, among them the mission-flow XML loader `sub_82617EC0`, audio `sub_82BB2490`, `sub_82D17048` and `sub_82E50C68`, name `ExclusiveDiscIOLock` and bracket their reads with `sub_82E43888` and `sub_82E438B8`. These count up and down atomically at asset-pool +1556 and reset and set an event at pool +112 that the streaming workers `82E4B2D0` and `82E4B3A0` wait on, so background streaming pauses during a foreground read: a guard against DVD seeks."""
 how = """String cross-references and the bracket functions' bodies in the generated code."""
 confidence = """probable"""
-note = """Whether the count also guards shared state, and how long the bracket is held, are not measured (CE-10)."""
+note = """Measured on multivac (base, `ce-load` route from the 2026-09-27 seed): 102 entries per run, held 129 ms during boot, 102 ms from the title to free roam and 22 ms through car select into a race; 299 ms in all. Skipping both calls so streaming keeps running did not speed anything up and broke loading: the car-select thumbnails never arrived (the route timed out waiting for them), so the count or the event guards more than disc seeks. Rejected (CE-10)."""
+negative = true
 source = """docs/CONSOLE_ERA_RESEARCH.md CE-10"""
+
+[[finding]]
+group = "Main loop"
+base = "sub_825A2CB8, sub_8259F3E8, sub_82649F20, sub_82A6D640, renderer +2072, +2088"
+v4 = "sub_8261A100, sub_826164D0, sub_826F2F08"
+name = "loading screen minimum time"
+what = "When the tip loading screen (PLEASE WAIT with a tip) is shown, the renderer method `sub_825A2CB8` (a vtable slot at `0x820032F0`) sets a deadline at renderer +2088 under the renderer's lock: the render stopwatch (+2280) plus a minimum time on screen, a float at +2072. The render frame `sub_8259F3E8` sets the deadline back to -1.0 once the stopwatch passes it, and the main thread's load step `sub_82649F20` yields (`sub_82A6D640`, a thread-yield wrapper) while it is positive. The minimum is 1 s on the way from the title screen to free roam and 3 s into and out of an event; fast travel does not use it. On a disc the load outlasted it; from a modern drive it is most of the load on multivac: 1.0 s of the 1.56 s title-to-free-roam load, 2.9 s of the 4.62 s car-select-to-race load and 2.9 s of the 4.22 s retire to free roam. Pinyon Shift clears the deadline right after the method sets it (`pinyon_shift_loading_screen_minimum`, off by default), so the screen still appears and leaves when loading is done; race captures after the load were pixel-identical."
+how = "A host thread polling the renderer's fields and logging each deadline and duration; the main thread's stack in a hitch-sampler run of the title-to-free-roam load; the generated code of the setter and the waiter; A/B on the `ce-load` route with captures through both loading screens."
+confidence = "confirmed"
+source = "docs/CONSOLE_ERA_RESEARCH.md, Results; src/guest_native/loading_screen.cpp"
