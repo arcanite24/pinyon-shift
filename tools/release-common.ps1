@@ -1041,11 +1041,56 @@ function Copy-PinyonKitRuntime {
         if (-not (Test-Path -LiteralPath $target)) { Copy-Item -LiteralPath $dll.FullName -Destination $target }
     }
 }
+# Gives an unpacked release archive the current time, once per key. The
+# archives store a fixed 1980 date so they are reproducible, and unpacked files
+# keep it: a kit header that changed with an update then looks older than the
+# objects and precompiled headers built from the old one, Ninja rebuilds none
+# of them, and clang stops with "has been modified since the precompiled header
+# was built" (#1097, #1098).
+function Update-PinyonUnpackedTimes {
+    param([Parameter(Mandatory)] [string]$Root, [Parameter(Mandatory)] [string]$Key)
+    $stamp = Join-Path $Root '.pinyon-fresh'
+    if ((Test-Path -LiteralPath $stamp -PathType Leaf) -and
+        (Get-Content -LiteralPath $stamp -Raw).Trim() -eq $Key) {
+        return
+    }
+    $now = [DateTime]::UtcNow
+    foreach ($file in [IO.Directory]::EnumerateFiles($Root, '*', [IO.SearchOption]::AllDirectories)) {
+        try { [IO.File]::SetLastWriteTimeUtc($file, $now) } catch { }
+    }
+    Set-Content -LiteralPath $stamp -Value $Key -Encoding ascii
+}
+# Removes a build tree's precompiled headers when the compiler setup they were
+# made with changed: the kit or pinned revision, the LLVM or the MSVC headers
+# (the xwin sysroot's version). Clang refuses a PCH from another MSVC version
+# (#1096) or whose headers changed size (#1097), and Ninja sees neither. A tree
+# without the record (built before it existed) loses its PCHs once.
+function Remove-PinyonStalePch {
+    param([Parameter(Mandatory)] [string]$BuildDirectory)
+    if (-not (Test-Path -LiteralPath $BuildDirectory -PathType Container)) { return }
+    $config = Get-PinyonReleaseToolchain
+    $kit = ''
+    $manifest = Join-Path (Resolve-PinyonLocalPath -RelativePath '.local/shiftglue-kit') 'kit.json'
+    if (Test-Path -LiteralPath $manifest -PathType Leaf) {
+        $kit = [string](Get-Content -LiteralPath $manifest -Raw | ConvertFrom-Json).shiftglue_revision
+    }
+    $key = "kit=$kit;revision=$($config.rexglue.revision);llvm=$($config.llvm.version);msvc=$env:VCToolsVersion"
+    $record = Join-Path $BuildDirectory '.pinyon-pch-key'
+    if ((Test-Path -LiteralPath $record -PathType Leaf) -and
+        (Get-Content -LiteralPath $record -Raw).Trim() -eq $key) {
+        return
+    }
+    foreach ($pch in [IO.Directory]::EnumerateFiles($BuildDirectory, 'cmake_pch*.pch', [IO.SearchOption]::AllDirectories)) {
+        try { [IO.File]::Delete($pch) } catch { }
+    }
+    Set-Content -LiteralPath $record -Value $key -Encoding ascii
+}
 # Downloads and unpacks the pinned kit. Returns its folder, or $null (with the
 # reason on the warning stream) so setup can fall back to the source tree.
 function Install-PinyonShiftGlueKit {
     $existing = Get-PinyonShiftGlueKitRoot
     if ($existing) {
+        Update-PinyonUnpackedTimes -Root $existing -Key (Get-PinyonReleaseToolchain).rexglue.revision
         Copy-PinyonKitRuntime -KitRoot $existing -Destination (Join-Path $existing 'bin')
         return $existing
     }
@@ -1069,7 +1114,10 @@ function Install-PinyonShiftGlueKit {
         return $null
     }
     $installed = Get-PinyonShiftGlueKitRoot
-    if ($installed) { Copy-PinyonKitRuntime -KitRoot $installed -Destination (Join-Path $installed 'bin') }
+    if ($installed) {
+        Update-PinyonUnpackedTimes -Root $installed -Key (Get-PinyonReleaseToolchain).rexglue.revision
+        Copy-PinyonKitRuntime -KitRoot $installed -Destination (Join-Path $installed 'bin')
+    }
     $installed
 }
 # TP-3 host split: the release's prebuilt host objects for a variant (base or
@@ -1109,6 +1157,7 @@ function Install-PinyonHostObjects {
         Remove-PinyonTree -Path $target
         Move-Item -LiteralPath $children[0].FullName -Destination $target
         Remove-PinyonTree -Path $staging
+        Update-PinyonUnpackedTimes -Root $target -Key $entry.sha256
         Set-Content -LiteralPath $stamp -Value $entry.sha256 -Encoding ascii
     }
     catch {
