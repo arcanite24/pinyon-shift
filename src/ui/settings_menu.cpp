@@ -579,12 +579,12 @@ std::unique_ptr<MenuScreen> SettingsPages::Display() {
   const bool frame_generation_tested = false;
 #endif
   if (services_.frame_generators && frame_generation_tested) {
-    std::vector<Choice> generators = {{"OFF", {{"present_frame_generation", "off"}}}};
+    std::vector<Choice> generators = {{"OFF", {{"present_frame_generation", "\"off\""}}}};
     const std::string saved = Unquote(Saved("present_frame_generation"));
     for (const rex::ui::UpscalerInfo& info : services_.frame_generators()) {
       if (info.available || SameValue(saved, info.id)) {
         generators.push_back({SameValue(info.id, "fsr3") ? std::string("FSR 3") : Upper(info.id),
-                              {{"present_frame_generation", info.id}}});
+                              {{"present_frame_generation", "\"" + info.id + "\""}}});
       }
     }
     if (generators.size() > 1) {
