@@ -31,6 +31,10 @@ Restart Windows after a Build Tools install, free the space the error lists for 
 
 When the Visual Studio Installer stops, the error gives its exit code and, for the common ones, the reason: the installer or Visual Studio is already open, or another installation is running. The installer's own logs, the `dd_*.log` files in `%TEMP%`, explain the other codes. The launcher copies the ones from the failed attempt to `.local/logs/build-tools-installer`; attach them with `setup-error.json`. If the installer keeps failing, open **Visual Studio Installer** from the Start menu, repair or remove an incomplete Build Tools install, and restart Windows. Or install the Build Tools yourself with **Desktop development with C++**; the launcher uses an existing install.
 
+## "Modified since the precompiled header" after an update
+
+0.9.0's setup could stop on its first build after an update with `file '…' has been modified since the precompiled header '…cmake_pch.hxx.pch' was built` (the file is a ShiftGlue header, or an MSVC header when Windows updated the Build Tools). The kit's files are unpacked with a fixed 1980 date, so the build tool saw nothing newer than the old build and reused a precompiled header made from the previous kit or compiler. Setup now dates freshly unpacked kit files to the install time and deletes the precompiled headers when the kit, the compiler or the MSVC version changes, so the next build makes them again. With 0.9.0 itself, delete the build folder the error names, such as `out/build/win-amd64-release` (`linux-amd64-release` or `macos-arm64-release` on Linux and Macs, `win-amd64-v4` for the title update build; on a Mac, Finder hides `.local`, so press Cmd+Shift+. to show it), and start setup again.
+
 ## A portable install can't start or build
 
 - **"Portable folder is not writable"**: move the folder somewhere you own, such as `D:\Games\PinyonShift`, or delete `portable.txt`.
