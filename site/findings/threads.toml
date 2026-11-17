@@ -451,3 +451,13 @@ what = "The job wait helper at 82412688 polls object bytes +40 and +41 before ta
 how = "Generated control-flow and field-access analysis; default-off read/store observations in desktop r2-race1 and r2-boot21, including the last matching writer's thread and sequence. A final repeat without memory observers still diverges at the same job lock versus another polling timebase read. No memory value was substituted by the diagnostic."
 confidence = "confirmed"
 source = "docs/CLEAN_SLATE_STAGE0.md#cs-01-per-thread-replay-and-shared-memory-order"
+
+[[finding]]
+group = """Thread map"""
+base = """sub_82E43888, sub_82E438B8, asset pool +112, +1556"""
+name = """exclusive disc IO bracket"""
+what = """Nineteen functions that load in the foreground, among them the mission-flow XML loader `sub_82617EC0`, audio `sub_82BB2490`, `sub_82D17048` and `sub_82E50C68`, name `ExclusiveDiscIOLock` and bracket their reads with `sub_82E43888` and `sub_82E438B8`. These count up and down atomically at asset-pool +1556 and reset and set an event at pool +112 that the streaming workers `82E4B2D0` and `82E4B3A0` wait on, so background streaming pauses during a foreground read: a guard against DVD seeks."""
+how = """String cross-references and the bracket functions' bodies in the generated code."""
+confidence = """probable"""
+note = """Whether the count also guards shared state, and how long the bracket is held, are not measured (CE-10)."""
+source = """docs/CONSOLE_ERA_RESEARCH.md CE-10"""

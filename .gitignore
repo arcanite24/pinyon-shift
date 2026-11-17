@@ -79,6 +79,7 @@ private/
 !/docs/MALI_BACKLOG.md
 !/docs/SAVE_SYNC.md
 !/docs/BEYOND_RECOMP_RESEARCH.md
+!/docs/CONSOLE_ERA_RESEARCH.md
 !/docs/FULL_FRAME_RENDERER.md
 
 # Build output and tooling state.

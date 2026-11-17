@@ -141,3 +141,13 @@ confidence = """probable"""
 note = """The map-pin reading of the coordinates is a guess."""
 negative = true
 source = """docs/TITLE_UPDATE_V4_BACKLOG.md Review of the base-disc Rally adapter"""
+
+[[finding]]
+group = """Flow scripts"""
+base = """media/gamemodes.zip; behaviour registered in sub_829944C0"""
+name = """loading waits in the flow graphs"""
+what = """Loads are gated by state, not by timers. `global.wait_for_streaming` (`CWaitForStreaming`) appears four times in the free-roam flow, twice in festival races and once in fast travel; free roam and the festival also wait in `LoadAndWaitForLOD0Cars`, and `enable_streaming`/`disable_streaming` bracket loads. The only fixed waits are `wait_half_sec` after the nemesis sequence, one `wait_2_sec`, one `wait_3_sec` and three `wait_one_frame`. `CCompressDatabase` states (`decompress_database_wait`, `compress_database_*`) are defined but used by no flow file read so far."""
+how = """Element and attribute census of the extracted flow XML."""
+confidence = """confirmed"""
+note = """The time spent inside `CWaitForStreaming` is not measured (CE-0.1, CE-13); its update method is not traced."""
+source = """docs/CONSOLE_ERA_RESEARCH.md CE-13"""
