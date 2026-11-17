@@ -86,6 +86,10 @@ With **F6 > DISPLAY > VSYNC** on, the game presents without tearing on both Vulk
 
 The renderer supports 1x, 2x, 3x and 4x, the same horizontally and vertically. Pick a supported scale in the launcher, or delete `pinyon_shift.toml` to reset.
 
+## Settings ignored at startup
+
+The game reads `pinyon_shift.toml` as TOML, and a file that does not parse applies none of its settings: the game starts on the built-in defaults (no FRAME RATE limit, 1x scale, presents capped at 60), which on a 120 Hz display renders 120 frames and shows 60. The log now says so (`Config ... does not parse`, with the line). Development builds from 2026-11-16 wrote **FRAME GENERATION** as `present_frame_generation = off` without quotes, which caused this; the game now quotes that line at startup and keeps the old file as `pinyon_shift.toml.framegeneration.bak`.
+
 ## A hang after changing display or graphics settings
 
 VSYNC and fullscreen changes rebuild the Vulkan swapchain. Retirement waits for drawing and drains the presentation queue before releasing its semaphores. Image acquisition uses a 50 ms timeout per attempt so an occluded window can keep processing events. These safeguards address unsafe lifetime handling; they do not establish that every reported hang has the same cause.
