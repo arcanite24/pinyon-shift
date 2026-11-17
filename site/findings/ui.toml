@@ -91,6 +91,17 @@ source = """docs/MODDING.md HUD labels and menu actions; src/ui/settings_menu.cp
 
 # -------------------------------------------------------------- Scene files
 
+
+[[finding]]
+group = """UI system"""
+base = """sub_82E71F90, sub_82E61070, sub_82E75160, sub_82E751D0, sub_82E5FEC8, sub_82F311A0, sub_827DAA40"""
+v4 = """sub_82F339E0, sub_82F22C80, sub_82F36C50, sub_82F36CC0, sub_82FE54A8, sub_82FF2230, sub_8288D9C0"""
+name = """user interface update, and the custom renderers it submits"""
+what = """`CUserInterface4` vtable slot 48 (`sub_82E71F90`; slot 51 in v4) is the interface's per-frame update on the simulation thread. It takes the frame time in f1 (clamped) and stores what its children read, so they take no time argument. Below it: the custom-object pass `sub_82E61070`, which calls `CUI4CustomObjectFactory` slot 5 (`sub_82E75160`) and slot 6 (`sub_82E751D0`, the HUD stackers `CSuperStackerCtrl`) for each custom control, the scene manager's update (`CUI4SceneManager` slot 4, `sub_82E5FEC8`) and `sub_82F311A0`. Slot 5 includes the custom renderer controls' submission, `CCustomRendererCtrl` slot 20 (`sub_827DAA40`): it reads only the control's own fields (+100, +132, +136) and hands its drawing to the renderer. The minimap is one (`CUIMapRenderer` slot 2 and its `CMapSymbolizerLayer` layers), 18 % of the update. Skipping the whole update on alternate frames keeps the HUD text and gauges on screen but draws garbage where the minimap goes; submitting each custom renderer again on the skipped frames fixes it. On the Deck, running the update (with that fix) on one frame in two took 0.46 and 0.70 ms of CPU a frame off the simulation thread in two in-run A/B runs (5.8-6.0 to 5.3 ms); one frame in three took 0.71 ms. On the desktop at 120 fps it took 0.39 ms without the fix."""
+how = """Deck and desktop call graphs; captures of the race route with the update skipped; `pinyon_shift_ui_update_interval` (src/guest_native/ui_update.cpp) in-run A/B on `fh1-race-sustained`, every 240 frames, Steam-launched on the Deck LCD (2026-11-13), summarised with `tools/summarize-inrun-ab.py`."""
+confidence = """confirmed"""
+source = """GitHub issue #1071 P3; src/guest_native/ui_update.cpp"""
+
 [[finding]]
 group = """Scene files"""
 base = '''GAME:\Media\UI\Scenes\UI4\925_PAUSE_MENU.bgf, 0x82036AD4, 82F260C8, 82DB7BC0, 82F248F0'''

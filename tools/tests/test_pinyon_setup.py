@@ -466,6 +466,90 @@ static_assert(rex::byte_swap(uint64_t{0x0123456789abcdef}) == 0xefcdab8967452301
             self.assertFalse((temp / output).exists())
 
 
+class UnpackTests(unittest.TestCase):
+    DEEP = "top/" + "/".join(["d" * 40] * 6) + "/f.json"
+
+    def test_files_deeper_than_max_path_unpack(self):
+        # #1072: the NDK's deepest files pass 260 characters under a long
+        # install folder, and Windows refuses them without LongPathsEnabled.
+        import io
+        import os
+        import tarfile
+        import shutil
+        import zipfile
+        base = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, pinyon_setup.long_path(base), True)
+        zipped = base / "a.zip"
+        with zipfile.ZipFile(zipped, "w") as stream:
+            stream.writestr(self.DEEP, "x")
+        tarred = base / "a.tar.gz"
+        with tarfile.open(tarred, "w:gz") as stream:
+            info = tarfile.TarInfo(self.DEEP)
+            info.size = 1
+            stream.addfile(info, io.BytesIO(b"x"))
+        for archive in (zipped, tarred):
+            install = base / ("install-" + archive.suffix[1:]) / "ndk" / "29.0.14206865"
+            pinyon_setup.unpack(archive, install)
+            inner = pinyon_setup.long_path(install) / self.DEEP.split("/", 1)[1]
+            self.assertGreater(len(str(install)) + len(self.DEEP), 260)
+            self.assertTrue(os.path.isfile(inner), archive.name)
+
+    def test_appledouble_files_do_not_keep_the_top_folder(self):
+        # #1052: on exFAT, macOS writes ._python beside the unpacked python/.
+        import shutil
+        import zipfile
+        base = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, base, True)
+        archive = base / "python.zip"
+        with zipfile.ZipFile(archive, "w") as stream:
+            stream.writestr("python/bin/python3", "x")
+            stream.writestr("._python", "apple double")
+        install = base / "python-3.13"
+        pinyon_setup.unpack(archive, install)
+        self.assertTrue((install / "bin" / "python3").is_file())
+
+    def test_the_install_drive_file_system_comes_from_mount(self):
+        # #1053: setup stops on exFAT and FAT drives on macOS.
+        output = ("/dev/disk3s1s1 on / (apfs, sealed, local, read-only, journaled)\n"
+                  "/dev/disk3s5 on /System/Volumes/Data (apfs, local, journaled, nobrowse)\n"
+                  "/dev/disk4s1 on /Volumes/T7 Shield (exfat, local, nodev, nosuid, noowners)\n"
+                  "/dev/disk5s1 on /Volumes/T7 Shield/image (apfs, local, nodev, nosuid)\n")
+        kind = pinyon_setup.mount_filesystem
+        self.assertEqual(kind(Path("/Volumes/T7 Shield/PinyonShift"), output), "exfat")
+        self.assertEqual(kind(Path("/Volumes/T7 Shield/image/PinyonShift"), output), "apfs")
+        self.assertEqual(kind(Path("/Volumes/T7 Shieldx"), output), "apfs")
+        self.assertIn("exfat", pinyon_setup.MACOS_UNSUPPORTED_FILESYSTEMS)
+
+    def test_download_progress_accepts_a_plain_callable(self):
+        # #1041/#1042: the Android build passed a lambda, which has no stage.
+        payload = b"x" * (3 << 20)
+        item = {"url": "https://example.invalid/kit.zip",
+                "sha256": hashlib.sha256(payload).hexdigest().upper()}
+
+        class Response:
+            headers = {"Content-Length": str(len(payload))}
+
+            def __init__(self):
+                self.left = payload
+
+            def read(self, size):
+                block, self.left = self.left[:size], self.left[size:]
+                return block
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        messages = []
+        clock = iter(range(0, 1000, 3))
+        with tempfile.TemporaryDirectory() as temporary,                 patch.object(pinyon_setup, "DOWNLOADS", Path(temporary)),                 patch.object(pinyon_setup.urllib.request, "urlopen", lambda *a, **k: Response()),                 patch.object(pinyon_setup.time, "monotonic", lambda: next(clock)):
+            target = pinyon_setup.download(item, lambda _s, _p, m: messages.append(m), "the kit")
+            self.assertEqual(target.read_bytes(), payload)
+        self.assertTrue(any(m.startswith("Downloading the kit") for m in messages))
+
+
 class SteamShortcutTests(unittest.TestCase):
     def test_binary_vdf_round_trips(self):
         value = {"shortcuts": {"0": {"appid": -12345, "AppName": "Pinyon Shift",

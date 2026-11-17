@@ -369,6 +369,10 @@ function Install-PinyonMsvcSysroot {
         [IO.Directory]::Move($inner[0].FullName, $xwinRoot)
         Remove-PinyonTree -Path $staging
     }
+    # xwin needs the Visual C++ runtime, which only the kit brings to a PC
+    # without Visual Studio.
+    $kit = Install-PinyonShiftGlueKit
+    if ($kit) { Copy-PinyonKitRuntime -KitRoot $kit -Destination $xwinRoot }
     $root = Resolve-PinyonLocalPath -RelativePath $sysroot.install_path
     # xwin renames unpacked files into the output, which fails across drives
     # (os error 17), so the cache sits beside the sysroot, not in downloads.
@@ -1024,11 +1028,27 @@ function Get-PinyonShiftGlueKitRoot {
     if ($kit.shiftglue_revision -ne $config.rexglue.revision -or $kit.platform -ne 'windows-x64') { return $null }
     $kitRoot
 }
+# Copies the kit's Microsoft C++ runtime DLLs (redist/) beside the programs
+# in a folder that need it, without replacing any. A PC without the Visual C++
+# redistributable has no VCRUNTIME140.dll: the kit's rexglue.exe and xwin.exe
+# fail to start there (0xC0000135) without app-local copies.
+function Copy-PinyonKitRuntime {
+    param([Parameter(Mandatory)] [string]$KitRoot, [Parameter(Mandatory)] [string]$Destination)
+    $redist = Join-Path $KitRoot 'redist'
+    if (-not (Test-Path -LiteralPath $redist)) { return }
+    foreach ($dll in Get-ChildItem -LiteralPath $redist -Filter '*.dll') {
+        $target = Join-Path $Destination $dll.Name
+        if (-not (Test-Path -LiteralPath $target)) { Copy-Item -LiteralPath $dll.FullName -Destination $target }
+    }
+}
 # Downloads and unpacks the pinned kit. Returns its folder, or $null (with the
 # reason on the warning stream) so setup can fall back to the source tree.
 function Install-PinyonShiftGlueKit {
     $existing = Get-PinyonShiftGlueKitRoot
-    if ($existing) { return $existing }
+    if ($existing) {
+        Copy-PinyonKitRuntime -KitRoot $existing -Destination (Join-Path $existing 'bin')
+        return $existing
+    }
     $entry = Get-PinyonShiftGlueKitEntry
     if ($null -eq $entry) { return $null }
     $kitRoot = Resolve-PinyonLocalPath -RelativePath '.local/shiftglue-kit'
@@ -1048,7 +1068,9 @@ function Install-PinyonShiftGlueKit {
         Write-Warning "The prebuilt ShiftGlue kit could not be installed; building ShiftGlue from source instead. $($_.Exception.Message)"
         return $null
     }
-    Get-PinyonShiftGlueKitRoot
+    $installed = Get-PinyonShiftGlueKitRoot
+    if ($installed) { Copy-PinyonKitRuntime -KitRoot $installed -Destination (Join-Path $installed 'bin') }
+    $installed
 }
 # TP-3 host split: the release's prebuilt host objects for a variant (base or
 # v4), pinned like the kit by tools/apply-prebuilt-pins.py.

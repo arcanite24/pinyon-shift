@@ -410,7 +410,7 @@ instruction-to-CPU elasticity of 0.52-0.6 (#467).
 
 | ID | Work | Why (overhead) | Estimate | Gate | Effort |
 | --- | --- | --- | ---: | --- | --- |
-| NN-5.1 | **Physics specialised at build time**, pilot `sub_82D2F348` and `sub_82D21DB0`. [LEGAL.md](LEGAL.md#native-replacements-of-game-and-library-code) rules out committing hand translations of game logic, so the native form is generated from the player's executable: per-function generator options for the family (register locals inside the function, host-order temporaries for non-escaping data, single-precision and vector lowering where the guest code is single precision), compared with today's translation by tolerance verify. A hand-written native version is allowed only for a function whose contract can be specified from our own analysis (a standard integrator or collision primitive), not for unnamed logic. The family is 131 functions, 117 unnamed; the expected MLP kernel does not exist; the RacingAI job runs in bursts. | The pool is about 11.5 % of process cycles (cg2, 30 fps, pre-NL; about 6.5 ms per 30 fps frame, estimate), 86 % of the job workers; native leaves ran 1.8-2.2x | 0.2-0.65 steady for the pilot, on top of NN-1.x (not the pool's size) | pilot gains at least 0.1 ms; determinism checks in Verification | XL |
+| NN-5.1 | **Physics specialised at build time**, pilot `sub_82D2F348` and `sub_82D21DB0`. The policy of the time ([LEGAL.md](LEGAL.md#native-replacements-of-game-and-library-code), until 2026-11-12) ruled out hand-written native game logic, so the native form is generated from the player's executable: per-function generator options for the family (register locals inside the function, host-order temporaries for non-escaping data, single-precision and vector lowering where the guest code is single precision), compared with today's translation by tolerance verify. Since 2026-11-12 LEGAL.md also allows clean-room native versions of the family (#1070 item 5). The family is 131 functions, 117 unnamed; the expected MLP kernel does not exist; the RacingAI job runs in bursts. | The pool is about 11.5 % of process cycles (cg2, 30 fps, pre-NL; about 6.5 ms per 30 fps frame, estimate), 86 % of the job workers; native leaves ran 1.8-2.2x | 0.2-0.65 steady for the pilot, on top of NN-1.x (not the pool's size) | pilot gains at least 0.1 ms; determinism checks in Verification | XL |
 | NN-5.2 | **SpeechFacade idle**: keep the library (8.1 MB packaged, 16.8 MB unstripped in the build tree) from loading or running in gameplay; guest thread `82ADA220` requests the load and no samples fall in its code | memory | RSS only | PSS -8 MB (smaps) | S |
 
 ### NN-6 Memory
@@ -595,11 +595,12 @@ Odin's 38.8 ms, leaving 19-29 ms a frame, against an estimated native
   spread of up to 23 %. Without NN-0.3 they cannot be told apart from
   noise.
 - **Legal policy.** [LEGAL.md](LEGAL.md#native-replacements-of-game-and-library-code)
-  now sets the rules for native replacements (2026-10-13): contract-based,
-  independently written code with published or licensed algorithms may be
-  committed; hand translations, copied data and middleware's own
-  algorithms may not. NN-4.3 and NN-5.1 are scoped to fit it. The native
-  versions of `pow` and LZX already fit it (published algorithms).
+  sets the rules for native replacements. Since 2026-11-12 any clean-room
+  native version written from our own analysis may be committed, up to a
+  whole subsystem; only transcriptions of disassembly or decompiler output
+  and data copied from the executable may not. (From 2026-10-13 to
+  2026-11-12 it allowed only contract-based code with published
+  algorithms, which is why NN-5.1 was scoped to build-time generation.)
 - **NN-2.3's constant source** is unresolved, and its repeat share ranges
   from 49 % to 89 % depending on the census. The only public precedent,
   Dolphin's display-list cache, was removed (4.0-758) after it gave a

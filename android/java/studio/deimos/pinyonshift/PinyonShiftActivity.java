@@ -183,6 +183,20 @@ public class PinyonShiftActivity extends SDLActivity {
         return true;
     }
 
+    // The save sync folder in the app's media folder on internal storage,
+    // made when missing; null when there is none.
+    @SuppressWarnings("deprecation")
+    private File syncFolder() {
+        File[] media = getExternalMediaDirs();
+        if (media == null || media.length == 0 || media[0] == null) return null;
+        File sync = new File(media[0], "sync");
+        if (!sync.isDirectory() && !sync.mkdirs()) {
+            Log.w(TAG, "Cannot create the save sync folder " + sync);
+            return null;
+        }
+        return sync;
+    }
+
     // The intent's args, then the lines of state/config/android-arguments.txt,
     // which the setup screen writes (1000 Club offline with title update v4).
     @Override
@@ -190,6 +204,15 @@ public class PinyonShiftActivity extends SDLActivity {
         Intent intent = getIntent();
         String[] given = intent != null ? intent.getStringArrayExtra("args") : null;
         List<String> arguments = new ArrayList<>();
+        // Save sync (docs/SAVE_SYNC.md): Android/media/<package>/sync, unlike
+        // the files folder under Android/data, is open to a sync app with
+        // all-files access (Syncthing-Fork), so pointing one at it shares the
+        // save. First, so the intent's args or a --pinyon_shift_sync_folder=
+        // line in the arguments file override it (an empty value turns sync
+        // off); scripted routes turn it off in the game.
+        File sync = syncFolder();
+        if (sync != null) arguments.add("--pinyon_shift_sync_folder=" + sync.getAbsolutePath());
+        arguments.add("--pinyon_shift_device_name=" + Build.MODEL);
         if (given != null) Collections.addAll(arguments, given);
         File external = getExternalFilesDir(null);
         File file = new File(external != null ? external : getFilesDir(), SetupActivity.ARGUMENTS_FILE);

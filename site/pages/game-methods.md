@@ -46,11 +46,32 @@ rg -n "REX_LOAD_\w+\(ctx\.r\d+\.u32 \+ 10488\)" generated/
 
 ### A Ghidra workspace
 
-For browsing call graphs and cross-references, `tools/re/ghidra-workspace.py` builds a Ghidra project in `.local/re/ghidra` from your own `default.xex`. It needs Ghidra 12.1.3, a JDK 21 and the XEXLoaderWV extension in `.local/re/tools` ([NL-2.2](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/NEXT_LEVEL_RESEARCH.md) lists the sources). The tool imports the executable headlessly and applies what the repository already knows: ShiftGlue's function starts, so Ghidra's functions match the generated `sub_` functions one for one, the recorded names (a "guess" stays a comment) and the vtables from `classes.json`. Analysis turns about 11,000 of the 76,885 starts into data, so the tool applies the table a second time after it. Ghidra's PowerPC language doesn't decode VMX128, so the generated C++ stays the reference for vector code. The project never leaves `.local`.
+For browsing call graphs and cross-references, `tools/re/ghidra-workspace.py` builds a Ghidra project in `.local/re/ghidra` from your own `default.xex`. It needs Ghidra 12.1.3, a JDK 21 and the XEXLoaderWV extension in `.local/re/tools` ([NL-2.2](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/NEXT_LEVEL_RESEARCH.md) lists the sources). The tool imports the executable headlessly and applies what the repository already knows: ShiftGlue's function starts, so Ghidra's functions match the generated `sub_` functions one for one, the recorded names (a "guess" stays a comment) and the vtables from `classes.json`. Analysis turns about 11,000 of the 76,885 starts into data, so the tool applies the table a second time after it. Ghidra's PowerPC language doesn't decode VMX128, so the generated C++ stays the reference for vector code. The project stays on your machine.
 
 ```sh
 python -I tools/re/ghidra-workspace.py --generated .local/generated/default
 ```
+
+After the import, the tool runs `RepairHelperFlow.java` over the project. ShiftGlue splits each register save and restore helper (`__savegprlr_14` and the like) into one function a register, each falling through into the next, so Ghidra's analysis marks them non-returning and turns every prologue call into a tail call. Unrepaired, about a quarter of the functions end after their prologue and lose their callers and callees; on the FH1 workspace the pass cleared about 24,000 such call overrides and changed about 18,000 bodies. Flow also stops at the first VMX128 instruction, so the pass extends each body up to the next ShiftGlue start (13,760 functions). The decompiler still can't read past a vector instruction, but cross-references and call graphs then cover the whole function. `--reapply-only` runs the table and the repair again on an existing project.
+
+Ghidra rejects a project path with an element that starts with a dot, so on Windows keep the project outside `.local` (for example `%LOCALAPPDATA%\PinyonRE\ghidra`) and make `.local/re/ghidra` a junction to it. Remove that junction with `rmdir`, never a recursive delete, which would follow it.
+
+### Ghidra over MCP
+
+`tools/re/ghidra-mcp.py` serves that project to an agent over MCP (stdio), headless, through [GhidraMCP](https://github.com/LaurieWired/GhidraMCP) 2.0 and pyghidra. Its docstring has the one-time setup (a venv under `.local/re/tools` and the release's `GhidraMCP.jar`). Once registered, an agent can ask for functions, callers and callees, cross-references, strings, disassembly and decompilation without the GUI. By default the session discards its changes, so renames and comments never drift from the findings records; record a result in `site/findings` instead, and the next workspace build applies it.
+
+```sh
+claude mcp add ghidra -s local -- python tools/re/ghidra-mcp.py
+```
+
+### Who issues a draw
+
+The guest stack can't name callers: the generated code keeps saved registers and the return address in host locals, so the return-address slots of guest frames are never written. Two methods work instead.
+
+- `pinyon_shift_d3d_census_callers`, with `pinyon_shift_d3d_census` (base-disc build), counts every D3D draw call and display-list run by the guest function that called it and logs the top 40 each census window (`d3d.census.callers` events). The census also splits each draw entry by where its packets go (ring, recorded command buffer, tiled). Run it once per `pinyon_shift_debug_skip_world` value to see which callers each world path feeds.
+- For whole chains, profile a frame-pointer build (preset `linux-amd64-v3-fp`) with `perf record --call-graph fp`, fold the stacks, and rank the guest functions above each draw entry and the list executor with `tools/re/draw-chains.py`. Guest functions Clang inlined into their caller don't appear.
+
+A watch on guest pages doesn't help here: the SDK's access watch covers the physical heaps only, and the renderer's draw buckets live in a virtual heap.
 
 ### Data files
 
@@ -152,6 +173,8 @@ Probe mods found the launch-option flags, the Treasure Map's reveal path and the
 
 `pinyon_shift_thread_sampler` samples every guest thread and maps the samples to guest functions; on Android, `simpleperf record --call-graph fp` does the same with call chains. A function's share of a thread is often the first hint of what it is: the render thread's idle loop and the LZX decoder were both found this way ([Threads and frame loop](game-threads.md)).
 
+`tools/subsystem-cpu.py` adds those samples up by subsystem (physics, scene submission, simulation, audio, crowd), from root functions listed in `config/performance/subsystems.toml` for both builds. A sample counts for the first group with a root on its stack or started on its thread. In a sustained race, scene submission took 36 % of the guest CPU on the desktop and 24 % on the Odin, and physics 10 % and 7 % ([Threads and frame loop](game-threads.md)).
+
 ### The probe build
 
 A sampler sees where time goes; the probe build counts what happens. `PINYON_SHIFT_RECOMP_PROBE=ON` generates the game a second time into `.local/generated-probe` with a counter at every function entry and a per-thread record of every indirect call's target (`rex/ppc/probe.h`). When a scripted route completes, the runtime writes `logs/probe.json` into the run's state directory, and one script reads any number of them:
@@ -174,6 +197,8 @@ python tools/run-fh1-render-test.py config/render-tests/fh1-free-roam.fh1test --
 The runner copies the seed into a private directory for each run, takes captures at fixed frames and reports the route's events. Two runs that differ in one cvar or one probe give an A/B pair; the car LOD and draw-distance records on [World and tracks](game-world.md) are such pairs, and most of them are negative.
 
 On a phone, thermal drift makes two separate runs hard to compare, so a toggle is flipped every few hundred frames inside one run instead.
+
+A change meant to keep behaviour rather than pixels, such as a native replacement of the car physics, is compared by how the cars drive. `--pinyon_shift_physics_trace=6` records every car's speed, engine, gear and controls, and `tools/physics-behaviour.py compare` checks the player's 0-100 km/h time, a race's or Rally stage's time, and the AI field's mean distance. Two runs of the same build are not identical: in a sustained race, single AI cars moved by up to 4 % and swapped places, while the 0-100 time held within 0.5 % and the AI's Rally stage time within 0.05 s. So the gates are those aggregates, at 2 % and 3 %, and single cars are only listed ([FH1_RENDER_TEST_AUTOMATION.md](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/native-renderer/FH1_RENDER_TEST_AUTOMATION.md#physics-behaviour-harness)).
 
 ## Mapping base addresses to the title update
 

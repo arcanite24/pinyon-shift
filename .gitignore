@@ -49,6 +49,7 @@ private/
 !/docs/ROADMAP_FEEDBACK.md
 !/docs/ANDROID_PORT_BACKLOG.md
 !/docs/LINUX_PORT_BACKLOG.md
+!/docs/LINUX_ARM64_RESEARCH.md
 !/docs/ANDROID_60FPS_BACKLOG.md
 !/docs/ANDROID_ODIN_BACKLOG.md
 !/docs/DESKTOP_RENDERER_BACKLOG.md
@@ -76,6 +77,10 @@ private/
 !/docs/native-renderer/**
 !/docs/TIME_TO_PLAY_BACKLOG.md
 !/docs/MALI_BACKLOG.md
+!/docs/SAVE_SYNC.md
+!/docs/BEYOND_RECOMP_RESEARCH.md
+!/docs/CONSOLE_ERA_RESEARCH.md
+!/docs/FULL_FRAME_RENDERER.md
 
 # Build output and tooling state.
 build/

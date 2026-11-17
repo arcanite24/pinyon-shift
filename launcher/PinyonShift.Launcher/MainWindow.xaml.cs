@@ -79,6 +79,10 @@ public partial class MainWindow : Window
 
     public MainWindow()
     {
+        // Started from a PowerShell 7 prompt, the launcher inherits its PSModulePath, and the
+        // Windows PowerShell it starts then fails to load its own modules (Get-FileHash is "not
+        // recognized"). Without the variable each PowerShell builds its default.
+        Environment.SetEnvironmentVariable("PSModulePath", null);
         InitializeComponent();
         RouteList.ItemsSource = _steps;
         BuildLocationRun.Text = Path.Combine(
@@ -584,7 +588,7 @@ public partial class MainWindow : Window
     {
         var scale = ConfiguredResolutionScale();
         SetSubhead("Vulkan · " +
-                   $"{scale}× ({1280 * scale} × {720 * scale}) · F6 opens settings in game");
+                   $"{scale}× ({1280 * scale} × {720 * scale}) · F6 opens settings in game" + SyncSummary());
     }
 
     private void DetectExistingBuild()
@@ -1093,6 +1097,8 @@ public partial class MainWindow : Window
         OpenLogsButton.Content = "Logs";
         OpenLogsButton.Visibility = Visibility.Visible;
         OpenStateFolderButton.Visibility = Visibility.Visible;
+        OpenSyncButton.Visibility = Visibility.Visible;
+        UpdateSyncButton();
         AppendLog("Build complete. Generated files remain on this computer.");
     }
 

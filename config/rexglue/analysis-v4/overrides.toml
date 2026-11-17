@@ -18,6 +18,10 @@
 # 832FF094 with a query on the GPS position manager (v4 833EDC44).
 # Verified from the corresponding map-update call sites and both bodies.
 "827FADE8" = "828AF1B8"
+# #1071: the model's probe setter (stw r4,60(r3)), called directly from the
+# procedural-model pass cull at the same two sites in both builds (base
+# 8243EE58 +1060/+1208, v4 8246EF60); identical bodies are not unique.
+"82B52C18" = "82EEC158"
 # DynamicRenderSettings control vtables (graphics_hooks.cpp): the float
 # control (EnvMapFrequencyScale) and the bool control
 # (SkipShadowMapUnlessCockpit). Their v4 vtables hold the mapped methods in

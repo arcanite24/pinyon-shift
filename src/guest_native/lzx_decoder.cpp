@@ -27,6 +27,7 @@
 #include <cstdint>
 #include <cstring>
 
+#include <rex/perf/counter.h>
 #include <rex/cvar.h>
 #include <rex/ppc/context.h>
 #include <rex/system/xmemory.h>
@@ -247,6 +248,8 @@ void Decode(PPCContext& ctx, const Memory<Flat>& m, const uint8_t* select) {
 constexpr uint32_t kStateSize = 12056 + 64 * 4;
 
 bool NativeDecode(PPCContext& ctx, uint8_t* base) {
+  rex::perf::ScopedCounterNs census(rex::perf::CounterId::kTitleLzxNs,
+                                    rex::perf::CounterId::kTitleLzxCalls);
   const Memory<false> m{base};
   uint8_t select[16];
   m.load16(kCopyMask, select);

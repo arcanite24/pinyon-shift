@@ -48,6 +48,13 @@ More detail is in [docs/MACOS.md](https://github.com/arcanite24/pinyon-shift/blo
 
 ## Setup failures
 
+Install on an APFS or Mac OS Extended drive. On exFAT and FAT drives macOS
+stores each file's extended attributes in a hidden `._` file beside it,
+which the build tools then read as their own files, so setup stops there
+with a message. To use such a drive, create an APFS disk image on it (Disk
+Utility > File > New Image > Blank Image, format APFS) and install inside
+the image.
+
 Attach `.local/logs/setup-error.json` and the complete log named in the
 error. The JSON alone does not contain compiler errors. If **Building the
 translator** fails in a precompiled header (`cmake_pch.hxx`), setup also

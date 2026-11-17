@@ -1,0 +1,23 @@
+pinyon-shift-fh1-render-test-v1
+# Physics behaviour harness (#1071): the #1019 acceleration check. Free roam
+# from the seed with the car to test selected: wake the car, then full
+# throttle from frame 1100 for 12 s at a fixed 60 Hz clock. Run with
+# --game-argument=--pinyon_shift_physics_trace=6 and read the 0-60 and
+# 0-100 km/h times with tools/physics-behaviour.py summary.
+# clock-hz 60
+input 0 0000 0 0 0 0 0 0
+input 360 1000 0 0 0 0 0 0
+input 366 0000 0 0 0 0 0 0
+input 480 1000 0 0 0 0 0 0
+input 486 0000 0 0 0 0 0 0
+input 600 1000 0 0 0 0 0 0
+input 606 0000 0 0 0 0 0 0
+input 720 1000 0 0 0 0 0 0
+input 726 0000 0 0 0 0 0 0
+input 780 0000 0 0 0 0 0 0
+wait 900 3000 vehicle
+capture 1090 start
+input 1100 0000 0 255 0 0 0 0
+capture 1820 end
+input 1820 0000 0 0 0 0 0 0
+stop 1830

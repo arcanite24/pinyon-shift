@@ -26,6 +26,17 @@ source = """docs/TITLE_UPDATE_V4_BACKLOG.md Review of the base-disc Rally adapte
 
 [[finding]]
 group = """Audio engine"""
+base = """82BAF5C8, sub_82BAD518, sub_82BAC498, sub_82450160, sub_823F4FE8"""
+v4 = """82C6DD70, sub_82C6BD58, sub_82C6ACF0, sub_8247F818, sub_82425038"""
+name = """CAudioThread command lists"""
+what = """`CAudioThread` does not call the game's audio objects itself. The game thread posts deferred virtual calls into a list (`sub_823F4FE8` builds each entry: a marshalling thunk, the object and a copy of the arguments, the frame time as a float at +4 of the argument block), and once per rendered frame the audio thread, through `sub_82BAD518` and `sub_82BAC498`, waits up to 40 ms on its event at +444 and drains the list at +24 with the executor `sub_82450160`. In catch-up mode the executor skips entries whose byte at +16 is 0. On the Steam Deck LCD 98 % of the thread's time is inside four thunks: `sub_82BB9CD8` (v4 `sub_82C78718`) calls vtable +88, the car audio model update `sub_82BC8410` (v4 `sub_82C86D38`), once per car with the frame time and a block of car state (58 % on the Deck, 34 % on the Odin); `sub_8249BE98` (v4 `sub_82508890`) calls +44, the audio engine update `sub_824B7EE0` (v4 `sub_825253D0`), with the frame time and a flag byte at +8 (19 %); `sub_8249BFC8` (v4 `sub_825089C0`) calls +52, `sub_824A5F10` (v4 `sub_82512C38`), with no time (19 % on the Deck, 45 % on the Odin); `sub_8249C130` (v4 `sub_82508B40`) calls +64, `sub_824A2918` (v4 `sub_8250F3F0`) (5 %). The thunks are generic: other objects' one-off calls go through the same thunk, so a host gate must check the object's vtable slot before skipping anything. Running these four on one frame in two at 60 fps, with the skipped frame's time added to the next call (NR-1, `pinyon_shift_audio_update_interval`), took 0.67 ± 0.09 ms a frame off the audio thread on the Deck and 0.44-0.63 ms on the Odin; the two timed ones alone 0.55 and 0.22-0.32 ms. Loudness and the 30 Hz component of the loudness envelope of route audio captures did not change beyond run-to-run spread."""
+how = """In-run A/B on a race route (four 240-frame conditions cycled seven times; Deck LCD, Odin 2 v4), per-thread CPU from `perf_thread_cpu`, an audio capture with and without the gate. `perf record -g` with frame pointers on the Deck (race, fp build) and `simpleperf --call-graph fp` on the Odin (v4), inclusive shares under the thread entry; entry layout from the generated code of the poster and the executor; v4 addresses with `tools/map-fh1-v4-addresses.py`, the four thunk hashes checked on both images by the guest-native installer."""
+confidence = """probable"""
+note = """The roles of the +52 and +64 updates are not known."""
+source = """src/guest_native/audio_update.cpp; docs/NATIVE_REPLACEMENT_RESEARCH.md NR-1"""
+
+[[finding]]
+group = """Audio engine"""
 base = """sub_82FA84E8, sub_830072D0"""
 name = """FMOD channel settings race"""
 what = """Cue cleanup `sub_82FA84E8` clears a channel's shared-settings pointer, and the channel-settings update `sub_830072D0` reads that pointer repeatedly. Cleanup on a thread other than the audio thread can crash the update with a null read at `0x38`, so cue work belongs in `CAudioEngine::Update`."""
@@ -174,6 +185,18 @@ source = """docs/NEAR_NATIVE_RESEARCH.md NN-4.3; site/pages/lessons.md"""
 
 [[finding]]
 group = """Mixer and output"""
+base = """sub_82FB76C0, sub_82FBE908, sub_82FAE0B8"""
+v4 = """sub_83078858, sub_8307F9B8, sub_8306F2E8, sub_83075D18"""
+name = """where FMOD's mixer thread goes in a v4 race"""
+what = """On the Odin (v4, stereo output) FMOD's mixer thread (`sub_83075D18`) is 8.5 % of process cycles, about 2.4 ms of CPU a frame. By leaf: the DSP connection mix `sub_83078858` (base `sub_82FB76C0`) 30 %, the room reverb's read callback `sub_8307F9B8` (base `sub_82FBE908`) 18 %, `sub_830C49D8` 9 %, `sub_83008610` 8 %, `sub_831653D0` 6 %, and the matrix mix `sub_8306F2E8` only 3.5 % now that the output is stereo. The connection mix's own time has no hot arithmetic: its loops clear and copy each connection's buffer (output channels × frames floats a call, the clears and copies run as host `memset`/`memcpy`) and, when a level ramp ends, repack every level of the connection to half precision. Removing that work means changing how FMOD's graph buffers are owned, not translating a unit; the reverb (0.3 ms on the Deck with it bypassed) is recorded under "room reverb unit and its pass-through"."""
+how = """The Odin call graph cg1071a (0.8.2 v4 Release, `fh1-race-sustained`, `simpleperf --call-graph fp`, 2026-11-12), samples under the mixer thread root split by their last guest frame; loop structure of the connection mix from its generated code."""
+confidence = """probable"""
+note = """The shares are measured; reading the connection mix's own time as buffer clears and copies is probable (the host frames below its leaf samples are its own body)."""
+issue = """#1071"""
+source = """GitHub issue #1071 P5; .local/leads/odin-cg/cg1071a (local)"""
+
+[[finding]]
+group = """Mixer and output"""
 base = """sub_83002C20, sub_82FFB3F8, sub_82FD7228, sub_82FD6940, sub_82FD7240, sub_82FD6F30, sub_82FD7210, sub_82FD6820, sub_82FD5AF0"""
 v4 = """sub_830C3DA8, sub_830BC540, sub_830982E0, sub_830979F8, sub_830982F8, sub_83097FE8, sub_830982C8, sub_830978D8, sub_83096BA8"""
 name = """FMOD XMA codec"""
@@ -225,6 +248,18 @@ note = """The descriptor and the read are confirmed; the unit names below the re
 source = """docs/NEAR_NATIVE_RESEARCH.md NN-4.6"""
 
 # --------------------------------------------------- Speech and ambience banks
+
+
+[[finding]]
+group = """Mixer and output"""
+base = """sub_82FBE908, sub_8300D580"""
+v4 = """sub_8307F9B8, sub_830CE6C0"""
+name = """room reverb unit and its pass-through"""
+what = """FMOD's SFX reverb unit reads through a DSP read callback, `sub_82FBE908(unit, in, out, samples, channels)`. With no input it returns at once. When the unit's channel mask (+36) leaves the input's channels out, it copies the input to the output (FMOD's own bypass) and resets the reverb when the mask changed (+1908); otherwise it runs the reverb `sub_8300D580` on the state at +312. The reverb is about a fifth of FMOD's mixer thread in a race on the Deck. Taking the copy path on every call (`pinyon_shift_fmod_reverb=false`) took 0.28-0.31 ms of CPU a frame off the four FMOD threads on the Deck LCD in an in-run A/B, under #1071's 0.5 ms gate, so the reverb stays on by default."""
+how = """Deck call graph; the replacement in src/guest_native/fmod_reverb.cpp toggled every 240 frames on `fh1-race-sustained`, FMOD threads' CPU from `perf_thread_cpu` (2026-11-13). Whether the mix sounds drier was not listened to."""
+confidence = """confirmed"""
+negative = true
+source = """GitHub issue #1071 P5; src/guest_native/fmod_reverb.cpp"""
 
 [[finding]]
 group = """Speech and ambience banks"""

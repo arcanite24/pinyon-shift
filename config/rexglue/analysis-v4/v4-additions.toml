@@ -167,3 +167,31 @@ name = "PinyonShiftCarChallengeSubmitLocal"
 registers = ["r4", "r5"]
 context = true
 return_on_true = true
+
+# NA-2.4 pilot (issue #753) on v4. The base hooks sit in main-xex.toml's
+# D3D census block, which is base-only (the census stays off on v4), so
+# their v4 counterparts are kept here: the procedural models' calls into
+# their list runner 0x82447010 (base 0x82418A24 and 0x82418EC8) and the
+# runner's entry (base 0x82416A00, D3DDevice_RunCommandBuffer), so the lists
+# they run are drawn from owned draw programs
+# (src/native_renderer/d3d_program.cpp).
+[[midasm_hook]]
+address = 0x824489D4
+name = "PinyonShiftD3dProgramOwnerEnter0"
+
+[[midasm_hook]]
+address = 0x824489D8
+name = "PinyonShiftD3dProgramOwnerLeave0"
+
+[[midasm_hook]]
+address = 0x82448E78
+name = "PinyonShiftD3dProgramOwnerEnter1"
+
+[[midasm_hook]]
+address = 0x82448E7C
+name = "PinyonShiftD3dProgramOwnerLeave1"
+
+[[midasm_hook]]
+address = 0x824469B0
+name = "PinyonShiftD3dProgramRunCommandBuffer"
+registers = ["r4"]

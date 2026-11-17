@@ -147,11 +147,39 @@ endif()
 # later, so atomics compile to LSE instructions instead of LL/SC loops and
 # calls to the __aarch64_* outline helpers, in the SDK and its libraries too
 # (the Android shell's kit is built with the same -march, TP-5).
-if(ANDROID)
+# ARM Linux handhelds (Armada OS on Snapdragon 865 and later) are ARMv8.2
+# too, so linux-arm64 builds use the same baseline (LINUX_ARM64_RESEARCH.md).
+if(ANDROID OR (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$"))
     set(PINYON_SHIFT_ANDROID_MARCH "armv8.2-a" CACHE STRING
         "-march for every Android target, the SDK and its libraries included")
     add_compile_options(-march=${PINYON_SHIFT_ANDROID_MARCH})
     set(REXGLUE_ARM64_MARCH ${PINYON_SHIFT_ANDROID_MARCH})
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT ANDROID)
+    # The game and the runtime libraries are tens of MiB of code. Aligning
+    # their segments' file offsets with their addresses modulo 2 MiB lets the
+    # kernel back that code with 2 MiB pages (code_huge_pages), which cuts
+    # instruction TLB misses.
+    add_link_options("LINKER:-z,max-page-size=0x200000")
+    # Keep the relocations in the linked game, which llvm-bolt needs to
+    # rewrite its code layout from a profile (docs/LINUX_PORT_BACKLOG.md).
+    option(PINYON_SHIFT_EMIT_RELOCS "Link the Linux game with --emit-relocs for BOLT" OFF)
+    # Post-link layout: llvm-bolt rewrites the game and the runtime libraries
+    # from the profiles in config/performance/bolt, recorded on the Steam
+    # Deck's race: 10-15 % fewer instruction cache misses, IPC within the
+    # runs' spread. Off by default: the BOLT build stopped at the title menu
+    # in 5 of 12 scripted runs against about 4 of 34 without it, which is not
+    # explained yet (docs/LINUX_PORT_BACKLOG.md).
+    find_program(PINYON_SHIFT_LLVM_BOLT NAMES llvm-bolt llvm-bolt-20
+        DOC "llvm-bolt for the post-link layout pass (PINYON_SHIFT_BOLT)")
+    option(PINYON_SHIFT_BOLT "Rewrite the Linux game's code layout with llvm-bolt" OFF)
+    if(PINYON_SHIFT_BOLT AND NOT PINYON_SHIFT_LLVM_BOLT)
+        message(FATAL_ERROR "PINYON_SHIFT_BOLT needs llvm-bolt: set PINYON_SHIFT_LLVM_BOLT")
+    endif()
+    if(PINYON_SHIFT_EMIT_RELOCS OR PINYON_SHIFT_BOLT)
+        add_link_options("LINKER:--emit-relocs")
+    endif()
 endif()
 
 if(REXSDK_DIR)
@@ -274,9 +302,15 @@ else()
     endif()
     # A cross build's kit (the Android shell, TP-5) holds no generator for
     # the build host; it passes the host kit's or source tree's instead.
-    set(PINYON_SHIFT_REXGLUE_CODEGEN
-        "${PINYON_SHIFT_SHIFTGLUE_KIT}/bin/rexglue${CMAKE_HOST_EXECUTABLE_SUFFIX}"
-        CACHE FILEPATH "The ReXGlue generator for the build host")
+    # A kit that has one always uses it: a build tree first configured
+    # against the source SDK caches .local/rexglue's generator, which is
+    # either gone (#1081) or the old one that produced the stale tree (#1046).
+    set(_pinyon_kit_codegen
+        "${PINYON_SHIFT_SHIFTGLUE_KIT}/bin/rexglue${CMAKE_HOST_EXECUTABLE_SUFFIX}")
+    if(EXISTS "${_pinyon_kit_codegen}" OR NOT EXISTS "${PINYON_SHIFT_REXGLUE_CODEGEN}")
+        set(PINYON_SHIFT_REXGLUE_CODEGEN "${_pinyon_kit_codegen}"
+            CACHE FILEPATH "The ReXGlue generator for the build host" FORCE)
+    endif()
     set(PINYON_SHIFT_REXGLUE_CODEGEN_DEPENDS "${PINYON_SHIFT_REXGLUE_CODEGEN}")
     message(STATUS "Using the prebuilt ShiftGlue kit: ${PINYON_SHIFT_SHIFTGLUE_KIT}")
 endif()
@@ -543,6 +577,44 @@ function(pinyon_shift_attach_rexglue target_name)
         set(_pinyon_stage_depends ${target_name})
     endif()
 
+    set(_pinyon_runtime_file $<TARGET_FILE:${_pinyon_runtime}>)
+    set(_pinyon_gpu_file $<TARGET_FILE:${_pinyon_gpu}>)
+    if(PINYON_SHIFT_BOLT)
+        # The profiles come from the base game; the v4 build's generated
+        # functions have other names, so only its runtime libraries are
+        # rewritten. Recording: docs/LINUX_PORT_BACKLOG.md.
+        set(_bolt_dir "${PROJECT_SOURCE_DIR}/config/performance/bolt")
+        set(_bolt_flags -reorder-blocks=ext-tsp -reorder-functions=cdsort -split-functions
+            -split-all-cold -infer-stale-profile)
+        if(NOT PINYON_SHIFT_TITLE_UPDATE_V4)
+            add_custom_command(TARGET ${target_name} POST_BUILD
+                COMMAND ${PINYON_SHIFT_LLVM_BOLT} $<TARGET_FILE:${target_name}>
+                    -o $<TARGET_FILE:${target_name}>.bolt
+                    -data=${_bolt_dir}/pinyon_shift-base.yaml ${_bolt_flags}
+                COMMAND ${CMAKE_COMMAND} -E rename $<TARGET_FILE:${target_name}>.bolt
+                    $<TARGET_FILE:${target_name}>
+                COMMENT "Rewriting the code layout of ${target_name} with llvm-bolt"
+                VERBATIM)
+        endif()
+        if(REXSDK_DIR)
+            # The SDK's targets live in another directory, so the rewritten
+            # copies are made here and staged in their place.
+            foreach(_bolt_lib IN ITEMS rexruntime rexgpu-fh1)
+                set(_bolt_out "${CMAKE_CURRENT_BINARY_DIR}/bolt/lib${_bolt_lib}.so")
+                add_custom_command(OUTPUT "${_bolt_out}"
+                    COMMAND ${PINYON_SHIFT_LLVM_BOLT} $<TARGET_FILE:${_bolt_lib}> -o "${_bolt_out}"
+                        -data=${_bolt_dir}/${_bolt_lib}.yaml ${_bolt_flags}
+                    DEPENDS ${_bolt_lib} "${_bolt_dir}/${_bolt_lib}.yaml"
+                    COMMENT "Rewriting the code layout of ${_bolt_lib} with llvm-bolt"
+                    VERBATIM)
+                add_custom_target(${target_name}_bolt_${_bolt_lib} DEPENDS "${_bolt_out}")
+                list(APPEND _pinyon_stage_depends ${target_name}_bolt_${_bolt_lib})
+            endforeach()
+            set(_pinyon_runtime_file "${CMAKE_CURRENT_BINARY_DIR}/bolt/librexruntime.so")
+            set(_pinyon_gpu_file "${CMAKE_CURRENT_BINARY_DIR}/bolt/librexgpu-fh1.so")
+        endif()
+    endif()
+
     # ReXGlue's target helper copies runtime DLLs only after the host links.
     # An incremental SDK-only relink would therefore leave older runtime or
     # graphics backend DLLs next to an otherwise current host. This target
@@ -553,11 +625,11 @@ function(pinyon_shift_attach_rexglue target_name)
     # Windows it is the only step that puts librexruntime beside the game.
     add_custom_target(${target_name}_stage_rexruntime ALL
         COMMAND ${CMAKE_COMMAND}
-            -DSOURCE=$<TARGET_FILE:${_pinyon_runtime}>
+            -DSOURCE=${_pinyon_runtime_file}
             -DDESTINATION=$<TARGET_FILE_DIR:${target_name}>/$<TARGET_FILE_NAME:${_pinyon_runtime}>
             -P ${PINYON_SHIFT_STAGE_FILE_SCRIPT}
         COMMAND ${CMAKE_COMMAND}
-            -DSOURCE=$<TARGET_FILE:${_pinyon_gpu}>
+            -DSOURCE=${_pinyon_gpu_file}
             -DDESTINATION=$<TARGET_FILE_DIR:${target_name}>/$<TARGET_FILE_NAME:${_pinyon_gpu}>
             -P ${PINYON_SHIFT_STAGE_FILE_SCRIPT}
         DEPENDS ${_pinyon_stage_depends}

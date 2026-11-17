@@ -667,3 +667,44 @@ how = """Read in the generated code; on a Thrustmaster T248 with a DragonRise 6-
 confidence = """confirmed"""
 issue = """#337"""
 source = """shiftglue-sdk docs/RACING_WHEELS.md; site/pages/playing.md#racing-wheels"""
+
+[[finding]]
+group = """Launch options"""
+base = """sub_82482E70, sub_82482718, options object +2680, +2688, +2692, +2708, +2712, +2716, +2720, +2724, +4284"""
+name = """memory arenas sized at boot"""
+what = """`sub_82482E70` sizes the game's memory arenas once at boot from the options `streamsize` (+2680), `d3dfixedsize` (+2712), `vehicleheapsize` (+2716), `nuiheapsize` (+2720), `compheapsize` (+2724) and `RingBufferSize` (+4284). Values under 1024 are taken as MB; sizes are rounded to 64 KiB, registered as seven tracked regions and allocated as physical memory, with large pages when `sharedmemorylargepages` (+2708) is set. `sub_82482718` sizes the streaming CPU heap from a value read through Colorado's `Ribbon_00` `.pvs` data multiplied by `streamfragmentationmultiple` (+2688, a float); `overridestreamingcpuheapsize` (+2692) replaces the result. The budgets fit the console's 512 MB and bound how much of the world can stay resident."""
+how = """Static census of the base image: option names matched to their byte offsets through the matcher calls, then a scan of the generated code for loads from those offsets."""
+confidence = """probable"""
+note = """Defaults read at run time on the base build (`pinyon_shift_console_option_census`): `streamsize` 142,396,624 bytes (135.8 MiB), `d3dfixedsize` 64 MiB, `vehicleheapsize` 68 MiB, `compheapsize` 29.4 MiB, `nuiheapsize` 3.9 MiB, `RingBufferSize` 4 MiB, `streamfragmentationmultiple` 1.08, `overridestreamingcpuheapsize` 0 (use the computed size), `maxcarstoloadunified` 24. `streamsize` at 1.5x, alone and with `d3dfixedsize` at 96 MiB, booted and raced normally but left both loads, the slow transition frames and the texture reload counts within run-to-run spread on multivac, so the arenas stay as the game sizes them (CE-11)."""
+source = """docs/CONSOLE_ERA_RESEARCH.md CE-11"""
+
+[[finding]]
+group = """Launch options"""
+base = """sub_82482E70, sub_82C600D8, options object +2700, +2704, +2709"""
+name = """guest file cache and ZIP CRC options"""
+what = """The boot arena setup also hands a `filecachesize`-byte (+2700) physical buffer, a `filechunksize` (+2704) and the `checkzipcrc` flag (+2709) to the file cache object `sub_82C600D8`: a chunked read cache in front of the archives, a DVD-latency design. `sub_82518390` reads `filecachesize` too."""
+how = """Static census of the base image: option names matched to their byte offsets through the matcher calls, then a scan of the generated code for loads from those offsets."""
+confidence = """probable"""
+note = """Defaults read at run time on the base build: `filecachesize` 30 MiB, `filechunksize` 1 MiB, `checkzipcrc` 0, so the CRC is already off. All file IO in a boot, free roam and race-entry route took 122 ms of reads and 230 ms of opens, so the cache has little to win (CE-12)."""
+source = """docs/CONSOLE_ERA_RESEARCH.md CE-12"""
+
+[[finding]]
+group = """Launch options"""
+base = """sub_823E3218, sub_825CEAD0, sub_8259C7D8, sub_82530DC8, sub_82531198, sub_825D0028, sub_825D0810"""
+name = """streaming and track-load switches"""
+what = """`pausephysicsonstreaming` (+4868) is read in the simulation step `sub_823E3218` next to a per-car byte at +1008, and with the option set the step skips a time-scaled path (`sub_825AA1B0`); a guess is that cars are held while their area streams in. `sub_825CEAD0` copies `smalltexturesonly` (+2738), `preloadallmeshes` (+2739) and `enablepvspredictahead` (+4264) into the track-load parameters. `keepcarpartmemory` (+4566) is read by `sub_8259C7D8`, and `WhenUnloadingDestroyTrack` (+8367) by four unload functions; both look like RAM-saving teardown on event exit."""
+how = """Static census of the base image: option names matched to their byte offsets through the matcher calls, then a scan of the generated code for loads from those offsets."""
+confidence = """guess"""
+note = """The copies are confirmed in code; what each switch does is still a guess. Defaults read at run time: `pausephysicsonstreaming` 0, `enablepvspredictahead` 1, `keepcarpartmemory` 0, `WhenUnloadingDestroyTrack` 0. Turning `keepcarpartmemory` on (with a 4 MiB file chunk) changed neither the load into a race nor retiring to free roam on multivac (1.30 s against 1.32 s), so the switches are left alone (CE-14). `preloadallmeshes` cannot fit: Colorado's track `bin.zip` is 2.9 GB."""
+source = """docs/CONSOLE_ERA_RESEARCH.md CE-14"""
+
+[[finding]]
+group = """Launch options"""
+base = """options object +4194, +4195, +3136, +3140, +3144, +4560; sub_824843E8"""
+name = """disc-era options with no reader found"""
+what = """`dvdsafe` (+4194), `dvdsafecams` (+4195), `audioheapsize`, `audioioblocksize` and `audiostreamsize` (+3136, +3140, +3144) and `EnableLoadingAlarm` (+4560) are parsed, but no load from those offsets was found among the options getter's callers or through the pointer word at `0x832E2680`. `findzips`, `zipprioritybias` and `disabledirectoryhashtable` are read only at boot, by `sub_824843E8`."""
+how = """Static census of the base image: option names matched to their byte offsets through the matcher calls, then a scan of the generated code for loads from those offsets."""
+confidence = """probable"""
+note = """Static only: a reader through another copy of the object would be missed."""
+negative = true
+source = """docs/CONSOLE_ERA_RESEARCH.md Recorded and not pursued"""

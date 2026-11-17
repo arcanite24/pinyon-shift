@@ -105,9 +105,10 @@ source = """docs/REVERSE_ENGINEERING.md@a72a92a5f215 World detail"""
 
 [[finding]]
 group = """Draw distance"""
-base = """sub_82DB8AE8, sub_82DC1CB0, sub_82D65608"""
+base = """sub_82DB8AE8, sub_82DC1CB0, sub_82D65608, sub_82D5C9D0"""
+v4 = """sub_82E27AA8, sub_82E1EEB0"""
 name = """scene draw on the render thread"""
-what = """In free roam the render thread (guest `825A6320`) spends most of its busy time in `sub_82DB8AE8` > `sub_82DC1CB0` > `sub_82D65608`, and below `sub_82D65608` only in draw submission (`sub_82440CF8`). The main thread (guest `8255AE10`, also `82C0C8C8`) walks the scene through `sub_82D4E2E0` > `sub_82D4DE30`, into `sub_82D46EF8` > `sub_82D3A528` and `sub_82D4DCC8` > `sub_82D43818` > `sub_82D41A30` next to the culling-group table's method: the next place to look for where a model LOD is chosen."""
+what = """In free roam the render thread (guest `825A6320`) spends most of its busy time in `sub_82DB8AE8` > `sub_82DC1CB0` > `sub_82D65608`, and below `sub_82D65608` only in draw submission (`sub_82440CF8`). The main thread (guest `8255AE10`, also `82C0C8C8`) walks the scene through `sub_82D4E2E0` > `sub_82D4DE30`, into `sub_82D46EF8` > `sub_82D3A528` and `sub_82D4DCC8` > `sub_82D43818` > `sub_82D41A30` next to the culling-group table's method: the next place to look for where a model LOD is chosen. `sub_82D65608(walker, two-pass flag)` (v4 `sub_82E27AA8`) refreshes the walker's lists (`sub_82D5C9D0`) when its ready flags at +20 and +21 are not both set, stops when the view is off (+28 is -1), clears the visibility bitmap at [+8] (+16 bytes) and sets the bit of every scene entry (256-byte records at [+13848], a 16-bit count at +4) whose flags at +12 have bits 31, 29 and 28 set, by the index at +132 of the entry's object's part. Then it fills a submission record on its stack (pointers into the walker, a 128-byte copy of +48, values from +176, +9376, +9380, +44, +9296, +9320 and +9302) and calls `sub_82440CF8` with LOD scales 1 and 1, or 2 and 0.5 when +22 or +23 is set. In a desktop race it was called with the two-pass flag set in most calls."""
 how = """A sampling profiler over every guest thread during a free-roam drive."""
 confidence = """probable"""
 note = """`sub_82D4E2E0` was later found to be `CPhysicsWorld` vtable slot 22, the physics-world step (see "job worker threads" on the threads page). Its subtree is mostly collision and broadphase (`CRigidBodyColl`, `CCullingGroupTable`, `CWCStreamWorldGame`), so this main-thread chain is probably physics rather than where a model LOD is chosen."""

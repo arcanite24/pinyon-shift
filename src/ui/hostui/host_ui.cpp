@@ -379,7 +379,12 @@ void HostUi::SetGuestUiActive(bool active) {
   }
 }
 
-void HostUi::RequestPaint() { presenter_.RequestUIPaintFromUIThread(); }
+void HostUi::RequestPaint() {
+  // SDL delivers typed characters (OnKeyChar) only while text input is on,
+  // so it follows whether the top screen takes text (the XAM keyboard).
+  window_.SetTextInputActive(!screens_.empty() && screens_.back()->accepts_text());
+  presenter_.RequestUIPaintFromUIThread();
+}
 
 void HostUi::CaptureKey(int virtual_key) {
   RunOnTopScreen([virtual_key](MenuScreen& screen) { screen.CaptureKey(virtual_key); });

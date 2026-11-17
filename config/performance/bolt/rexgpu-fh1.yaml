@@ -1,0 +1,1657 @@
+---
+header:
+  profile-version: 1
+  binary-name:     librexgpu-fh1.so
+  binary-build-id: '<unknown>'
+  profile-flags:   [ sample ]
+  profile-origin:  perf data aggregator
+  profile-events:  'cycles:u:'
+  dfs-order:       false
+  hash-func:       xxh3
+functions:
+  - name:            _ZN3spv7Builder15makeIntConstantEjjb
+    fid:             303
+    hash:            0xC9E340E20CB46220
+    exec:            0
+    nblocks:         41
+  - name:            _ZN3spv7Builder17makeFloatConstantEfb
+    fid:             305
+    hash:            0x2020243DDC08E7A3
+    exec:            0
+    nblocks:         41
+  - name:            _ZN3spv7Builder13addMemberNameEjiPKc
+    fid:             316
+    hash:            0x48C423453409FCA3
+    exec:            0
+    nblocks:         26
+  - name:            _ZN3spv7Builder17createAccessChainENS_12StorageClassEjRKSt6vectorIjSaIjEE
+    fid:             338
+    hash:            0xADE60AA4C5228C58
+    exec:            0
+    nblocks:         49
+  - name:            _ZNK3spv11Instruction4dumpERSt6vectorIjSaIjEE
+    fid:             406
+    hash:            0x9A8B30DD87E915F6
+    exec:            0
+    nblocks:         43
+  - name:            '_ZN12_GLOBAL__N_122ReadableOrderTraverser5visitEPN3spv5BlockENS1_11ReachReasonES3_/1'
+    fid:             423
+    hash:            0x62F6C3C0968A51A4
+    exec:            0
+    nblocks:         79
+  - name:            '_ZNKSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE7_M_dataEv/1'
+    fid:             3512
+    hash:            0x7A3EBE316C2EE87
+    exec:            0
+    nblocks:         1
+  - name:            '_ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE13_M_set_lengthEm/1'
+    fid:             3522
+    hash:            0x737BB5320C380057
+    exec:            0
+    nblocks:         1
+  - name:            '_ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE12_M_constructIPcEEvT_S7_St20forward_iterator_tag/1'
+    fid:             3539
+    hash:            0xCDF6A2F74C00C060
+    exec:            0
+    nblocks:         6
+  - name:            '_ZZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE12_M_constructIPcEEvT_S7_St20forward_iterator_tagEN6_GuardD2Ev/1'
+    fid:             3542
+    hash:            0xEBC1FDC88A48CA88
+    exec:            0
+    nblocks:         4
+  - name:            '_ZNK3rex8graphics6Shader24GetInterpolatorInputMaskENS0_3reg15SQ_PROGRAM_CNTLENS2_15SQ_CONTEXT_MISCERj/1'
+    fid:             3609
+    hash:            0xB8472D40D6769CB4
+    exec:            0
+    nblocks:         4
+  - name:            '_ZNKSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE4sizeEv/1'
+    fid:             3613
+    hash:            0x7A3EBE316C2EE87
+    exec:            0
+    nblocks:         1
+  - name:            '_ZN3rex8graphics6Shader22GetOrCreateTranslationEmPb/1'
+    fid:             3614
+    hash:            0x9DC1C9707E5A248B
+    exec:            0
+    nblocks:         25
+  - name:            '_ZNKSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE15_M_check_lengthEmmPKc/1'
+    fid:             3625
+    hash:            0x57578F634BA47BCB
+    exec:            0
+    nblocks:         3
+  - name:            '_ZNKSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE8capacityEv/1'
+    fid:             3626
+    hash:            0x4880382BDF3F6222
+    exec:            0
+    nblocks:         3
+  - name:            '_ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE7_S_moveEPcPKcm/1'
+    fid:             3627
+    hash:            0x2F62E08BC535D0EA
+    exec:            0
+    nblocks:         4
+  - name:            '_ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE7_S_copyEPcPKcm/1'
+    fid:             3631
+    hash:            0x2F62E08BC535D0EA
+    exec:            0
+    nblocks:         4
+  - name:            '_ZN3rex8graphics14GraphicsSystem17ReadRegisterThunkEPvPS1_j/1'
+    fid:             3651
+    hash:            0x9B4953F86230FFCB
+    exec:            0
+    nblocks:         64
+  - name:            '_ZN3rex8graphics14GraphicsSystem18WriteRegisterThunkEPvPS1_jj/1'
+    fid:             3652
+    hash:            0xDC7C201CE7D3597D
+    exec:            0
+    nblocks:         11
+  - name:            '_ZNK3rex8graphics14GraphicsSystem9presenterEv/1'
+    fid:             3676
+    hash:            0x7A3EBE316C2EE87
+    exec:            0
+    nblocks:         1
+  - name:            '_ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE7reserveEm/1'
+    fid:             3689
+    hash:            0x74D28EEE70F9508
+    exec:            0
+    nblocks:         8
+  - name:            '_ZNSt17_Function_handlerIFivEZN3rex8graphics14GraphicsSystem13SetupGuestGpuEPNS1_7runtime18FunctionDispatcherEPNS1_6system11KernelStateEE3$_1E9_M_invokeERKSt9_Any_data/1'
+    fid:             3777
+    hash:            0x3543E50151731EC4
+    exec:            0
+    nblocks:         55
+  - name:            '_ZNSt10unique_ptrIN3rex8graphics16CommandProcessor11RecordBatchESt14default_deleteIS3_EED2Ev/1'
+    fid:             3804
+    hash:            0x9465F2C58C193B13
+    exec:            0
+    nblocks:         14
+  - name:            '_ZN3rex8graphics16CommandProcessor10RecordCallESt8functionIFvvEE/1'
+    fid:             3828
+    hash:            0xDC3F09698C63A602
+    exec:            0
+    nblocks:         50
+  - name:            '_ZN3rex8graphics16CommandProcessor18PublishRecordBatchEv/1'
+    fid:             3829
+    hash:            0xAF7469F44632CEA3
+    exec:            0
+    nblocks:         48
+  - name:            '_ZN3rex8graphics16CommandProcessor17ExecuteDrawRecordERKNS1_10DrawRecordE/1'
+    fid:             3832
+    hash:            0x2FC0D34C559EC6A0
+    exec:            0
+    nblocks:         150
+  - name:            '_ZN3rex8graphics16CommandProcessor25FlushPendingScratchWritesEv/1'
+    fid:             3833
+    hash:            0x91BFF77EBBA4236
+    exec:            0
+    nblocks:         45
+  - name:            '_ZN3rex8graphics16CommandProcessor19PacketWriteRegisterEjj/1'
+    fid:             3836
+    hash:            0xBFC591A2A0722A44
+    exec:            0
+    nblocks:         82
+  - name:            '_ZN3rex8graphics16CommandProcessor27PacketWriteRegistersFromMemEjPKjj/1'
+    fid:             3838
+    hash:            0xF0B9F58BF016E599
+    exec:            0
+    nblocks:         102
+  - name:            '_ZN3rex8graphics12_GLOBAL__N_118FindRegisterChangeILb1EEEjPKjS4_jj/1'
+    fid:             3839
+    hash:            0x5A55975D233BC5CD
+    exec:            0
+    nblocks:         10
+  - name:            '_ZN3rex8graphics16CommandProcessor17RecordRegisterRunEjPKjj/1'
+    fid:             3840
+    hash:            0xD263CCD08945D8D0
+    exec:            0
+    nblocks:         20
+  - name:            '_ZNSt6vectorIjN3rex8graphics16CommandProcessor20DefaultInitAllocatorIjEEE6resizeEm/1'
+    fid:             3841
+    hash:            0x50DCEEA5972F07D3
+    exec:            0
+    nblocks:         26
+  - name:            '_ZN3rex8graphics16CommandProcessor13WriteRegisterEjj/1'
+    fid:             3850
+    hash:            0xBA44B13FC9168829
+    exec:            0
+    nblocks:         57
+  - name:            '_ZN3rex8graphics16CommandProcessor22WriteRegistersHostBaseEjPKjj/1'
+    fid:             3852
+    hash:            0xC60627678CC58D6D
+    exec:            0
+    nblocks:         24
+  - name:            '_ZN3rex8graphics16CommandProcessor26WriteRegisterRangeFromRingEPNS_6memory10RingBufferEjj/1'
+    fid:             3854
+    hash:            0x652F0F90F1C62908
+    exec:            0
+    nblocks:         7
+  - name:            '_ZN3rex8graphics16CommandProcessor12MakeCoherentEv/1'
+    fid:             3855
+    hash:            0x24C5F4213DBDF9DC
+    exec:            0
+    nblocks:         44
+  - name:            '_ZN3rex8graphics16CommandProcessor13ExecutePacketEPNS_6memory10RingBufferE/1'
+    fid:             3858
+    hash:            0xBDF1F60AAB95F9C7
+    exec:            0
+    nblocks:         271
+  - name:            '_ZN3rex8graphics16CommandProcessor21ExecuteIndirectBufferEjj/1'
+    fid:             3860
+    hash:            0x9E57774C3C5D6127
+    exec:            0
+    nblocks:         304
+  - name:            '_ZN3rex8graphics16CommandProcessor22ExecutePacketType3_NOPEPNS_6memory10RingBufferEjj/1'
+    fid:             3868
+    hash:            0xA6167F19A5C542BB
+    exec:            0
+    nblocks:         13
+  - name:            '_ZN3rex8graphics16CommandProcessor28ExecutePacketType3_INTERRUPTEPNS_6memory10RingBufferEjj/1'
+    fid:             3869
+    hash:            0xAF5A0FD1C0EA1CCE
+    exec:            0
+    nblocks:         10
+  - name:            '_ZN3rex8graphics16CommandProcessor26ExecutePacketType3_XE_SWAPEPNS_6memory10RingBufferEjj/1'
+    fid:             3870
+    hash:            0x574881B6E55E84D
+    exec:            0
+    nblocks:         82
+  - name:            '_ZN3rex8graphics16CommandProcessor34ExecutePacketType3_INDIRECT_BUFFEREPNS_6memory10RingBufferEjj/1'
+    fid:             3871
+    hash:            0xD54CD942C5D00B8D
+    exec:            0
+    nblocks:         5
+  - name:            '_ZN3rex8graphics16CommandProcessor31ExecutePacketType3_WAIT_REG_MEMEPNS_6memory10RingBufferEjj/1'
+    fid:             3872
+    hash:            0x515FCE2DDD41B1BF
+    exec:            0
+    nblocks:         161
+  - name:            '_ZN3rex8graphics16CommandProcessor30ExecutePacketType3_EVENT_WRITEEPNS_6memory10RingBufferEjj/1'
+    fid:             3877
+    hash:            0x5443CDAED984688C
+    exec:            0
+    nblocks:         5
+  - name:            '_ZN3rex8graphics16CommandProcessor34ExecutePacketType3_EVENT_WRITE_SHDEPNS_6memory10RingBufferEjj/1'
+    fid:             3878
+    hash:            0x5B3682CD83A44152
+    exec:            0
+    nblocks:         23
+  - name:            '_ZN3rex8graphics16CommandProcessor34ExecutePacketType3_EVENT_WRITE_EXTEPNS_6memory10RingBufferEjj/1'
+    fid:             3879
+    hash:            0x4AD95320203A09CE
+    exec:            0
+    nblocks:         5
+  - name:            '_ZN3rex8graphics16CommandProcessor28ExecutePacketType3_DRAW_INDXEPNS_6memory10RingBufferEjj/1'
+    fid:             3880
+    hash:            0xA0C95B82697E3AEE
+    exec:            0
+    nblocks:         20
+  - name:            '_ZN3rex8graphics16CommandProcessor30ExecutePacketType3_DRAW_INDX_2EPNS_6memory10RingBufferEjj/1'
+    fid:             3881
+    hash:            0xA4C65875D8C57C77
+    exec:            0
+    nblocks:         8
+  - name:            '_ZN3rex8graphics16CommandProcessor31ExecutePacketType3_SET_CONSTANTEPNS_6memory10RingBufferEjj/1'
+    fid:             3882
+    hash:            0xBF787A878D45C8B2
+    exec:            0
+    nblocks:         10
+  - name:            '_ZN3rex8graphics16CommandProcessor36ExecutePacketType3_LOAD_ALU_CONSTANTEPNS_6memory10RingBufferEjj/1'
+    fid:             3883
+    hash:            0x665C0D07EAC4115C
+    exec:            0
+    nblocks:         67
+  - name:            '_ZN3rex8graphics16CommandProcessor26ExecutePacketType3_IM_LOADEPNS_6memory10RingBufferEjj/1'
+    fid:             3884
+    hash:            0x1C82D58EFBC42EDE
+    exec:            0
+    nblocks:         13
+  - name:            '_ZN3rex8graphics16CommandProcessor36ExecutePacketType3_IM_LOAD_IMMEDIATEEPNS_6memory10RingBufferEjj/1'
+    fid:             3885
+    hash:            0x8675DA55A8FD0924
+    exec:            0
+    nblocks:         7
+  - name:            '_ZN3rex8graphics16CommandProcessor22ExecutePacketType3DrawEPNS_6memory10RingBufferEjPKcjj/1'
+    fid:             3889
+    hash:            0x96CB25F5119B2B11
+    exec:            0
+    nblocks:         63
+  - name:            '_ZN3rex8graphics16CommandProcessor13D3dCensusDrawEPNS_6memory10RingBufferEj/1'
+    fid:             3895
+    hash:            0x9E79AF5A867EEE8A
+    exec:            0
+    nblocks:         32
+  - name:            '_ZN3rex8graphics16CommandProcessor15LoadGuestShaderENS0_5xenos10ShaderTypeEjj/1'
+    fid:             3898
+    hash:            0x5C86BAD3D3623B9F
+    exec:            0
+    nblocks:         75
+  - name:            '_ZN3rex8graphics16CommandProcessor16LoadInlineShaderENS0_5xenos10ShaderTypeEjPKjj/1'
+    fid:             3900
+    hash:            0x70906D8C71676670
+    exec:            0
+    nblocks:         27
+  - name:            '_ZNSt15__uniq_ptr_implIN3rex8graphics16CommandProcessor11RecordBatchESt14default_deleteIS3_EE5resetEPS3_/1'
+    fid:             3921
+    hash:            0x55F7EB141BC95644
+    exec:            0
+    nblocks:         14
+  - name:            '_ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE9_M_appendEPKcm/1'
+    fid:             3927
+    hash:            0x7DFA3D5836572057
+    exec:            0
+    nblocks:         5
+  - name:            '_ZNSt17_Function_handlerIFivEZN3rex8graphics16CommandProcessor10InitializeEvE3$_0E9_M_invokeERKSt9_Any_data/1'
+    fid:             4139
+    hash:            0xA74EEB7A7E64088B
+    exec:            0
+    nblocks:         203
+  - name:            '_ZNSt17_Function_handlerIFivEZN3rex8graphics16CommandProcessor17StartRecordThreadEvE3$_0E9_M_invokeERKSt9_Any_data/1'
+    fid:             4144
+    hash:            0xFE54199409980BE8
+    exec:            0
+    nblocks:         138
+  - name:            '_ZNSt17_Function_handlerIFvvEZN3rex8graphics16CommandProcessor20ExecutePrimaryBufferEjjE3$_0E9_M_invokeERKSt9_Any_data/1'
+    fid:             4152
+    hash:            0x72DC7D7AE1931737
+    exec:            0
+    nblocks:         1
+  - name:            '_ZNSt17_Function_handlerIFvvEZN3rex8graphics16CommandProcessor20ExecutePrimaryBufferEjjE3$_0E10_M_managerERSt9_Any_dataRKS6_St18_Manager_operation/1'
+    fid:             4153
+    hash:            0x280B5619587072E6
+    exec:            0
+    nblocks:         8
+  - name:            '_ZNSt17_Function_handlerIFvvEZN3rex8graphics16CommandProcessor28ExecutePacketType3_INTERRUPTEPNS1_6memory10RingBufferEjjE3$_0E9_M_invokeERKSt9_Any_data/1'
+    fid:             4173
+    hash:            0x21A353F8596ECAB9
+    exec:            0
+    nblocks:         27
+  - name:            '_ZNSt17_Function_handlerIFvvEZN3rex8graphics16CommandProcessor26ExecutePacketType3_XE_SWAPEPNS1_6memory10RingBufferEjjE3$_0E9_M_invokeERKSt9_Any_data/1'
+    fid:             4175
+    hash:            0x438AA6A014B844E5
+    exec:            0
+    nblocks:         273
+  - name:            '_ZNSt17_Function_handlerIFvvEZN3rex8graphics16CommandProcessor34ExecutePacketType3_EVENT_WRITE_SHDEPNS1_6memory10RingBufferEjjE3$_0E9_M_invokeERKSt9_Any_data/1'
+    fid:             4177
+    hash:            0x19F458B21E066200
+    exec:            0
+    nblocks:         1
+  - name:            '_ZNSt17_Function_handlerIFvvEZN3rex8graphics16CommandProcessor16LoadInlineShaderENS2_5xenos10ShaderTypeEjPKjjE3$_0E9_M_invokeERKSt9_Any_data.llvm.4023723975782841966/1'
+    fid:             4195
+    hash:            0xBFAEA043ECD5AE8E
+    exec:            0
+    nblocks:         1
+  - name:            '_ZNSt17_Function_handlerIFvvEZN3rex8graphics16CommandProcessor16LoadInlineShaderENS2_5xenos10ShaderTypeEjPKjjE3$_0E10_M_managerERSt9_Any_dataRKSA_St18_Manager_operation.llvm.4023723975782841966/1'
+    fid:             4196
+    hash:            0x598CA846A7340D2A
+    exec:            0
+    nblocks:         19
+  - name:            '_ZN3rex8graphics18d3d_census_decoder7IbBeginEjjj/1'
+    fid:             4199
+    hash:            0xA0153A0F45FB0300
+    exec:            0
+    nblocks:         47
+  - name:            '_ZN3rex8graphics18d3d_census_decoder4SwapEv/1'
+    fid:             4204
+    hash:            0xA91542E79BFA8ECF
+    exec:            0
+    nblocks:         16
+  - name:            '_ZN3rex8graphics16CommandProcessor11D3dListSwapEv/1'
+    fid:             4229
+    hash:            0x2ADFAF4B4700325
+    exec:            0
+    nblocks:         270
+  - name:            '_ZN3rex8graphics12D3dPageWatch8CallbackEPvjjb/1'
+    fid:             4255
+    hash:            0xC3DA4E482540690
+    exec:            0
+    nblocks:         21
+  - name:            '_ZN3rex8graphics12D3dPageWatch3ArmEjj/1'
+    fid:             4257
+    hash:            0x43955352CFA50AC1
+    exec:            0
+    nblocks:         13
+  - name:            '_ZN3rex8graphics16CommandProcessor18D3dShaderCacheLoadENS0_5xenos10ShaderTypeEjjPKjRm/1'
+    fid:             4259
+    hash:            0x9AA6047DDFA82889
+    exec:            0
+    nblocks:         55
+  - name:            '_ZN3rex8graphics16CommandProcessor18D3dShaderCacheSwapEv/1'
+    fid:             4261
+    hash:            0x440140FFA9799C95
+    exec:            0
+    nblocks:         78
+  - name:            '_ZN3rex8graphics17Fh1DepthOverwrite12PositionSink6ExportENS0_5ucode14ExportRegisterEPKfj/1'
+    fid:             4269
+    hash:            0xB8D48961CABEA08D
+    exec:            0
+    nblocks:         15
+  - name:            '_ZN3rex8graphics17Fh1DepthOverwrite6DeriveERKNS0_11Fh1DrawInfoEbRb/1'
+    fid:             4270
+    hash:            0xD4BE7378B3EFBC98
+    exec:            0
+    nblocks:         89
+  - name:            '_ZZN3rex8graphics17Fh1DepthOverwrite6DeriveERKNS0_11Fh1DrawInfoEbRbENK3$_0clEb/1'
+    fid:             4272
+    hash:            0x64CA5C11F1978C27
+    exec:            0
+    nblocks:         17
+  - name:            '_ZNSt6vectorIN3rex8graphics17Fh1DepthOverwrite4RectESaIS3_EE9push_backERKS3_/1'
+    fid:             4273
+    hash:            0xC2849B5DBEB5F14D
+    exec:            0
+    nblocks:         10
+  - name:            '_ZN3rex8graphics17ShaderInterpreter10ExportSink11AllocExportENS0_5ucode9AllocTypeEj/1'
+    fid:             4275
+    hash:            0x8CE11268808116F5
+    exec:            0
+    nblocks:         1
+  - name:            '_ZN3rex8graphics14Fh1PlanResolveERKNS0_12RegisterFileERKNS_6memory6MemoryERKNS0_15Fh1ResolveFlagsERNS0_14Fh1ResolvePlanE/1'
+    fid:             4277
+    hash:            0x614E739DE4CCFC97
+    exec:            0
+    nblocks:         211
+  - name:            '_ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE10_M_replaceEmmPKcm/1'
+    fid:             4278
+    hash:            0x993E2B156F08276F
+    exec:            0
+    nblocks:         9
+  - name:            '_ZNKSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE11_M_disjunctEPKc/1'
+    fid:             4279
+    hash:            0x3B58D590FCA01F82
+    exec:            0
+    nblocks:         1
+  - name:            '_ZN3rex8graphics19DrawExtentEstimator19PositionYExportSink6ExportENS0_5ucode14ExportRegisterEPKfj/1'
+    fid:             4357
+    hash:            0xE7705113FCD7AA68
+    exec:            0
+    nblocks:         11
+  - name:            '_ZN3rex8graphics19DrawExtentEstimator18EstimateVertexMaxYERKNS0_6ShaderE/1'
+    fid:             4358
+    hash:            0x83A06EB9A51B86C8
+    exec:            0
+    nblocks:         50
+  - name:            '_ZN3rex8graphics19DrawExtentEstimator12EstimateMaxYEbRKNS0_6ShaderE/1'
+    fid:             4359
+    hash:            0xB96839DB217328E8
+    exec:            0
+    nblocks:         18
+  - name:            '_ZN3rex8graphics9draw_util10GetScissorERKNS0_12RegisterFileERNS1_7ScissorEb/1'
+    fid:             4377
+    hash:            0xCA1B57FE8681AAAE
+    exec:            0
+    nblocks:         5
+  - name:            '_ZN3rex8graphics9draw_util36IsPixelShaderNeededWithRasterizationERKNS0_6ShaderERKNS0_12RegisterFileEb/1'
+    fid:             4382
+    hash:            0xC3E648B450ABC0A6
+    exec:            0
+    nblocks:         13
+  - name:            '_ZN3rex8graphics9draw_util19GetHostViewportInfoERKNS0_12RegisterFileEjjbjjbNS0_3reg15RB_DEPTHCONTROLEbbbRNS1_12ViewportInfoE/1'
+    fid:             4383
+    hash:            0x458D7F8795BCAD9D
+    exec:            0
+    nblocks:         69
+  - name:            '_ZN3rex8graphics9draw_util22GetNormalizedColorMaskERKNS0_12RegisterFileEj/1'
+    fid:             4384
+    hash:            0x5046E2E878F6043
+    exec:            0
+    nblocks:         10
+  - name:            '_ZN3rex8graphics9draw_util14GetResolveInfoERKNS0_12RegisterFileERKNS_6memory6MemoryEjjbbRNS1_11ResolveInfoE/1'
+    fid:             4387
+    hash:            0x54935606DDD76CF0
+    exec:            0
+    nblocks:         122
+  - name:            '_ZN3rex8graphics18PrimitiveProcessor23ReplaceResetIndex32To24ILNS0_5xenos6EndianE0EEEvPjPKjjjj/1'
+    fid:             4415
+    hash:            0x542ACF45C58405D
+    exec:            0
+    nblocks:         22
+  - name:            '_ZN3rex8graphics18PrimitiveProcessor33GetQuadListTriangleListIndexCountEj/1'
+    fid:             4424
+    hash:            0x96C2A7134AF3C58
+    exec:            0
+    nblocks:         1
+  - name:            '_ZN3rex8graphics18PrimitiveProcessor18ClearPerFrameCacheEv/1'
+    fid:             4425
+    hash:            0xD255C9D77ED0FD48
+    exec:            0
+    nblocks:         21
+  - name:            '_ZN3rex8graphics18PrimitiveProcessor7ProcessERNS1_16ProcessingResultEb/1'
+    fid:             4426
+    hash:            0x2911978063694CD2
+    exec:            0
+    nblocks:         377
+  - name:            '_ZNSt8functionIFjjEEaSIRS0_EENSt9enable_ifIXsr9_CallableIT_EE5valueERS1_E4typeEOS5_/1'
+    fid:             4428
+    hash:            0x4F3FFBE912EDAB16
+    exec:            0
+    nblocks:         4
+  - name:            '_ZNSt5dequeIN3rex8graphics18PrimitiveProcessor20SinglePrimitiveRangeESaIS3_EE5clearEv/1'
+    fid:             4429
+    hash:            0x28B7D72122F52F8F
+    exec:            0
+    nblocks:         4
+  - name:            '_ZNSt5dequeIN3rex8graphics18PrimitiveProcessor20SinglePrimitiveRangeESaIS3_EE12emplace_backIJiRjS7_EEERS3_DpOT_/1'
+    fid:             4433
+    hash:            0xD3C44E7F2AC1A3C
+    exec:            0
+    nblocks:         8
+  - name:            '_ZN3rex8graphics18PrimitiveProcessor28ConvertSinglePrimitiveRangesItNS1_25PassthroughIndexTransformESt15_Deque_iteratorINS1_20SinglePrimitiveRangeERKS5_PS6_EEEvPT_PKSA_NS0_5xenos13PrimitiveTypeERKT0_T1_SJ_/1'
+    fid:             4434
+    hash:            0x138D6D213F6446D0
+    exec:            0
+    nblocks:         60
+  - name:            '_ZN3rex8graphics18PrimitiveProcessor11IsResetUsedEPKjjjj/1'
+    fid:             4435
+    hash:            0xDDB858766ACFE7C1
+    exec:            0
+    nblocks:         20
+  - name:            '_ZN3rex8graphics18PrimitiveProcessor16CacheTransactionC2ERS1_NS1_8CacheKeyE/1'
+    fid:             4445
+    hash:            0xF91127D9BFA6AD97
+    exec:            0
+    nblocks:         42
+  - name:            '_ZN3rex8graphics18PrimitiveProcessor31MemoryInvalidationCallbackThunkEPvjjb/1'
+    fid:             4446
+    hash:            0xC8AB47AE0503CAC4
+    exec:            0
+    nblocks:         106
+  - name:            '_ZN3rex8graphics18PrimitiveProcessor16CacheTransactionD2Ev/1'
+    fid:             4448
+    hash:            0x7E436383D08C9D59
+    exec:            0
+    nblocks:         127
+  - name:            '_ZNSt17_Function_handlerIFjjEPS0_E9_M_invokeERKSt9_Any_dataOj/1'
+    fid:             4477
+    hash:            0x4E0353D7E0E0718
+    exec:            0
+    nblocks:         1
+  - name:            '_ZN3rex8graphics12SharedMemory31MemoryInvalidationCallbackThunkEPvjjb/1'
+    fid:             4487
+    hash:            0xAA91EE5CB95EE5F2
+    exec:            0
+    nblocks:         94
+  - name:            '_ZN3rex8graphics12SharedMemory11FireWatchesEjjb/1'
+    fid:             4489
+    hash:            0xCD2FC72019D84FDE
+    exec:            0
+    nblocks:         39
+  - name:            '_ZN3rex8graphics12SharedMemory16WatchMemoryRangeEjjPFvRKSt11unique_lockISt15recursive_mutexEPvS7_mbES7_S7_m/1'
+    fid:             4496
+    hash:            0x2C8AD4EBB5894102
+    exec:            0
+    nblocks:         52
+  - name:            '_ZN3rex8graphics12SharedMemory14MakeRangeValidEjjb/1'
+    fid:             4500
+    hash:            0x1A17BAA3EF9E69F2
+    exec:            0
+    nblocks:         64
+  - name:            '_ZN3rex8graphics12SharedMemory13RequestRangesEPKSt4pairIjjEm/1'
+    fid:             4504
+    hash:            0xF6BD9746F41C1ECC
+    exec:            0
+    nblocks:         198
+  - name:            '_ZN3rex8graphics12SharedMemory12RequestRangeEjj/1'
+    fid:             4505
+    hash:            0x2CE3C09471EF738A
+    exec:            0
+    nblocks:         22
+  - name:            '_ZN3rex3bit17GetNextRangeUnsetImEESt4pairImmEPKT_mm/1'
+    fid:             4506
+    hash:            0x6ED85370EF2E454F
+    exec:            0
+    nblocks:         29
+  - name:            '_ZNSt6vectorImSaImEE17_M_default_appendEm/1'
+    fid:             4508
+    hash:            0x8731317D53902B83
+    exec:            0
+    nblocks:         15
+  - name:            '_ZSt16__introsort_loopIN9__gnu_cxx17__normal_iteratorIPSt4pairIjjESt6vectorIS3_SaIS3_EEEElNS0_5__ops15_Iter_comp_iterIZN3rex8graphics12SharedMemory13RequestRangesEPKS3_mE3$_0EEEvT_SI_T0_T1_/1'
+    fid:             4510
+    hash:            0x4C044F431F9FA811
+    exec:            0
+    nblocks:         83
+  - name:            '_ZN3rex8graphics12TextureCache27WriteLogGlobalWatchCallbackERKSt11unique_lockISt15recursive_mutexEPvjjb/1'
+    fid:             4528
+    hash:            0xF9E0B49F34109DA3
+    exec:            0
+    nblocks:         1
+  - name:            '_ZN3rex8graphics12TextureCache26CompletedSubmissionUpdatedEm/1'
+    fid:             4536
+    hash:            0xD120FAB48B93A686
+    exec:            0
+    nblocks:         76
+  - name:            '_ZNSt13unordered_mapIN3rex8graphics12TextureCache10TextureKeyESt10unique_ptrINS2_7TextureESt14default_deleteIS5_EENS0_8XXHasherIS3_EESt8equal_toIS3_ESaISt4pairIKS3_S8_EEE4findERSE_/1'
+    fid:             4537
+    hash:            0x33BEC44BCB3C389F
+    exec:            0
+    nblocks:         15
+  - name:            '_ZN3rex8graphics12TextureCache19MarkRangeAsResolvedEjj/1'
+    fid:             4540
+    hash:            0x83D64AFC363E8DFC
+    exec:            0
+    nblocks:         28
+  - name:            '_ZN3rex8graphics12TextureCache18PrepareTextureLoadERNS1_7TextureERNS1_18PendingTextureLoadEPNS1_24PendingSharedMemoryRangeERm/1'
+    fid:             4542
+    hash:            0xB8F952D373AE55DD
+    exec:            0
+    nblocks:         77
+  - name:            '_ZN3rex8graphics12TextureCache7Texture12CompleteLoadERKSt11unique_lockISt15recursive_mutexEbb/1'
+    fid:             4543
+    hash:            0x48CDD178217DF7BC
+    exec:            0
+    nblocks:         48
+  - name:            '_ZNK3rex8graphics12TextureCache7Texture9LogActionEPKc/1'
+    fid:             4544
+    hash:            0xAE5E4C485B756C1
+    exec:            0
+    nblocks:         39
+  - name:            '_ZN3rex8graphics12TextureCache25CommitPreparedTextureLoadERKNS1_18PendingTextureLoadE/1'
+    fid:             4545
+    hash:            0xE67559150D5FBF59
+    exec:            0
+    nblocks:         143
+  - name:            '_ZN3rex8graphics12TextureCache15RequestTexturesEj/1'
+    fid:             4546
+    hash:            0xCF740FA1DA5C24F
+    exec:            0
+    nblocks:         187
+  - name:            '_ZZN3rex8graphics12TextureCache15RequestTexturesEjENK3$_0clEPNS1_7TextureE/1'
+    fid:             4547
+    hash:            0xF5584E00C170CA26
+    exec:            0
+    nblocks:         32
+  - name:            '_ZN3rex8graphics12TextureCache28BindingInfoFromFetchConstantERKNS0_5xenos22xe_gpu_texture_fetch_tERNS1_10TextureKeyEPh/1'
+    fid:             4548
+    hash:            0xB1777A388FF43DC1
+    exec:            0
+    nblocks:         68
+  - name:            '_ZN3rex8graphics12TextureCache19FindOrCreateTextureENS1_10TextureKeyE/1'
+    fid:             4549
+    hash:            0xC6F0B2D6A00FB859
+    exec:            0
+    nblocks:         149
+  - name:            '_ZN3rex8graphics12TextureCache13WatchCallbackERKSt11unique_lockISt15recursive_mutexEPvS7_mb/1'
+    fid:             4555
+    hash:            0x6D19CF9CABE2F196
+    exec:            0
+    nblocks:         45
+  - name:            '_ZN3rex8graphics12TextureCache7Texture10MarkAsUsedEv/1'
+    fid:             4556
+    hash:            0xDC8995ADC9BB261F
+    exec:            0
+    nblocks:         8
+  - name:            '_ZN3rex8graphics12TextureCache24FindDirectResolveTargetsEjjjNS0_5xenos13TextureFormatEjjjbRSt6vectorINS1_19DirectResolveTargetESaIS5_EEb/1'
+    fid:             4558
+    hash:            0x929BB5726D1F96BA
+    exec:            0
+    nblocks:         108
+  - name:            '_ZNSt6vectorIN3rex8graphics12TextureCache19DirectResolveTargetESaIS3_EE9push_backEOS3_/1'
+    fid:             4561
+    hash:            0xCEF6C5F0103244E9
+    exec:            0
+    nblocks:         10
+  - name:            '_ZZN3rex8graphics12TextureCache24FindDirectResolveTargetsEjjjNS0_5xenos13TextureFormatEjjjbRSt6vectorINS1_19DirectResolveTargetESaIS5_EEbEN8TraceEndD2Ev/1'
+    fid:             4562
+    hash:            0xD9CD0325A0819D59
+    exec:            0
+    nblocks:         67
+  - name:            '_ZN3rex8graphics12TextureCache21CompleteDirectResolveERKSt6vectorINS1_19DirectResolveTargetESaIS3_EE/1'
+    fid:             4563
+    hash:            0xBC90CDBFDB272ED1
+    exec:            0
+    nblocks:         16
+  - name:            '_ZNSt17_Function_handlerIFNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEvE4$_58E9_M_invokeERKSt9_Any_data/2'
+    fid:             4692
+    hash:            0x66BB7C84ED6AEBE1
+    exec:            0
+    nblocks:         18
+  - name:            '_ZN3rex8graphics19texture_replacement10FindFormatENS0_5xenos13TextureFormatE/1'
+    fid:             4733
+    hash:            0xEBE77BF1DF45E65B
+    exec:            0
+    nblocks:         9
+  - name:            '_ZN3rex8graphics19texture_replacement4FindERKNS1_6SourceERKNS0_12texture_util18TextureGuestLayoutERNS0_12SharedMemoryERNS1_6LookupE/1'
+    fid:             4738
+    hash:            0x1206C43ACC3926D3
+    exec:            0
+    nblocks:         570
+  - name:            '_ZN3rex8graphics17ShaderInterpreter7ExecuteEv/1'
+    fid:             4786
+    hash:            0x332ED9056B70BA8
+    exec:            0
+    nblocks:         653
+  - name:            '_ZN3rex8graphics5xenos26GetVertexFormatNeededWordsENS1_12VertexFormatEj/1'
+    fid:             4787
+    hash:            0x5F66FB64E7F33544
+    exec:            0
+    nblocks:         12
+  - name:            '_ZN3rex8graphics12SpirvBuilder20createBinBuiltinCallEjjijj/1'
+    fid:             4811
+    hash:            0xD5C4ECD39C3EFA9E
+    exec:            0
+    nblocks:         26
+  - name:            '_ZN3spv5BlockD2Ev/1'
+    fid:             4828
+    hash:            0x861DA5F7098309D5
+    exec:            0
+    nblocks:         20
+  - name:            '_ZNK3rex8graphics21SpirvShaderTranslator34GetDefaultVertexShaderModificationEjNS0_6Shader20HostVertexShaderTypeE/1'
+    fid:             4841
+    hash:            0xD7E23A7FB0F9C85F
+    exec:            0
+    nblocks:         1
+  - name:            '_ZNK3rex8graphics21SpirvShaderTranslator33GetDefaultPixelShaderModificationEj/1'
+    fid:             4842
+    hash:            0x9FEBF32310239AB8
+    exec:            0
+    nblocks:         1
+  - name:            '_ZN3rex8graphics21SpirvShaderTranslator33StartVertexOrTessEvalShaderInMainEv/1'
+    fid:             4848
+    hash:            0x115D13A1033667A2
+    exec:            0
+    nblocks:         288
+  - name:            '_ZNSt6vectorISt10unique_ptrIN3spv11InstructionESt14default_deleteIS2_EESaIS5_EE12emplace_backIJS5_EEERS5_DpOT_/1'
+    fid:             4957
+    hash:            0x58A4B026AD284EDC
+    exec:            0
+    nblocks:         17
+  - name:            '_ZN3rex8graphics6vulkan21DeferredCommandBuffer7ExecuteEP17VkCommandBuffer_T/1'
+    fid:             5127
+    hash:            0x19134FDBD8ABEA14
+    exec:            0
+    nblocks:         63
+  - name:            '_ZN3rex8graphics6vulkan21DeferredCommandBuffer12WriteCommandENS2_7CommandEm/1'
+    fid:             5129
+    hash:            0xDBA9AC119FE9BE0F
+    exec:            0
+    nblocks:         6
+  - name:            '_ZN3rex8graphics6vulkan21DeferredCommandBuffer19CmdVkBeginRenderingEPK15VkRenderingInfo/1'
+    fid:             5130
+    hash:            0xF0650A32532B3FF9
+    exec:            0
+    nblocks:         12
+  - name:            '_ZN3rex8graphics6vulkan17Fh1NativeExecutor19UpdateCoarseShadingEv/1'
+    fid:             5151
+    hash:            0x67F6DE1E4D8A5BC3
+    exec:            0
+    nblocks:         77
+  - name:            '_ZN3rex8graphics6vulkan17Fh1NativeExecutor20ReleaseRetiredImagesEb/1'
+    fid:             5155
+    hash:            0x439EAF58332BEBB8
+    exec:            0
+    nblocks:         54
+  - name:            '_ZN3rex8graphics6vulkan17Fh1NativeExecutor18FlushPendingClearsERNS2_7SurfaceE/1'
+    fid:             5161
+    hash:            0xBEA33B694021E620
+    exec:            0
+    nblocks:         42
+  - name:            '_ZN3rex8graphics6vulkan17Fh1NativeExecutor23TransitionForAttachmentERNS2_7SurfaceEm/1'
+    fid:             5163
+    hash:            0x4465299B734CFBDB
+    exec:            0
+    nblocks:         8
+  - name:            '_ZN3rex8graphics6vulkan17Fh1NativeExecutor21BeginSurfaceRenderingERNS2_7SurfaceEb/1'
+    fid:             5164
+    hash:            0x484C21FA21378054
+    exec:            0
+    nblocks:         4
+  - name:            '_ZN3rex8graphics6vulkan17Fh1NativeExecutor16EndUntiledTilingEv/1'
+    fid:             5165
+    hash:            0xECBE4C9860562E07
+    exec:            0
+    nblocks:         34
+  - name:            '_ZN3rex8graphics6vulkan17Fh1NativeExecutor18GetOrCreateSurfaceERKNS0_13Fh1SurfaceKeyEj/1'
+    fid:             5166
+    hash:            0xDFD9984D04FF29E9
+    exec:            0
+    nblocks:         135
+  - name:            '_ZN3rex8graphics6vulkan17Fh1NativeExecutor17EnsureSurfaceRowsERNS2_7SurfaceEj/1'
+    fid:             5167
+    hash:            0x946BA726E2531F98
+    exec:            0
+    nblocks:         104
+  - name:            '_ZN3rex8graphics6vulkan17Fh1NativeExecutor10ClaimTilesEjjjb/1'
+    fid:             5169
+    hash:            0xE1A08D73D5C4E5E
+    exec:            0
+    nblocks:         148
+  - name:            '_ZN3rex8graphics6vulkan17Fh1NativeExecutor19GetTransferPipelineERKNS2_19TransferPipelineKeyE/1'
+    fid:             5171
+    hash:            0xFD7B0CE394E11DA
+    exec:            0
+    nblocks:         33
+  - name:            '_ZN3rex8graphics6vulkan17Fh1NativeExecutor18SpecializeTransferERNS2_19TransferPipelineKeyEPKj/1'
+    fid:             5173
+    hash:            0x5D918970C934B6B8
+    exec:            0
+    nblocks:         108
+  - name:            '_ZN3rex8graphics6vulkan17Fh1NativeExecutor18CollectSpecializedEv/1'
+    fid:             5174
+    hash:            0xDA009A3BE979C412
+    exec:            0
+    nblocks:         81
+  - name:            '_ZN3rex8graphics6vulkan17Fh1NativeExecutor21AllocateDescriptorSetEP23VkDescriptorSetLayout_T/1'
+    fid:             5176
+    hash:            0x7D0AB74CE9707E1A
+    exec:            0
+    nblocks:         29
+  - name:            '_ZN3rex8graphics6vulkan17Fh1NativeExecutor13TransferRectsERNS2_7SurfaceEjPKNS2_4RectEjjb/1'
+    fid:             5177
+    hash:            0xB9DFECD6899FFBC5
+    exec:            0
+    nblocks:         140
+  - name:            '_ZN3rex8graphics6vulkan17Fh1NativeExecutor13ClaimTileRectERKNS0_13Fh1SurfaceKeyEjjjj/1'
+    fid:             5178
+    hash:            0xFE7B518548F55092
+    exec:            0
+    nblocks:         60
+  - name:            '_ZN3rex8graphics6vulkan17Fh1NativeExecutor19EnsureTransferWordsERKNS2_7SurfaceE/1'
+    fid:             5180
+    hash:            0xDB6AE8F0EA92498C
+    exec:            0
+    nblocks:         18
+  - name:            '_ZN3rex8graphics6vulkan17Fh1NativeExecutor14FlushTransfersEv/1'
+    fid:             5182
+    hash:            0x487330F2198E49EF
+    exec:            0
+    nblocks:         572
+  - name:            '_ZN3rex8graphics6vulkan17Fh1NativeExecutor8GpuBeginEv/1'
+    fid:             5184
+    hash:            0x654833D52FE5A72D
+    exec:            0
+    nblocks:         44
+  - name:            '_ZN3rex8graphics6vulkan17Fh1NativeExecutor14PrepareTargetsERKNS0_11Fh1DrawInfoE/1'
+    fid:             5187
+    hash:            0x2463BE535B75F68E
+    exec:            0
+    nblocks:         465
+  - name:            '_ZN3rex8graphics6vulkan17Fh1NativeExecutor11BindTargetsERNS1_23VulkanRenderTargetCache13RenderPassKeyE/1'
+    fid:             5188
+    hash:            0x2BCC8DCA108055C5
+    exec:            0
+    nblocks:         230
+  - name:            '_ZN3rex8graphics6vulkan17Fh1NativeExecutor20BeginShaderDiscoveryEv/1'
+    fid:             5189
+    hash:            0xFEFC9450E662E91A
+    exec:            0
+    nblocks:         76
+  - name:            '_ZN3rex8graphics6vulkan17Fh1NativeExecutor18DiscoverShaderDrawEPKNS1_12VulkanShader17VulkanTranslationES6_jRKNS0_11Fh1DrawInfoEb/1'
+    fid:             5190
+    hash:            0x35BFA023C89EDBD6
+    exec:            0
+    nblocks:         81
+  - name:            '_ZN3rex8graphics6vulkan17Fh1NativeExecutor18BeginDrawRenderingEv/1'
+    fid:             5192
+    hash:            0xB860DC6DD8F6AE90
+    exec:            0
+    nblocks:         310
+  - name:            '_ZN3rex8graphics6vulkan17Fh1NativeExecutor17FoldPendingClearsEPKPNS2_7SurfaceEjjP25VkRenderingAttachmentInfoS8_b/1'
+    fid:             5193
+    hash:            0x6CC0C6D639D012B9
+    exec:            0
+    nblocks:         101
+  - name:            '_ZN3rex8graphics6vulkan17Fh1NativeExecutor22DebugSkipRenderingDrawERKNS0_11Fh1DrawInfoE/1'
+    fid:             5195
+    hash:            0x7FB4180EED116D4D
+    exec:            0
+    nblocks:         10
+  - name:            '_ZN3rex8graphics6vulkan17Fh1NativeExecutor16NativeDrawIssuedERKNS0_11Fh1DrawInfoE/1'
+    fid:             5196
+    hash:            0xD95E8B96DD662DED
+    exec:            0
+    nblocks:         16
+  - name:            '_ZN3rex8graphics6vulkan17Fh1NativeExecutor15ResolveToMemoryERKNS2_10SourceRectERKNS0_13Fh1SurfaceKeyEjjjjP10VkBuffer_TmmbP13VkImageView_TjjSC_j/1'
+    fid:             5198
+    hash:            0xBF55095DBD5E02E1
+    exec:            0
+    nblocks:         320
+  - name:            '_ZN3rex8graphics6vulkan17Fh1NativeExecutor13NativeResolveERjS3_/1'
+    fid:             5201
+    hash:            0xB44F91108973FB42
+    exec:            0
+    nblocks:         17
+  - name:            '_ZN3rex8graphics6vulkan17Fh1NativeExecutor7ResolveEPjS3_/1'
+    fid:             5202
+    hash:            0xE2A0AD8AE9D1B445
+    exec:            0
+    nblocks:         369
+  - name:            '_ZN3rex8graphics6vulkan17Fh1NativeExecutor15IsOneOffResolveEjj/1'
+    fid:             5203
+    hash:            0xEFB2CA28C3DEA4A
+    exec:            0
+    nblocks:         57
+  - name:            '_ZN3rex8graphics6vulkan17Fh1NativeExecutor21FlushResolveReadbacksEv/1'
+    fid:             5206
+    hash:            0xCFC80DE27337108D
+    exec:            0
+    nblocks:         12
+  - name:            '_ZN3rex8graphics6vulkan17Fh1NativeExecutor21QueueDeferredReadbackEjj/1'
+    fid:             5207
+    hash:            0x63CCA11E979AA486
+    exec:            0
+    nblocks:         78
+  - name:            '_ZN3rex8graphics6vulkan17Fh1NativeExecutor31ApplyCompletedDeferredReadbacksEv/1'
+    fid:             5208
+    hash:            0xB42DAB4B8F386CD6
+    exec:            0
+    nblocks:         12
+  - name:            '_ZZN3rex8graphics6vulkan17Fh1NativeExecutor7ResolveEPjS3_ENK3$_0clENS0_13Fh1SurfaceKeyEjj/1'
+    fid:             5212
+    hash:            0x9F9C578A3432BA79
+    exec:            0
+    nblocks:         120
+  - name:            '_ZN3rex8graphics6vulkan17Fh1NativeExecutor6OnSwapEm/1'
+    fid:             5213
+    hash:            0x74F6A67313BD92C
+    exec:            0
+    nblocks:         419
+  - name:            '_ZN3rex8graphics6vulkan17Fh1NativeExecutor22MaybeSnapshotBeforeHudERKNS0_11Fh1DrawInfoE/1'
+    fid:             5215
+    hash:            0x56D81F599900C74E
+    exec:            0
+    nblocks:         30
+  - name:            '_ZN3rex8graphics6vulkan17Fh1NativeExecutor6GpuEndENS2_8GpuPhaseEj/1'
+    fid:             5218
+    hash:            0xBD3FFB6E2F1763C6
+    exec:            0
+    nblocks:         25
+  - name:            '_ZN3rex8graphics6vulkan17Fh1NativeExecutor17GpuRenderingEndedEPKc/1'
+    fid:             5220
+    hash:            0x3E6EAAA8E365DD79
+    exec:            0
+    nblocks:         33
+  - name:            '_ZN3rex8graphics6vulkan17Fh1NativeExecutor8VisBeginERKNS0_11Fh1DrawInfoENS0_3reg15RB_DEPTHCONTROLEj/1'
+    fid:             5223
+    hash:            0xB681952A17C82F45
+    exec:            0
+    nblocks:         29
+  - name:            '_ZN3rex8graphics6vulkan17Fh1NativeExecutor6VisEndEj/1'
+    fid:             5224
+    hash:            0x86BF8F13EB322E56
+    exec:            0
+    nblocks:         16
+  - name:            '_ZN3rex8graphics6vulkan17Fh1NativeExecutor11GpuEndFrameEv/1'
+    fid:             5225
+    hash:            0x94559E36A226268D
+    exec:            0
+    nblocks:         26
+  - name:            '_ZNSt8_Rb_treeIjSt4pairIKjS0_IjjEESt10_Select1stIS3_ESt4lessIjESaIS3_EE8_M_eraseEPSt13_Rb_tree_nodeIS3_E/1'
+    fid:             5234
+    hash:            0x855169A494C55389
+    exec:            0
+    nblocks:         5
+  - name:            '_ZNSt8__detail9_Map_baseIPKcSt4pairIKS2_mESaIS5_ENS_10_Select1stESt8equal_toIS2_ESt4hashIS2_ENS_18_Mod_range_hashingENS_20_Default_ranged_hashENS_20_Prime_rehash_policyENS_17_Hashtable_traitsILb0ELb0ELb1EEELb1EEixERS4_/1'
+    fid:             5241
+    hash:            0xB0AD02E420835385
+    exec:            0
+    nblocks:         26
+  - name:            '_ZNSt8_Rb_treeIjSt4pairIKjS0_IjjEESt10_Select1stIS3_ESt4lessIjESaIS3_EE5eraseERS1_/1'
+    fid:             5243
+    hash:            0xE0D839934A2FB557
+    exec:            0
+    nblocks:         21
+  - name:            '_ZSt16__introsort_loopIN9__gnu_cxx17__normal_iteratorIPSt4pairIjjESt6vectorIS3_SaIS3_EEEElNS0_5__ops15_Iter_less_iterEEvT_SB_T0_T1_/1'
+    fid:             5244
+    hash:            0x48D33CF6BDDD064D
+    exec:            0
+    nblocks:         92
+  - name:            '_ZNSt8_Rb_treeIN3rex8graphics6vulkan17Fh1NativeExecutor19TransferPipelineKeyESt4pairIKS4_P12VkPipeline_TESt10_Select1stIS9_ESt4lessIS4_ESaIS9_EE4findERS6_/1'
+    fid:             5478
+    hash:            0x197AF2397F6B08A5
+    exec:            0
+    nblocks:         31
+  - name:            '_ZSt24__merge_sort_with_bufferIN9__gnu_cxx17__normal_iteratorIPN3rex8graphics6vulkan17Fh1NativeExecutor15PendingTransferESt6vectorIS6_SaIS6_EEEES7_NS0_5__ops15_Iter_comp_iterIZNS5_14FlushTransfersEvE3$_0EEEvT_SG_T0_T1_/1'
+    fid:             5493
+    hash:            0x58D75B4503BF2A6A
+    exec:            0
+    nblocks:         102
+  - name:            '_ZSt16__merge_adaptiveIN9__gnu_cxx17__normal_iteratorIPN3rex8graphics6vulkan17Fh1NativeExecutor15PendingTransferESt6vectorIS6_SaIS6_EEEElS7_NS0_5__ops15_Iter_comp_iterIZNS5_14FlushTransfersEvE3$_0EEEvT_SG_SG_T0_SH_T1_T2_/1'
+    fid:             5494
+    hash:            0x7F17A05C65BDAF15
+    exec:            0
+    nblocks:         36
+  - name:            _ZNSt8__detail9_Map_baseIjSt4pairIKjjESaIS3_ENS_10_Select1stESt8equal_toIjESt4hashIjENS_18_Mod_range_hashingENS_20_Default_ranged_hashENS_20_Prime_rehash_policyENS_17_Hashtable_traitsILb0ELb0ELb1EEELb1EEixEOj
+    fid:             5499
+    hash:            0xB2383A3C712A20DE
+    exec:            0
+    nblocks:         24
+  - name:            '_ZN3rex8graphics6vulkan17Fh1NativeExecutor15BeginInspectionEv/1'
+    fid:             5509
+    hash:            0xECC19A3EF0A5C3F2
+    exec:            0
+    nblocks:         42
+  - name:            '_ZN3rex8graphics6vulkan17Fh1NativeExecutor14NoteCameraDrawERKNS0_11Fh1DrawInfoE/1'
+    fid:             5536
+    hash:            0x91AFF40E93AF91D0
+    exec:            0
+    nblocks:         21
+  - name:            '_ZNK3rex8graphics6vulkan17Fh1NativeExecutor14GetSceneJitterERfS3_/1'
+    fid:             5547
+    hash:            0x3B5301F72C7119E
+    exec:            0
+    nblocks:         8
+  - name:            '_ZN3rex8graphics6vulkan17Fh1NativeExecutor17FinishCameraFrameEv/1'
+    fid:             5548
+    hash:            0xE1A9AFBB47BBF768
+    exec:            0
+    nblocks:         262
+  - name:            '_ZN3rex8graphics6vulkan17Fh1NativeExecutor19SnapshotCameraDepthEj/1'
+    fid:             5555
+    hash:            0x1C940ED95E686506
+    exec:            0
+    nblocks:         119
+  - name:            '_ZN3rex8graphics6vulkan22VulkanCommandProcessor13DrawCostFrameEv/1'
+    fid:             5605
+    hash:            0x4160E108F33A4DDE
+    exec:            0
+    nblocks:         837
+  - name:            '_ZN3rex8graphics6vulkan22VulkanCommandProcessor33CheckSubmissionFenceAndDeviceLossEm/1'
+    fid:             5607
+    hash:            0x86685074B3C93EA3
+    exec:            0
+    nblocks:         163
+  - name:            '_ZNK3rex8graphics6vulkan22VulkanCommandProcessor14PipelineLayout17GetPipelineLayoutEv/1'
+    fid:             5638
+    hash:            0x7A3EBE316C2EE87
+    exec:            0
+    nblocks:         1
+  - name:            '_ZN3rex8graphics6vulkan22VulkanCommandProcessor13WriteRegisterEjj/1'
+    fid:             5639
+    hash:            0xAC46ECED26D73AD6
+    exec:            0
+    nblocks:         14
+  - name:            '_ZN3rex8graphics6vulkan22VulkanCommandProcessor18WriteRegistersHostEjPKjj/1'
+    fid:             5641
+    hash:            0xF493FF025D46A93E
+    exec:            0
+    nblocks:         53
+  - name:            '_ZN3rex8graphics6vulkan22VulkanCommandProcessor9IssueSwapEjjj/1'
+    fid:             5647
+    hash:            0x20AF65737CCB4F2B
+    exec:            0
+    nblocks:         383
+  - name:            '_ZN3rex8graphics6vulkan22VulkanCommandProcessor13EndSubmissionEb/1'
+    fid:             5648
+    hash:            0x2081DFED2B007826
+    exec:            0
+    nblocks:         478
+  - name:            '_ZN3rex8graphics6vulkan22VulkanCommandProcessor15BeginSubmissionEb/1'
+    fid:             5649
+    hash:            0xAD993AA2F5194A0
+    exec:            0
+    nblocks:         222
+  - name:            '_ZN3rex8graphics6vulkan17Fh1NativeExecutor19BeginLabelGpuTimingEPKc/1'
+    fid:             5650
+    hash:            0x397540B59503840A
+    exec:            0
+    nblocks:         11
+  - name:            '_ZN3rex8graphics6vulkan22VulkanCommandProcessor23PushBufferMemoryBarrierEP10VkBuffer_Tmmjjjjjjb/1'
+    fid:             5652
+    hash:            0x91D2CADB005DBC54
+    exec:            0
+    nblocks:         36
+  - name:            '_ZN3rex8graphics6vulkan22VulkanCommandProcessor19SplitPendingBarrierEv/1'
+    fid:             5653
+    hash:            0x874D47F953E0012E
+    exec:            0
+    nblocks:         16
+  - name:            '_ZN3rex8graphics6vulkan22VulkanCommandProcessor22PushImageMemoryBarrierEP9VkImage_TRK23VkImageSubresourceRangejjjj13VkImageLayoutS8_jjb/1'
+    fid:             5654
+    hash:            0x8DCD999252620161
+    exec:            0
+    nblocks:         66
+  - name:            '_ZN3rex8graphics6vulkan22VulkanCommandProcessor14SubmitBarriersEbSt15source_location/1'
+    fid:             5655
+    hash:            0x9A09D2174924AE3A
+    exec:            0
+    nblocks:         216
+  - name:            '_ZN3rex8graphics6vulkan22VulkanCommandProcessor34SubmitBarriersAndBeginFh1RenderingERK15VkRenderingInfom/1'
+    fid:             5659
+    hash:            0xBDF5A013201921EB
+    exec:            0
+    nblocks:         55
+  - name:            '_ZNSt3mapIPKcmSt4lessIS1_ESaISt4pairIKS1_mEEEixERS5_/1'
+    fid:             5660
+    hash:            0x3BF6B733251E7C41
+    exec:            0
+    nblocks:         12
+  - name:            '_ZN3rex8graphics6vulkan22VulkanCommandProcessor22FlushCpuVisibleResultsEv/1'
+    fid:             5669
+    hash:            0x9604E118644CA391
+    exec:            0
+    nblocks:         2
+  - name:            '_ZN3rex8graphics6vulkan22VulkanCommandProcessor33AllocateSingleTransientDescriptorENS2_31SingleTransientDescriptorLayoutE/1'
+    fid:             5670
+    hash:            0x1E0052CF1D812F00
+    exec:            0
+    nblocks:         10
+  - name:            '_ZN3rex8graphics6vulkan22VulkanCommandProcessor23AcquireScratchGpuBufferEmjj/1'
+    fid:             5673
+    hash:            0xA47D54A9FD3E3A3B
+    exec:            0
+    nblocks:         30
+  - name:            '_ZN3rex8graphics6vulkan22VulkanCommandProcessor28BindExternalGraphicsPipelineEP12VkPipeline_Tbbb/1'
+    fid:             5676
+    hash:            0x129C3612BF5BD9E8
+    exec:            0
+    nblocks:         22
+  - name:            '_ZN3rex8graphics6vulkan22VulkanCommandProcessor27BindExternalComputePipelineEP12VkPipeline_T/1'
+    fid:             5677
+    hash:            0xFA17AE7CB3CCADB0
+    exec:            0
+    nblocks:         16
+  - name:            '_ZN3rex8graphics6vulkan22VulkanCommandProcessor11SetViewportERK10VkViewport/1'
+    fid:             5678
+    hash:            0x3AC29491C0D42355
+    exec:            0
+    nblocks:         18
+  - name:            '_ZN3rex8graphics6vulkan22VulkanCommandProcessor10SetScissorERK8VkRect2D/1'
+    fid:             5679
+    hash:            0xFAF1311BF3E2CB56
+    exec:            0
+    nblocks:         18
+  - name:            '_ZN3rex8graphics6vulkan22VulkanCommandProcessor18OnPrimaryBufferEndEv/1'
+    fid:             5680
+    hash:            0x26D92ACAB647C5
+    exec:            0
+    nblocks:         18
+  - name:            '_ZN3rex8graphics6vulkan22VulkanCommandProcessor10LoadShaderENS0_5xenos10ShaderTypeEjPKjj/1'
+    fid:             5681
+    hash:            0x1458959B33B7984F
+    exec:            0
+    nblocks:         1
+  - name:            '_ZNK3rex8graphics6vulkan22VulkanCommandProcessor19HashShaderMicrocodeEPKjj/1'
+    fid:             5682
+    hash:            0xA20E1951F8C02FD
+    exec:            0
+    nblocks:         17
+  - name:            '_ZN3rex8graphics6vulkan22VulkanCommandProcessor16LoadShaderHashedENS0_5xenos10ShaderTypeEjPKjjm/1'
+    fid:             5683
+    hash:            0x3C0ABC3223429B35
+    exec:            0
+    nblocks:         1
+  - name:            '_ZN3rex8graphics6vulkan22VulkanCommandProcessor9IssueDrawENS0_5xenos13PrimitiveTypeEjPNS0_16CommandProcessor15IndexBufferInfoEb/1'
+    fid:             5684
+    hash:            0x153E4140DFE99CFF
+    exec:            0
+    nblocks:         46
+  - name:            '_ZN3rex8graphics6vulkan22VulkanCommandProcessor13IssueDrawImplENS0_5xenos13PrimitiveTypeEjPNS0_16CommandProcessor15IndexBufferInfoEb/1'
+    fid:             5686
+    hash:            0x193E24C493FBA95C
+    exec:            0
+    nblocks:         842
+  - name:            '_ZN3rex8graphics6vulkan22VulkanCommandProcessor10CheckpointENS2_14CheckpointKindEjNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEE/1'
+    fid:             5690
+    hash:            0x4D13189BDCD415D8
+    exec:            0
+    nblocks:         30
+  - name:            '_ZN3rex8graphics6vulkan22VulkanCommandProcessor18UpdateDynamicStateERKNS0_9draw_util12ViewportInfoEbNS0_3reg15RB_DEPTHCONTROLE/1'
+    fid:             5693
+    hash:            0x89EAA1DF023ABBCE
+    exec:            0
+    nblocks:         228
+  - name:            '_ZN3rex8graphics6vulkan22VulkanCommandProcessor26UpdateSystemConstantValuesEbRKNS0_18PrimitiveProcessor16ProcessingResultEbjRKNS0_9draw_util12ViewportInfoEjNS0_3reg15RB_DEPTHCONTROLEj/1'
+    fid:             5694
+    hash:            0x6D1BDD7C1F2CFD1A
+    exec:            0
+    nblocks:         149
+  - name:            '_ZN3rex8graphics6vulkan22VulkanCommandProcessor14UpdateBindingsEPKNS1_12VulkanShaderES5_/1'
+    fid:             5695
+    hash:            0xB716A318B725E778
+    exec:            0
+    nblocks:         461
+  - name:            '_ZNK3rex8graphics6vulkan24VulkanPrimitiveProcessor23GetConvertedIndexBufferEm/1'
+    fid:             5696
+    hash:            0x14F65548B62E9837
+    exec:            0
+    nblocks:         6
+  - name:            '_ZN3rex8graphics6vulkan22VulkanCommandProcessor9IssueCopyEv/1'
+    fid:             5699
+    hash:            0x286B835D53FB97F1
+    exec:            0
+    nblocks:         122
+  - name:            '_ZN3rex8graphics6vulkan22VulkanCommandProcessor23EvictOldReadbackBuffersERSt13unordered_mapImNS2_14ReadbackBufferESt4hashImESt8equal_toImESaISt4pairIKmS4_EEE/1'
+    fid:             5700
+    hash:            0xD63EBFF819DA07E7
+    exec:            0
+    nblocks:         45
+  - name:            '_ZN3rex8graphics6vulkan22VulkanCommandProcessor17ExecuteSubmissionERNS1_21DeferredCommandBufferERKNS2_13CommandBufferERKSt6vectorIP13VkSemaphore_TSaISA_EERKS8_IjSaIjEEP9VkFence_T/1'
+    fid:             5704
+    hash:            0xE83BD3D916080697
+    exec:            0
+    nblocks:         58
+  - name:            '_ZN3rex8graphics6vulkan12_GLOBAL__N_120GatherFloatConstantsEPhRA4_KmPKj/1'
+    fid:             5708
+    hash:            0xE27CB3F56F894A0
+    exec:            0
+    nblocks:         13
+  - name:            '_ZZN3rex8graphics6vulkan22VulkanCommandProcessor14UpdateBindingsEPKNS1_12VulkanShaderES5_ENK3$_1clERKNS2_24LastTextureDescriptorSetEP23VkDescriptorSetLayout_Tjjb/1'
+    fid:             5709
+    hash:            0xE03D487C4689CE3F
+    exec:            0
+    nblocks:         10
+  - name:            '_ZN3rex8graphics6vulkan22VulkanCommandProcessor25ReuseTextureDescriptorSetEbjjP23VkDescriptorSetLayout_TPK21VkDescriptorImageInfoS7_/1'
+    fid:             5710
+    hash:            0xBACE42745E3FB536
+    exec:            0
+    nblocks:         23
+  - name:            '_ZN3rex8graphics6vulkan22VulkanCommandProcessor29WriteTransientTextureBindingsEbjjP23VkDescriptorSetLayout_TPK21VkDescriptorImageInfoS7_P20VkWriteDescriptorSet/1'
+    fid:             5711
+    hash:            0x234EF242101D5C7A
+    exec:            0
+    nblocks:         59
+  - name:            '_ZNK3rex8graphics6vulkan22VulkanCommandProcessor15frame_inspectorEv/1'
+    fid:             5712
+    hash:            0x6B06B8F606171B09
+    exec:            0
+    nblocks:         5
+  - name:            '_ZNK3rex8graphics6vulkan22VulkanCommandProcessor20SupportsDrawProgramsEv/1'
+    fid:             5714
+    hash:            0xFD9F9B36E871C8FE
+    exec:            0
+    nblocks:         1
+  - name:            '_ZL25XXH3_hashLong_64b_defaultPKvmmPKhm/4'
+    fid:             5728
+    hash:            0x6D627760E9C95A30
+    exec:            0
+    nblocks:         10
+  - name:            '_ZL21XXH3_len_129to240_64bPKhmS0_mm/4'
+    fid:             5729
+    hash:            0xAABD2C54AE7F6CF1
+    exec:            0
+    nblocks:         4
+  - name:            '_ZNSt6vectorI21VkDescriptorImageInfoSaIS0_EE13_M_assign_auxIPKS0_EEvT_S6_St20forward_iterator_tag/1'
+    fid:             5733
+    hash:            0x9C9AA0EB06069535
+    exec:            0
+    nblocks:         26
+  - name:            '_ZNSt6vectorI21VkDescriptorImageInfoSaIS0_EE15_M_range_insertIPKS0_EEvN9__gnu_cxx17__normal_iteratorIPS0_S2_EET_SA_St20forward_iterator_tag/1'
+    fid:             5734
+    hash:            0xE4D29970517404CD
+    exec:            0
+    nblocks:         45
+  - name:            '_ZNSt17_Function_handlerIFvSt8functionIFvvEEEZN3rex8graphics6vulkan22VulkanCommandProcessor13IssueSwapImplEjjjE3$_0E9_M_invokeERKSt9_Any_dataOS2_/1'
+    fid:             6028
+    hash:            0x28668D171ADF8995
+    exec:            0
+    nblocks:         56
+  - name:            '_ZNSt17_Function_handlerIFbRN3rex2ui9Presenter25GuestOutputRefreshContextEEZNS0_8graphics6vulkan22VulkanCommandProcessor13IssueSwapImplEjjjE3$_1E9_M_invokeERKSt9_Any_dataS4_/1'
+    fid:             6031
+    hash:            0x8FB6E9B0A89AC2A1
+    exec:            0
+    nblocks:         628
+  - name:            '_ZNSt17_Function_handlerIFbRN3rex2ui9Presenter25GuestOutputRefreshContextEEZNS0_8graphics6vulkan22VulkanCommandProcessor13IssueSwapImplEjjjE3$_1E10_M_managerERSt9_Any_dataRKSB_St18_Manager_operation/1'
+    fid:             6032
+    hash:            0x3105269DE02EF47A
+    exec:            0
+    nblocks:         9
+  - name:            '_ZNSt17_Function_handlerIFvvEZZN3rex8graphics6vulkan22VulkanCommandProcessor13IssueSwapImplEjjjENK3$_1clERNS1_2ui9Presenter25GuestOutputRefreshContextEEUlvE_E9_M_invokeERKSt9_Any_data/1'
+    fid:             6035
+    hash:            0xF66C7DAB324F33F4
+    exec:            0
+    nblocks:         1
+  - name:            '_ZNSt17_Function_handlerIFvvEZZN3rex8graphics6vulkan22VulkanCommandProcessor13IssueSwapImplEjjjENK3$_1clERNS1_2ui9Presenter25GuestOutputRefreshContextEEUlvE_E10_M_managerERSt9_Any_dataRKSC_St18_Manager_operation/1'
+    fid:             6036
+    hash:            0x259978DA79B5C166
+    exec:            0
+    nblocks:         9
+  - name:            '_ZNSt5dequeIN3rex8graphics6vulkan22VulkanCommandProcessor29UsedSingleTransientDescriptorESaIS4_EE17_M_reallocate_mapEmb/1'
+    fid:             6045
+    hash:            0x594CF36FC1289FDF
+    exec:            0
+    nblocks:         21
+  - name:            '_ZNSt5dequeIN3rex8graphics6vulkan22VulkanCommandProcessor13SubmissionJobESaIS4_EE16_M_push_back_auxIJS4_EEEvDpOT_/1'
+    fid:             6056
+    hash:            0x3AC91C9E80F975E
+    exec:            0
+    nblocks:         28
+  - name:            '_ZNSt6thread11_State_implINS_8_InvokerISt5tupleIJZN3rex8graphics6vulkan22VulkanCommandProcessor21StartSubmissionWorkerEvE3$_0EEEEE6_M_runEv/1'
+    fid:             6059
+    hash:            0x221F50FEE32086B8
+    exec:            0
+    nblocks:         103
+  - name:            '_ZNSt17_Function_handlerIFvvEZN3rex8graphics6vulkan22VulkanCommandProcessor16DeferPresentStepESt8functionIS0_EE3$_0E9_M_invokeERKSt9_Any_data/1'
+    fid:             6060
+    hash:            0xA768A0BA03F4B023
+    exec:            0
+    nblocks:         5
+  - name:            '_ZNSt17_Function_handlerIFvvEZN3rex8graphics6vulkan22VulkanCommandProcessor16DeferPresentStepESt8functionIS0_EE3$_0E10_M_managerERSt9_Any_dataRKS9_St18_Manager_operation/1'
+    fid:             6061
+    hash:            0x6E33A20BBC98FD30
+    exec:            0
+    nblocks:         30
+  - name:            '_ZN3rex8graphics6vulkan22VulkanCommandProcessor24FreeRetiredIndexVersionsEv/1'
+    fid:             6077
+    hash:            0x175B120758096618
+    exec:            0
+    nblocks:         181
+  - name:            '_ZN3rex8graphics6vulkan22VulkanCommandProcessor16DrawProgramFrameEv/1'
+    fid:             6078
+    hash:            0x4236C89385ED03C6
+    exec:            0
+    nblocks:         94
+  - name:            '_ZL22XXH_INLINE_XXH3_64bitsPKvm.llvm.17993386031572551646/1'
+    fid:             6115
+    hash:            0xAE654A884D79F4FD
+    exec:            0
+    nblocks:         20
+  - name:            '_ZN3rex8graphics6vulkan19VulkanPipelineCache10LoadShaderENS0_5xenos10ShaderTypeEPKjjm/1'
+    fid:             6117
+    hash:            0xDC998C1972B670BA
+    exec:            0
+    nblocks:         24
+  - name:            '_ZN3rex8graphics6vulkan19VulkanPipelineCache13EndSubmissionEv/1'
+    fid:             6132
+    hash:            0xC77400E3EE767D45
+    exec:            0
+    nblocks:         66
+  - name:            '_ZN3rex8graphics6vulkan19VulkanPipelineCache35ProcessDeferredPipelineDestructionsEb/1'
+    fid:             6133
+    hash:            0x9EE785AF240255CF
+    exec:            0
+    nblocks:         254
+  - name:            '_ZNK3rex8graphics6vulkan19VulkanPipelineCache34GetCurrentVertexShaderModificationERKNS0_6ShaderENS3_20HostVertexShaderTypeEjb/1'
+    fid:             6136
+    hash:            0x15C01F97B27B9F91
+    exec:            0
+    nblocks:         23
+  - name:            '_ZNK3rex8graphics6vulkan19VulkanPipelineCache33GetCurrentPixelShaderModificationERKNS0_6ShaderEjjNS0_3reg15RB_DEPTHCONTROLE/1'
+    fid:             6137
+    hash:            0xEA7DA594E70E7B7B
+    exec:            0
+    nblocks:         16
+  - name:            '_ZN3rex8graphics6vulkan19VulkanPipelineCache23EnsureShadersTranslatedEPNS1_12VulkanShader17VulkanTranslationES5_/1'
+    fid:             6138
+    hash:            0xED4553F03B4E337B
+    exec:            0
+    nblocks:         27
+  - name:            '_ZN3rex8graphics6vulkan19VulkanPipelineCache24RequestShadersTranslatedEPNS1_12VulkanShader17VulkanTranslationES5_/1'
+    fid:             6139
+    hash:            0x2CC3CDD8C13600FB
+    exec:            0
+    nblocks:         136
+  - name:            '_ZN3rex8graphics6vulkan19VulkanPipelineCache17ConfigurePipelineEPNS1_12VulkanShader17VulkanTranslationES5_RKNS0_18PrimitiveProcessor16ProcessingResultENS0_3reg15RB_DEPTHCONTROLEjNS1_23VulkanRenderTargetCache13RenderPassKeyERP12VkPipeline_TRPKNS2_22PipelineLayoutProviderEPPv/1'
+    fid:             6142
+    hash:            0x7982E1A8C2C4AB3
+    exec:            0
+    nblocks:         412
+  - name:            '_ZL25XXH3_hashLong_64b_defaultPKvmmPKhm/6'
+    fid:             6165
+    hash:            0x2926ECB3D9CD428E
+    exec:            0
+    nblocks:         10
+  - name:            '_ZL21XXH3_len_129to240_64bPKhmS0_mm/6'
+    fid:             6166
+    hash:            0xAABD2C54AE7F6CF1
+    exec:            0
+    nblocks:         4
+  - name:            '_ZNSt17_Function_handlerIFvvEZN3rex8graphics6vulkan19VulkanPipelineCache10InitializeEvE3$_0E9_M_invokeERKSt9_Any_data/1'
+    fid:             6275
+    hash:            0x4CEDBCF4DB08A8C
+    exec:            0
+    nblocks:         34
+  - name:            '_ZNSt10_HashtableIN3rex8graphics6vulkan19VulkanPipelineCache19PipelineDescriptionESt4pairIKS4_NS3_8PipelineEESaIS8_ENSt8__detail10_Select1stESt8equal_toIS4_ENS4_6HasherENSA_18_Mod_range_hashingENSA_20_Default_ranged_hashENSA_20_Prime_rehash_policyENSA_17_Hashtable_traitsILb1ELb0ELb1EEEE4findERS6_/1'
+    fid:             6282
+    hash:            0x1C3D65985CF03CDA
+    exec:            0
+    nblocks:         15
+  - name:            '_ZNSt17_Function_handlerIFvvEZN3rex8graphics6vulkan19VulkanPipelineCache23InitializeShaderStorageERKNSt10filesystem7__cxx114pathEjbE3$_2E9_M_invokeERKSt9_Any_data/1'
+    fid:             6288
+    hash:            0x8820146970E479F0
+    exec:            0
+    nblocks:         87
+  - name:            '_ZN3rex8graphics6vulkan24VulkanPrimitiveProcessor15BeginSubmissionEv/1'
+    fid:             6313
+    hash:            0xD17510A3CF69C623
+    exec:            0
+    nblocks:         17
+  - name:            '_ZN3rex8graphics6vulkan24VulkanPrimitiveProcessor46RequestHostConvertedIndexBufferForCurrentFrameENS0_5xenos11IndexFormatEjbjRm/1'
+    fid:             6318
+    hash:            0xB85DEDAD5EE11406
+    exec:            0
+    nblocks:         33
+  - name:            '_ZN3rex8graphics6vulkan18VulkanSharedMemory3UseENS2_5UsageESt4pairIjjE/1'
+    fid:             6411
+    hash:            0xC9C4DE34EAA4745C
+    exec:            0
+    nblocks:         20
+  - name:            '_ZN3rex8graphics6vulkan18VulkanSharedMemory12UploadRangesERKSt6vectorISt4pairIjjESaIS5_EE/1'
+    fid:             6413
+    hash:            0x25CA0AB028B6F4A1
+    exec:            0
+    nblocks:         116
+  - name:            '_ZN3rex8graphics6vulkan18VulkanTextureCache34DestroyRetiredReplacementResourcesEm/1'
+    fid:             6433
+    hash:            0xEC19D1354B87B57A
+    exec:            0
+    nblocks:         44
+  - name:            '_ZN3rex8graphics6vulkan18VulkanTextureCache15BeginSubmissionEm/1'
+    fid:             6437
+    hash:            0xD5E3A5BC07F1D19A
+    exec:            0
+    nblocks:         30
+  - name:            '_ZN3rex8graphics6vulkan18VulkanTextureCache10BeginFrameEv/1'
+    fid:             6438
+    hash:            0x47AB655079BBBF89
+    exec:            0
+    nblocks:         24
+  - name:            '_ZN3rex8graphics6vulkan18VulkanTextureCache8EndFrameEv/1'
+    fid:             6439
+    hash:            0xD9DD9D8E4945F503
+    exec:            0
+    nblocks:         54
+  - name:            '_ZN3rex8graphics6vulkan18VulkanTextureCache15RequestTexturesEj/1'
+    fid:             6440
+    hash:            0x2B7A09D7003D4D74
+    exec:            0
+    nblocks:         130
+  - name:            '_ZN3rex8graphics6vulkan18VulkanTextureCache13VulkanTexture26GetOrCreate3DAs2DImageViewEbj/1'
+    fid:             6442
+    hash:            0xC24898B4CADD36D7
+    exec:            0
+    nblocks:         49
+  - name:            '_ZN3rex8graphics6vulkan18VulkanTextureCache31GetActiveBindingOrNullImageViewEjNS0_5xenos16FetchOpDimensionEb/1'
+    fid:             6449
+    hash:            0xFD3F6ED512016DF0
+    exec:            0
+    nblocks:         27
+  - name:            '_ZNK3rex8graphics6vulkan18VulkanTextureCache32IsSignedVersionSeparateForFormatENS0_12TextureCache10TextureKeyE/1'
+    fid:             6452
+    hash:            0xE755E564A546C947
+    exec:            0
+    nblocks:         4
+  - name:            '_ZNK3rex8graphics6vulkan18VulkanTextureCache20GetSamplerParametersERKNS0_11SpirvShader14SamplerBindingEi/1'
+    fid:             6453
+    hash:            0xDDE292F3546B65FE
+    exec:            0
+    nblocks:         30
+  - name:            '_ZNK3rex8graphics6vulkan18VulkanTextureCache17GetHostFormatPairENS0_12TextureCache10TextureKeyE/1'
+    fid:             6454
+    hash:            0xB6D6CD018DBC61BB
+    exec:            0
+    nblocks:         14
+  - name:            '_ZN3rex8graphics6vulkan18VulkanTextureCache10UseSamplerENS2_17SamplerParametersERb/1'
+    fid:             6455
+    hash:            0x3A69BFAFF7C9384B
+    exec:            0
+    nblocks:         268
+  - name:            '_ZN3rex8graphics6vulkan18VulkanTextureCache18RequestSwapTextureERjS3_RNS0_5xenos13TextureFormatEPjS7_Pb/1'
+    fid:             6457
+    hash:            0x9CDB6AFA09D18728
+    exec:            0
+    nblocks:         53
+  - name:            '_ZNK3rex8graphics6vulkan18VulkanTextureCache20GetHostFormatSwizzleENS0_12TextureCache10TextureKeyE/1'
+    fid:             6458
+    hash:            0xE390BDCFAD8DDFAD
+    exec:            0
+    nblocks:         1
+  - name:            '_ZNK3rex8graphics6vulkan18VulkanTextureCache28GetMaxHostTextureWidthHeightENS0_5xenos13DataDimensionE/1'
+    fid:             6461
+    hash:            0xB575CEB5D85B5339
+    exec:            0
+    nblocks:         9
+  - name:            '_ZNK3rex8graphics6vulkan18VulkanTextureCache33GetMaxHostTextureDepthOrArraySizeENS0_5xenos13DataDimensionE/1'
+    fid:             6462
+    hash:            0xD2091AEBA6497A24
+    exec:            0
+    nblocks:         9
+  - name:            '_ZN3rex8graphics6vulkan18VulkanTextureCache25UpdateTextureBindingsImplEj/1'
+    fid:             6468
+    hash:            0xF0DB27166EF465D3
+    exec:            0
+    nblocks:         65
+  - name:            '_ZN3rex8graphics6vulkan18VulkanTextureCache25PrepareDirectResolveWriteERNS0_12TextureCache7TextureE/1'
+    fid:             6471
+    hash:            0xD247850171AAE5E3
+    exec:            0
+    nblocks:         27
+  - name:            '_ZN3rex8graphics6vulkan18VulkanTextureCache37LoadTextureDataFromResidentMemoryImplERNS0_12TextureCache7TextureEbb/1'
+    fid:             6476
+    hash:            0xE34BD6D63CD3E040
+    exec:            0
+    nblocks:         13
+  - name:            '_ZN3rex8graphics6vulkan18VulkanTextureCache40LoadTextureDataFromResidentMemoryUntimedERNS0_12TextureCache7TextureEbb/1'
+    fid:             6477
+    hash:            0xE3EF52BBFC4453D8
+    exec:            0
+    nblocks:         501
+  - name:            '_ZZN3rex8graphics6vulkan18VulkanTextureCache40LoadTextureDataFromResidentMemoryUntimedERNS0_12TextureCache7TextureEbbEN8EndLabelD2Ev/1'
+    fid:             6479
+    hash:            0x177E7204F789B1A
+    exec:            0
+    nblocks:         17
+  - name:            '_ZN3rex8graphics6vulkan18VulkanTextureCache13VulkanTexture15GetViewUncachedEbjbb/1'
+    fid:             6484
+    hash:            0xE65E16C3BCB05858
+    exec:            0
+    nblocks:         140
+  - name:            '_ZN3rex8graphics6Shader12AnalyzeUcodeERNS_6string12StringBufferE/1'
+    fid:             6532
+    hash:            0xAB8A2DD67BE81E2D
+    exec:            0
+    nblocks:         224
+  - name:            '_ZN3rex12GetLoggerRawENS_13LogCategoryIdE@PLT'
+    fid:             6589
+    hash:            0x0
+    exec:            0
+    nblocks:         0
+  - name:            '_Znwm@PLT'
+    fid:             6590
+    hash:            0x0
+    exec:            0
+    nblocks:         0
+  - name:            '_ZdlPvm@PLT'
+    fid:             6591
+    hash:            0x0
+    exec:            0
+    nblocks:         0
+  - name:            'bcmp@PLT'
+    fid:             6614
+    hash:            0x0
+    exec:            0
+    nblocks:         0
+  - name:            '_ZN3rex6memory24copy_and_swap_32_alignedEPvPKvm@PLT'
+    fid:             6630
+    hash:            0x0
+    exec:            0
+    nblocks:         0
+  - name:            '_ZN3rex6memory26copy_and_swap_32_unalignedEPvPKvm@PLT'
+    fid:             6631
+    hash:            0x0
+    exec:            0
+    nblocks:         0
+  - name:            '_ZSt18_Rb_tree_incrementPKSt18_Rb_tree_node_base@PLT'
+    fid:             6632
+    hash:            0x0
+    exec:            0
+    nblocks:         0
+  - name:            '_ZNKSt8__detail20_Prime_rehash_policy14_M_need_rehashEmmm@PLT'
+    fid:             6633
+    hash:            0x0
+    exec:            0
+    nblocks:         0
+  - name:            '_ZNSt6chrono3_V212steady_clock3nowEv@PLT'
+    fid:             6648
+    hash:            0x0
+    exec:            0
+    nblocks:         0
+  - name:            '_ZN3rex4perf16IncrementCounterENS0_9CounterIdEl@PLT'
+    fid:             6649
+    hash:            0x0
+    exec:            0
+    nblocks:         0
+  - name:            '_ZN3rex4perf24CriticalPathTraceEnabledEv@PLT'
+    fid:             6651
+    hash:            0x0
+    exec:            0
+    nblocks:         0
+  - name:            'pthread_mutex_unlock@PLT'
+    fid:             6660
+    hash:            0x0
+    exec:            0
+    nblocks:         0
+  - name:            '_ZN3rex6chrono5Clock19QueryGuestTickCountEv@PLT'
+    fid:             6667
+    hash:            0x0
+    exec:            0
+    nblocks:         0
+  - name:            '_ZN3rex6chrono5Clock17guest_time_pausedEv@PLT'
+    fid:             6668
+    hash:            0x0
+    exec:            0
+    nblocks:         0
+  - name:            '_ZN3rex6memory10RingBuffer9BeginReadEm@PLT'
+    fid:             6686
+    hash:            0x0
+    exec:            0
+    nblocks:         0
+  - name:            '_ZN3rex6memory10RingBuffer7EndReadENS1_9ReadRangeE@PLT'
+    fid:             6687
+    hash:            0x0
+    exec:            0
+    nblocks:         0
+  - name:            '_ZN3rex6memory6Memory35EnablePhysicalMemoryAccessCallbacksEjjbbb@PLT'
+    fid:             6691
+    hash:            0x0
+    exec:            0
+    nblocks:         0
+  - name:            '_ZN3rex6memory10RingBuffer11AdvanceReadEm@PLT'
+    fid:             6693
+    hash:            0x0
+    exec:            0
+    nblocks:         0
+  - name:            '_ZN3rex6system10d3d_census7EnabledEv@PLT'
+    fid:             6706
+    hash:            0x0
+    exec:            0
+    nblocks:         0
+  - name:            '_ZSt18_Rb_tree_decrementPSt18_Rb_tree_node_base@PLT'
+    fid:             6728
+    hash:            0x0
+    exec:            0
+    nblocks:         0
+  - name:            '_ZN3rex2ui21FloatToD3D11Fixed16p8Ef@PLT'
+    fid:             6735
+    hash:            0x0
+    exec:            0
+    nblocks:         0
+  - name:            '_ZN3rex8graphics12texture_util16GetTiledOffset2DEiijj@PLT'
+    fid:             6768
+    hash:            0x0
+    exec:            0
+    nblocks:         0
+  - name:            '_ZN3rex8graphics10FormatInfo3GetEj@PLT'
+    fid:             6772
+    hash:            0x0
+    exec:            0
+    nblocks:         0
+  - name:            '_ZN3rex6thread22global_critical_region5mutexEv@PLT'
+    fid:             6777
+    hash:            0x0
+    exec:            0
+    nblocks:         0
+  - name:            'pthread_mutex_trylock@PLT'
+    fid:             6780
+    hash:            0x0
+    exec:            0
+    nblocks:         0
+  - name:            '_ZN3rex8graphics12texture_util32GetSubresourcesFromFetchConstantERKNS0_5xenos22xe_gpu_texture_fetch_tEPjS6_S6_S6_S6_S6_S6_@PLT'
+    fid:             6783
+    hash:            0x0
+    exec:            0
+    nblocks:         0
+  - name:            '_ZSt28_Rb_tree_rebalance_for_erasePSt18_Rb_tree_node_baseRS_@PLT'
+    fid:             6785
+    hash:            0x0
+    exec:            0
+    nblocks:         0
+  - name:            '_ZN3rex8graphics5xenos12Float7e3To32Ej@PLT'
+    fid:             6822
+    hash:            0x0
+    exec:            0
+    nblocks:         0
+  - name:            '_ZN3rex2ui6vulkan22VulkanUploadBufferPool7RequestEmmmRP10VkBuffer_TRm@PLT'
+    fid:             6851
+    hash:            0x0
+    exec:            0
+    nblocks:         0
+  - name:            'memcpy@PLT'
+    fid:             6980
+    hash:            0x0
+    exec:            0
+    nblocks:         0
+  - name:            'memset@PLT'
+    fid:             6982
+    hash:            0x0
+    exec:            0
+    nblocks:         0
+  - name:            'memmove@PLT'
+    fid:             6983
+    hash:            0x0
+    exec:            0
+    nblocks:         0
+  - name:            '__tls_get_addr@PLT'
+    fid:             7027
+    hash:            0x0
+    exec:            0
+    nblocks:         0
+...

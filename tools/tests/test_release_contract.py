@@ -627,7 +627,7 @@ catch { [Console]::Error.Write($_.Exception.Message); exit 2 }
 
     def test_graphics_schema_and_diagnostics_contract(self):
         app = (ROOT / "src/pinyon_shift_app.cpp").read_text(encoding="utf-8")
-        self.assertIn("constexpr uint32_t kConfigSchema = 29", app)
+        self.assertIn("constexpr uint32_t kConfigSchema = 30", app)
         self.assertIn(".schema", app)
         # create-crash-report.ps1 is a wrapper over tools/pinyon_crash.py, the
         # crash bundler every OS uses (LX-3.5).
@@ -689,8 +689,8 @@ catch { [Console]::Error.Write($_.Exception.Message); exit 2 }
         launcher_xaml = (ROOT / "launcher/PinyonShift.Launcher/MainWindow.xaml").read_text(
             encoding="utf-8"
         )
-        self.assertIn("constexpr uint32_t kConfigSchema = 29;", app)
-        self.assertRegex(app, r"pinyon_shift_config_schema,\s*29,")
+        self.assertIn("constexpr uint32_t kConfigSchema = 30;", app)
+        self.assertRegex(app, r"pinyon_shift_config_schema,\s*30,")
         self.assertIn('"pinyon_shift_stabilize_vehicle_presentation = false\\n"', app)
         # New files get every keyboard bind; older ones keep the keys they had.
         keys = (ROOT / "src/config/default_keys.h").read_text(encoding="utf-8")
@@ -723,8 +723,8 @@ catch { [Console]::Error.Write($_.Exception.Message); exit 2 }
         ):
             self.assertIn(f'"{retired}"', retired_block)
         graphics_tool = (ROOT / "tools/set-graphics-experiment.ps1").read_text(encoding="utf-8")
-        self.assertIn("pinyon_shift_config_schema = 29", graphics_tool)
-        self.assertIn("-gt 29", graphics_tool)
+        self.assertIn("pinyon_shift_config_schema = 30", graphics_tool)
+        self.assertIn("-gt 30", graphics_tool)
         self.assertNotIn("-gt 23", graphics_tool)
         # Apply writes the current schema and so bypasses the game's
         # migration: it must drop every setting that migration retires.

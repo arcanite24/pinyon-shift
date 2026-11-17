@@ -209,6 +209,17 @@ class PortTests(unittest.TestCase):
                          [("register_locals_functions", f"{g:08X}")])
         self.assertEqual(report["lists"]["host_local_lr_keep"], {f"{f:08X}": f"{f + shift:08X}"})
 
+    def test_region_roots_are_mapped(self):
+        # #1071: oracle_regions and native_regions passed through with their
+        # base addresses, so a regenerated v4 file named base functions.
+        f, _, shift, mapper = self.two_function_images()
+        text, report = self.port(mapper, (
+            f"oracle_regions = [0x{f:08X}]\n"
+            f"native_regions = [0x{f:08X}]\n"))
+        self.assertIn(f"oracle_regions = [0x{f + shift:08X}]", text)
+        self.assertIn(f"native_regions = [0x{f + shift:08X}]", text)
+        self.assertNotIn("unclassified", report)
+
     def test_every_key_of_an_address_table_is_mapped(self):
         f, _, shift, mapper = self.two_function_images()
         text, report = self.port(mapper, f"[rexcrt]\nSwitchToFiber = 0x{f:08X}\n")

@@ -290,3 +290,13 @@ confidence = """confirmed"""
 note = """One stock sample spells its first sync point SongSTart."""
 issue = """#420"""
 source = """docs/FEATURE_BACKLOG.md FB-1.3; tools/build-fh1-radio.py"""
+
+[[finding]]
+group = """Media layout and file access"""
+base = """sub_82518390, sub_82C60498"""
+name = """cache utility partition"""
+what = '''`sub_82518390` mounts `cache:` through `sub_82C60498(1, 64 KiB, 20480)`, most likely `XMountUtilityDrive`, compares `game:\hash.manifest` (not on the supported disc) and has a path that clears `cache:\*.*` while keeping `$cache$`. `FilesToCache.xml` lists 77 entries to copy there (game modes, physics, UI, shaders, ribbon; `bin.zip` excluded), but the cache folder of a long-played save holds only replay and ghost streams, so the install-to-HDD copy does not appear to run.'''
+how = """String cross-references in the base image; the cache folder of the reference save."""
+confidence = """probable"""
+note = """A count of `cache:` writes during boot would confirm (CE-0.4)."""
+source = """docs/CONSOLE_ERA_RESEARCH.md Recorded and not pursued"""

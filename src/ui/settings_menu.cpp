@@ -229,6 +229,8 @@ class SettingsPages : public std::enable_shared_from_this<SettingsPages> {
   std::unique_ptr<MenuScreen> TrainerGraphics();
   std::unique_ptr<MenuScreen> TrainerDebug();
   std::unique_ptr<MenuScreen> ConfirmRestore(std::string slot);
+  std::unique_ptr<MenuScreen> Sync();
+  std::unique_ptr<MenuScreen> ConfirmSync(SaveSync::Remote remote);
   static constexpr size_t kMaxGamertag = 15;
 
   hostui::HostUi& host_ui_;
@@ -460,12 +462,6 @@ std::unique_ptr<MenuScreen> SettingsPages::Display() {
     }
   }
   rows.push_back(Toggle("VSYNC", "vsync"));
-  rows.push_back(Setting("FRAME RATE LIMIT",
-                         {{"OFF", {{"host_present_fps_limit", "0"}}},
-                          {"30", {{"host_present_fps_limit", "30"}}},
-                          {"60", {{"host_present_fps_limit", "60"}}},
-                          {"120", {{"host_present_fps_limit", "120"}}},
-                          {"240", {{"host_present_fps_limit", "240"}}}}));
   // How the rendered image is scaled to the window: FSR 1 and CAS keep 2x
   // on a 4K display and 3x on 1440p sharp where bilinear blurs. The page's
   // note gives both sizes. Temporal upscalers (UP-8.1) are offered when
@@ -558,30 +554,68 @@ std::unique_ptr<MenuScreen> SettingsPages::Display() {
     }
     rows.push_back(Page("HDR CALIBRATION", &SettingsPages::HdrCalibration));
   }
-  // The rate the game simulates and renders at, which sets every CPU cost
-  // (LS-1.4). DISPLAY follows the refresh rate: 144 Hz and faster displays
-  // then render that many frames. 40 is an even third of 120 Hz (LS-1.6).
-  rows.push_back(Setting("GAME FRAME RATE LIMIT",
-                         {{"DISPLAY", {{"pinyon_shift_fh1_render_fps_limit", "0"}}},
-                          {"30", {{"pinyon_shift_fh1_render_fps_limit", "30"}}},
-                          {"40", {{"pinyon_shift_fh1_render_fps_limit", "40"}}},
-                          {"60", {{"pinyon_shift_fh1_render_fps_limit", "60"}}},
-                          {"120", {{"pinyon_shift_fh1_render_fps_limit", "120"}}}}));
+  // The one frame rate: the rate the game simulates and renders at, which
+  // sets every CPU cost (LS-1.4). DISPLAY follows the refresh rate: 144 Hz
+  // and faster displays then render that many frames. 40 is an even third
+  // of 120 Hz (LS-1.6). The host's own presentation limit stays off (as in
+  // Lavender Shift), so no second limiter drops frames the game rendered;
+  // VSYNC only decides whether presents wait for the display.
+  {
+    std::vector<Choice> rates = {{"DISPLAY", {{"pinyon_shift_fh1_render_fps_limit", "0"},
+                                              {"host_present_fps_limit", "0"}}}};
+    for (const char* rate : {"30", "40", "60", "120", "144", "240"}) {
+      rates.push_back({rate, {{"pinyon_shift_fh1_render_fps_limit", rate},
+                              {"host_present_fps_limit", "0"}}});
+    }
+    rows.push_back(Setting("FRAME RATE", std::move(rates)));
+  }
+  // UP-8.2: a generated frame after each real one. The game then renders at
+  // most half the refresh (UP-4.2), so a 60 Hz display shows 30 real frames
+  // and 30 generated ones. Offered only where it has run (Windows, Linux and
+  // the Steam Deck); elsewhere present_frame_generation still takes it.
+#if defined(_WIN32) || (defined(__linux__) && !defined(__ANDROID__))
+  const bool frame_generation_tested = true;
+#else
+  const bool frame_generation_tested = false;
+#endif
+  if (services_.frame_generators && frame_generation_tested) {
+    std::vector<Choice> generators = {{"OFF", {{"present_frame_generation", "\"off\""}}}};
+    const std::string saved = Unquote(Saved("present_frame_generation"));
+    for (const rex::ui::UpscalerInfo& info : services_.frame_generators()) {
+      if (info.available || SameValue(saved, info.id)) {
+        generators.push_back({SameValue(info.id, "fsr3") ? std::string("FSR 3") : Upper(info.id),
+                              {{"present_frame_generation", "\"" + info.id + "\""}}});
+      }
+    }
+    if (generators.size() > 1) {
+      rows.push_back(Setting("FRAME GENERATION", std::move(generators)));
+    }
+  }
   rows.push_back(Page("HUD", &SettingsPages::Hud));
   auto note = [this, restart = RestartNote(rows)] {
     const std::string pending = restart ? restart() : std::string();
     if (!pending.empty()) {
       return pending;
     }
-    // A presentation limit below the game's drops frames the game rendered.
+    // A presentation limit below the game's (set outside this menu) drops
+    // frames the game rendered.
     const auto present = Number(Unquote(Saved("host_present_fps_limit")));
     const auto game = Number(Unquote(Saved("pinyon_shift_fh1_render_fps_limit")));
     if (present && *present > 0 && game && (*game == 0 || *game > *present)) {
-      return std::string("THE GAME RENDERS FRAMES THE FRAME RATE LIMIT DROPS");
+      return std::string("THE GAME RENDERS FRAMES THE PRESENTATION LIMIT DROPS");
     }
     if (SameValue(Unquote(Saved("present_hdr")), "true") &&
         !rex::ui::vulkan::GetHdrOutputState().offered) {
       return std::string("HDR NEEDS HDR TURNED ON FOR THIS DISPLAY");
+    }
+    if (!SameValue(Unquote(Saved("present_frame_generation")), "off")) {
+      // Below about 50 real frames a second the generated ones show their
+      // errors and the input lag grows (AMD's and NVIDIA's guidance).
+      const auto refresh = Number(Unquote(Saved("video_mode_refresh_rate")));
+      if (refresh && *refresh > 0 && *refresh < 100) {
+        return "FRAME GENERATION: THE GAME RENDERS " + std::to_string(int(*refresh / 2 + 0.5)) +
+               " FPS, BEST ON 100 HZ AND FASTER";
+      }
     }
     return ResolutionLine();
   };
@@ -840,6 +874,16 @@ std::unique_ptr<MenuScreen> SettingsPages::Graphics() {
   // memory), and 30 fps, the console's own rate and half the CPU work of 60.
   // The other presets set those four back to the desktop defaults, so
   // leaving ULTRA LOW does not keep them.
+  // The scene's tiles in one pass cost the RTX 4080 about 1.1 ms a frame at
+  // a 240 limit, where the GPU decoder sets the frame (so PERFORMANCE 120
+  // keeps them tiled), but took 2.5-3 ms of CPU a frame off the Steam
+  // Deck's GPU recorder and submission threads at 60 (#1071), so the other
+  // presets keep it on on Linux.
+#if defined(__linux__)
+  static constexpr const char* kSinglePassScene = "true";
+#else
+  static constexpr const char* kSinglePassScene = "false";
+#endif
   const auto preset = [](const char* scale, const char* effect, const char* msaa_off,
                          const char* fps,
                          std::vector<std::pair<std::string, std::string>> extra = {}) {
@@ -855,8 +899,9 @@ std::unique_ptr<MenuScreen> SettingsPages::Graphics() {
         {"pinyon_shift_fh1_render_fps_limit", fps},
         {"pinyon_shift_fh1_shadows", "true"},
         {"pinyon_shift_fh1_env_map_rate", "1"},
-        {"fh1_untile_predicated_tiling", "false"},
-        {"vulkan_texture_max_size", "0"}};
+        {"fh1_untile_predicated_tiling", kSinglePassScene},
+        {"vulkan_texture_max_size", "0"},
+        {"pinyon_shift_lod_distance_scale", "1"}};
     for (auto& [name, value] : extra) {
       const auto it = std::find_if(values.begin(), values.end(),
                                    [&](const auto& setting) { return setting.first == name; });
@@ -868,8 +913,13 @@ std::unique_ptr<MenuScreen> SettingsPages::Graphics() {
     }
     return values;
   };
+  // The cheap presets pick coarser model LODs at half the distance (with
+  // native scene culling): on the Deck race 4-15 % fewer draws and up to
+  // 0.45 ms less recorder time, with no visible change in captures.
   const std::vector<std::pair<std::string, std::string>> cheapest = {
-      {"anisotropic_override", "-1"}, {"swap_post_effect", "\"none\""}};
+      {"anisotropic_override", "-1"},
+      {"swap_post_effect", "\"none\""},
+      {"pinyon_shift_lod_distance_scale", "2"}};
   auto ultra_low = cheapest;
   ultra_low.insert(ultra_low.end(), {{"pinyon_shift_fh1_shadows", "false"},
                                      {"pinyon_shift_fh1_env_map_rate", "0.25"},
@@ -882,7 +932,8 @@ std::unique_ptr<MenuScreen> SettingsPages::Graphics() {
        {"BALANCED 40", preset("1", "\"bilinear\"", "true", "40", cheapest)},
        // The reference desktop (Ryzen 7 5800X, RTX 4080) holds the 120 limit
        // in the race at 1x (8.3 ms median) and runs it at 9.5 ms at 3x.
-       {"PERFORMANCE 120", preset("1", "\"fsr\"", "true", "120")},
+       {"PERFORMANCE 120",
+        preset("1", "\"fsr\"", "true", "120", {{"fh1_untile_predicated_tiling", "false"}})},
 #if defined(__APPLE__)
        // 2x with 4X MSAA averaged 51 fps on an M4 Pro (19.5 ms of GPU a
        // frame), so a Mac stores the game's 4x surfaces with two samples:
@@ -942,6 +993,14 @@ std::unique_ptr<MenuScreen> SettingsPages::Graphics() {
     };
   }
   rows.push_back(std::move(resolution));
+  // The game's own scene at 960x540 instead of 1280x720 (its tiling bands
+  // scaled, the decoder rewriting the static world's window registers); the
+  // presenter scales the frame up, and RESOLUTION SCALE multiplies either.
+  // UHD 620: 15.6 % less GPU time than tiled 720p (#1070). Exposure and sun
+  // glare still differ a little from 720p. Applies at the next start.
+  rows.push_back(Setting("SCENE RESOLUTION",
+                         {{"720P", {{"pinyon_shift_fh1_scene_size", "\"\""}}},
+                          {"540P", {{"pinyon_shift_fh1_scene_size", "\"960x540\""}}}}));
   // anisotropic_override holds the Xenos filter: 3, 4 and 5 are 4x, 8x, 16x;
   // -1 keeps what each of the game's textures asks for.
   rows.push_back(Setting("ANISOTROPIC FILTERING",
@@ -979,6 +1038,13 @@ std::unique_ptr<MenuScreen> SettingsPages::Graphics() {
   rows.push_back(Setting("REFLECTION UPDATES",
                          {{"FULL", {{"pinyon_shift_fh1_env_map_rate", "1"}}},
                           {"QUARTER", {{"pinyon_shift_fh1_env_map_rate", "0.25"}}}}));
+  // How often the HUD and the rest of the interface update (#1071): HALF
+  // runs the interface's update on every other frame, which took 0.5-0.7 ms
+  // of CPU a frame off the simulation thread on the Steam Deck; the minimap
+  // still draws every frame.
+  rows.push_back(Setting("HUD UPDATES",
+                         {{"FULL", {{"pinyon_shift_ui_update_interval", "1"}}},
+                          {"HALF", {{"pinyon_shift_ui_update_interval", "2"}}}}));
   // FH1's three predicated tiles drawn as one pass (the same image, about
   // 3 ms a frame cheaper on the Odin); a change rebuilds the renderer
   // between frames.
@@ -989,6 +1055,18 @@ std::unique_ptr<MenuScreen> SettingsPages::Graphics() {
   // POST-PROCESS AA covers the scene only, so HUD text stays sharp; ON also
   // smooths the HUD, as it did before. Menus without a scene get none.
   rows.push_back(Toggle("AA ON THE HUD", "swap_post_effect_scene_only", true));
+  // FH1 has no ambient occlusion pass; ShiftGlue adds one at swap from the
+  // scene depth (from Lavender Shift's SR-3): contact shade under cars and
+  // along kerbs, darker cockpits, the sky and HUD untouched. Applies on the
+  // next frame; off by default.
+  rows.push_back(Setting("AMBIENT OCCLUSION",
+                         {{"OFF", {{"swap_ambient_occlusion", "false"}}},
+                          {"LOW", {{"swap_ambient_occlusion", "true"},
+                                   {"swap_ambient_occlusion_strength", "40"}}},
+                          {"MEDIUM", {{"swap_ambient_occlusion", "true"},
+                                      {"swap_ambient_occlusion_strength", "70"}}},
+                          {"HIGH", {{"swap_ambient_occlusion", "true"},
+                                    {"swap_ambient_occlusion_strength", "100"}}}}));
   // A .cube colour LUT from state/luts on the scene; the HUD keeps its
   // colours. Applies on the next frame.
   {
@@ -2196,6 +2274,12 @@ std::unique_ptr<MenuScreen> SettingsPages::Profile() {
     backups.activate = [this] { host_ui_.Push(Backups()); };
     rows.push_back(std::move(backups));
   }
+  if (services_.save_sync) {
+    MenuRow sync;
+    sync.label = "SAVE SYNC";
+    sync.activate = [this] { host_ui_.Push(Sync()); };
+    rows.push_back(std::move(sync));
+  }
   return std::make_unique<MenuScreen>("PROFILE", std::move(rows));
 }
 
@@ -2206,13 +2290,111 @@ std::string SlotLabel(const std::string& name) {
   }
   std::string label = name.substr(0, 4) + "-" + name.substr(4, 2) + "-" + name.substr(6, 2) +
                       " " + name.substr(9, 2) + ":" + name.substr(11, 2);
-  const std::string reason = name.size() > 17 ? name.substr(17) : std::string();
+  std::string reason = name.size() > 17 ? name.substr(17) : std::string();
+  // "-2": a second slot in the same second.
+  if (const size_t dash = reason.rfind('-'); dash != std::string::npos &&
+      reason.find_first_not_of("0123456789", dash + 1) == std::string::npos) {
+    reason.resize(dash);
+  }
   if (reason == "session") {
     label += " SESSION START";
   } else if (reason == "before-restore") {
     label += " BEFORE RESTORE";
+  } else if (reason == "sync") {
+    label += " FROM SAVE SYNC";
   }
   return label;
+}
+
+// "2026-11-14T18:02:11Z" as "2026-11-14 18:02".
+std::string SyncTime(const std::string& utc) {
+  if (utc.size() < 16) return utc.empty() ? std::string("NEVER") : Upper(utc);
+  return utc.substr(0, 10) + " " + utc.substr(11, 5);
+}
+
+const char* RelationLabel(const SaveSync::Remote& remote) {
+  if (!remote.loadable) return "NEEDS THE V4 BUILD";
+  switch (remote.relation) {
+    case SaveSync::Relation::kSame: return "SAME SAVE";
+    case SaveSync::Relation::kRemoteAhead: return "NEWER";
+    case SaveSync::Relation::kLocalAhead: return "OLDER";
+    case SaveSync::Relation::kDiverged: return "DIFFERENT";
+  }
+  return "";
+}
+
+// The other devices sharing the sync folder and how their saves compare to
+// this one's; a newer or different save can be chosen for the next start,
+// or this device's kept over it.
+std::unique_ptr<MenuScreen> SettingsPages::Sync() {
+  SaveSync* sync = services_.save_sync;
+  const auto remotes = sync->Remotes();
+  std::vector<MenuRow> rows;
+  if (sync->ImportPending()) {
+    MenuRow cancel;
+    cancel.label = "CANCEL LOADING THE CHOSEN SAVE";
+    cancel.activate = [sync] { sync->CancelImport(); };
+    rows.push_back(std::move(cancel));
+  }
+  for (const auto& remote : remotes) {
+    MenuRow row;
+    row.label = Upper(remote.device_name.empty() ? remote.device_id.substr(0, 8)
+                                                 : remote.device_name);
+    row.value = [label = std::string(RelationLabel(remote))] { return label; };
+    if (remote.loadable && (remote.relation == SaveSync::Relation::kRemoteAhead ||
+                            remote.relation == SaveSync::Relation::kDiverged)) {
+      row.activate = [this, remote] { host_ui_.Push(ConfirmSync(remote)); };
+    } else {
+      row.enabled = [] { return false; };
+    }
+    rows.push_back(std::move(row));
+  }
+  const bool empty = remotes.empty();
+  auto screen = std::make_unique<MenuScreen>("SAVE SYNC", std::move(rows), [sync, empty] {
+    if (sync->ImportPending()) return std::string("RESTART THE GAME TO LOAD THE CHOSEN SAVE");
+    return std::string(empty ? "NO OTHER DEVICE HAS SHARED A SAVE IN THIS FOLDER YET"
+                             : "UTC TIMES");
+  });
+  // The folder's name only: a whole path does not wrap.
+  const std::string last = sync->LastExportUtc();
+  screen->set_body("This device, " + sync->device_name() + ", shares its save through the folder " +
+                   rex::path_to_utf8(sync->folder().filename()) + ". " +
+                   (last.empty() ? std::string("It hasn't shared a save yet.")
+                                 : "Last shared " + SyncTime(last) + " UTC."));
+  return screen;
+}
+
+std::unique_ptr<MenuScreen> SettingsPages::ConfirmSync(SaveSync::Remote remote) {
+  SaveSync* sync = services_.save_sync;
+  auto self = std::make_shared<const MenuScreen*>(nullptr);
+  const std::string name = Upper(remote.device_name);
+  std::vector<MenuRow> rows(3);
+  rows[0].label = "LOAD " + name + "'S SAVE AT NEXT START";
+  rows[0].activate = [this, sync, id = remote.device_id, self] {
+    sync->ScheduleImport(id);
+    host_ui_.Finish(*self);
+  };
+  rows[1].label = "KEEP THIS DEVICE'S SAVE";
+  rows[1].activate = [this, sync, id = remote.device_id, self] {
+    sync->KeepLocal(id);
+    host_ui_.Finish(*self);
+  };
+  rows[2].label = "CANCEL";
+  rows[2].activate = [this, self] { host_ui_.Finish(*self); };
+  auto screen = std::make_unique<MenuScreen>("CHOOSE A SAVE", std::move(rows));
+  const bool diverged = remote.relation == SaveSync::Relation::kDiverged;
+  screen->set_body(
+      std::string(diverged ? "The save changed both here and on " + remote.device_name +
+                                 " since they last had the same one."
+                           : remote.device_name + " has a newer save that continued from this "
+                                                  "one.") +
+      " " + remote.device_name + "'s save is from " + SyncTime(remote.written_utc) + " UTC, with " +
+      std::to_string(remote.achievements) +
+      " achievements. Loading it backs up this device's save first (SAVE BACKUPS). Keeping "
+      "this device's makes " + remote.device_name + " load it instead, next time it starts.");
+  screen->SetFocus(2);
+  *self = screen.get();
+  return screen;
 }
 
 std::unique_ptr<MenuScreen> SettingsPages::Backups() {

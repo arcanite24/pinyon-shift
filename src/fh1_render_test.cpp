@@ -77,6 +77,16 @@ extern "C" int __llvm_profile_dump(void);
 
 namespace pinyon_shift::fh1_render_test {
 namespace {
+// Captured at static initialization, close to process start (CE-0.1).
+const std::chrono::steady_clock::time_point kProcessStart = std::chrono::steady_clock::now();
+uint64_t ProcessMicroseconds() {
+  return uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(
+                      std::chrono::steady_clock::now() - kProcessStart)
+                      .count());
+}
+}  // namespace
+
+namespace {
 
 using rex::X_RESULT;
 using rex::X_STATUS;
@@ -598,7 +608,8 @@ class ScriptedInputDriver final : public rex::input::InputDriver {
                {"observed_frame", std::to_string(frame)},
                {"buttons", std::to_string(out->gamepad.buttons)},
                {"skipped_steps", std::to_string(
-                   previous == SIZE_MAX ? index : index - previous - 1)}});
+                   previous == SIZE_MAX ? index : index - previous - 1)},
+               {"process_us", std::to_string(ProcessMicroseconds())}});
           break;
         }
       }
@@ -851,7 +862,9 @@ uint64_t ApplyWaits(uint64_t clock_frame, uint64_t output_frame) {
           "fh1.render_test.wait",
           {{"frame", std::to_string(wait.frame)},
            {"waited_frames", std::to_string(output_frame - g_test.wait_start_output)},
-           {"output_frame", std::to_string(output_frame)}});
+           {"output_frame", std::to_string(output_frame)},
+           // Load phases (CE-0.1): microseconds since the process started.
+           {"process_us", std::to_string(ProcessMicroseconds())}});
       g_test.wait_active = false;
       ++g_test.next_wait;
       continue;

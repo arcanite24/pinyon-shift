@@ -85,11 +85,11 @@ group = """Vehicles, camera and crowd"""
 base = """sub_8248BAE8, sub_8249E570, sub_828FEAF8"""
 v4 = """sub_824BB8F8, sub_8250B050"""
 name = """player car and AI control"""
-what = """`sub_8248BAE8(world)` returns the player's car slot (a pointer to the car) from the world's car vector at `+128`/`+132` (one entry in a solo world). `sub_8249E570(car, mode)` sets the car's control mode, 0 for the player and 1 for AI, as `CDisableAIPlayerCarControls` (`sub_828FEAF8`) uses it: it hands the car to AI driving with normal physics and route tracking, and returns it to the player. Car fields: `+0x3B70` and the control mode word `+0x3B78` (read by the setter), race serial `+14564`, an ended flag `+14603`, driver type `+11728` (0 for the player) and a control object `+15216`. In the base game's render-test drive the word at `+0x3B78` reads 1 while the player drives, so it does not tell the player's car from an AI one there; the driver type does, at the same offset in v4 (read at run time in both builds). Car fields after about `0x3B00` move by 16 bytes in v4 (`+0x3B80`/`+0x3B88`). The AI does not finish every route: on Rally route 10 it stops against a barrier at 41 %, and in v4's scripted first-run Rally stage it fights the intro's own control (stopped at 19 %) or, engaged later, ends in the trees at 22 % as with no input."""
-how = """Calling the setter handed the player car to the title's AI for whole stages; fields read in race traces; v4 render-test runs with and without it, with the v4 mapping verified (identical code apart from the moved field)."""
+what = """`sub_8248BAE8(world)` returns the player's car slot (a pointer to the car) from the world's car vector at `+128`/`+132` (one entry in a solo world). `sub_8249E570(car, mode)` sets the car's control mode, 0 for the player and 1 for AI, as `CDisableAIPlayerCarControls` (`sub_828FEAF8`) uses it: it hands the car to AI driving with normal physics and route tracking, and returns it to the player. Car fields: `+0x3B70` and the control mode word `+0x3B78` (read by the setter), race serial `+14564`, an ended flag `+14603`, driver type `+11728` (0 for the player, 1 for a festival race's AI cars, 4 for the cars around the player in free roam) and a control object `+15216`. In the base game's render-test drive the word at `+0x3B78` reads 1 while the player drives, so it does not tell the player's car from an AI one there; the driver type does, at the same offset in v4 (read at run time in both builds). Car fields after about `0x3B00` move by 16 bytes in v4 (`+0x3B80`/`+0x3B88`). The car vector holds every car in the world, not only the race field: in free roam it grew to 24 cars as the player drove, in a festival race it holds the player and the seven AI cars, and its order changes as cars join (the player's car was added after the AI's). The AI does not finish every route: on Rally route 10 it stops against a barrier at 41 %, and in v4's scripted first-run Rally stage it fights the intro's own control (stopped at 19 %) or, engaged later, ends in the trees at 22 % as with no input."""
+how = """Calling the setter handed the player car to the title's AI for whole stages; fields read in race traces; the car vector and driver types read every 6 frames by `pinyon_shift_physics_trace` in fh1-race-sustained (2026-11-12); v4 render-test runs with and without it, with the v4 mapping verified (identical code apart from the moved field)."""
 confidence = """confirmed"""
 note = """Why the AI stalls on those routes is unknown."""
-source = """src/pinyon_shift_runtime_hooks.cpp QueueTitleUpdateRaceTask, QueueRallyRaceTrace; docs/TITLE_UPDATE_V4_BACKLOG.md TU-4; docs/TITLE_UPDATE_V4_BACKLOG.md TU-6; docs/DLC_BACKLOG.md Diagnostic AI control handoff and final-stage return"""
+source = """src/pinyon_shift_runtime_hooks.cpp QueueTitleUpdateRaceTask, QueueRallyRaceTrace, QueuePhysicsTrace; docs/TITLE_UPDATE_V4_BACKLOG.md TU-4; docs/TITLE_UPDATE_V4_BACKLOG.md TU-6; docs/DLC_BACKLOG.md Diagnostic AI control handoff and final-stage return"""
 
 [[finding]]
 group = """Vehicles, camera and crowd"""
@@ -209,6 +209,19 @@ source = """src/pinyon_shift_runtime_hooks.cpp (car_dynamics, QueueCarTelemetry)
 
 # ------------------------------------------------ Activities and collectibles
 
+
+[[finding]]
+group = """Car dynamics"""
+base = """sub_82D46EF8, sub_82D3A528, sub_82D38A68, sub_82D1E268, sub_82D0C078"""
+v4 = """sub_82E08FF8, sub_82DFC608, sub_82DFAB90, sub_82DE01B0, sub_82DCDEE0"""
+name = """per-body physics step and its two paths"""
+what = """The physics-world step calls `sub_82D46EF8(world, body, dt, ..., r6)` once per car body per simulation tick: 8.33 ms steps at 120 fps on the desktop, one 16.67 ms step a frame at 60 fps on the Deck (so there are no substeps to drop). A car's `ICarDynamics` (car+0x2D90) is body+0xAD0. The step clears bit 1 of byte body+2731, runs `sub_82D0C078(body)`, then takes one of two paths on the word at body+2756: zero runs the full dynamics step `sub_82D3A528` (the 77-function subtree under it is most of physics); non-zero runs the light step `sub_82D38A68` only if the byte at body+20520 (read by `sub_82D1E268`) is set, otherwise nothing. The player's body always takes the full step; AI bodies move between the two during a race (2 to 6 of 7 on the full step on the Deck). The word is written from many places, so it is a state, not a simple flag. Running the AI bodies' full step on alternate ticks with the summed dt (staggered) skipped 9 % of body steps on the Deck, about 0.7 full steps a frame, and changed no thread's CPU beyond the A/A spread (simulation thread +0.1 ms, workers within noise); the physics harness still passed on desktop and Deck (AI mean distance +2.0 % and -1.6 %)."""
+how = """`pinyon_shift_physics_body_probe` (src/guest_native/car_physics.cpp) logging bodies, calls, path and dt each second beside the car vector; `pinyon_shift_physics_ai_step_interval` in-run A/B on the Deck and `tools/physics-behaviour.py` on the sustained race (2026-11-13)."""
+confidence = """confirmed"""
+negative = true
+note = """The AI lower-rate step is kept default-off; it does not reach #1071's 0.5 ms gate because few AI bodies take the full step at once."""
+source = """GitHub issue #1071 P1; src/guest_native/car_physics.cpp"""
+
 [[finding]]
 group = """Activities and collectibles"""
 base = """0x832FEE8C, sub_828A52F0"""
@@ -321,11 +334,11 @@ source = """src/pinyon_shift_runtime_hooks.cpp PinyonShiftGuardAssignAddRef, Pin
 group = """Lifetime and containers"""
 base = """sub_823F3048, 0x823F3108, 0x823F3110"""
 name = """allocator out-of-space stop"""
-what = """`sub_823F3048` asks each heap in a chain for a block (virtual `+80`, then `sub_823F2ED8`). When none can serve it and the heap's flag at `+372` is set, it stops the game on purpose with a store to guest address 4 (when the request is larger than the heap's remaining space, `+340` minus `+68`) or 5 (otherwise). A crash report with a write to guest `0x00000004` and lr `0x823F30B4` is this stop: a game heap ran out, not an emulation fault. #602 hit it after 31 minutes with the Forza Horizon XE mod at 2x resolution."""
-how = """Crash report #602 (write of guest `0x00000004`, lr `0x823F30B4`); reading the generated code of `sub_823F3048`."""
+what = """`sub_823F3048` asks each heap in a chain for a block (virtual `+80`, then `sub_823F2ED8`). When none can serve it and the heap's flag at `+372` is set, it stops the game on purpose with a store to guest address 4 (when the request is larger than the heap's remaining space, `+340` minus `+68`) or 5 (otherwise). A crash report with a write to guest `0x00000004` and lr `0x823F30B4` is this stop: a game heap ran out, not an emulation fault. #602 hit it after 31 minutes with the Forza Horizon XE mod at 2x resolution, #921 (0.7.1) ran XE 1.0 at 1x, and #1055 (0.8.2) hit it after 59 minutes with XE at 2x, changing rims in a garage. #1059 (0.8.2, no log) faulted at the same executable offset as #1055 after 58 seconds."""
+how = """Crash reports #602, #921 and #1055 (write of guest `0x00000004`, lr `0x823F30B4`); reading the generated code of `sub_823F3048`."""
 confidence = """probable"""
-note = """Which heap ran out in #602, and whether XE's extra cars cause it, is not known."""
-issue = """#602"""
+note = """Which heap ran out, and whether XE's extra cars cause it, is not known; every report with a log ran XE, two of them at 2x."""
+issue = """#602 #921 #1055 #1059"""
 source = """site/findings/executable.toml (sub_823F3048 and r6)"""
 
 [[finding]]
@@ -365,11 +378,11 @@ source = """src/pinyon_shift_runtime_hooks.cpp PinyonShiftGuardNullOutputHandle;
 group = """Lifetime and containers"""
 base = """sub_8248F8F0, 0x8248F914"""
 name = """read through a bad object at +0x10 in sub_8248F8F0"""
-what = """Crash reports #801, #848 and #849 fault with guest lr `0x8248F914`, which sits in `sub_8248F8F0`: it reads a field at `+0x10` of an object that is null or corrupt, and the call target then (ctr `0x881F0E10`) lies in the range the loaded media facade module occupies. #700 (a run with the Forza Horizon XE mod) also names `0x8248F914`. The address matches the facade-lifetime reports in docs/FACADE_LIFETIME_FAULTS.md, but nothing ties the cause to a facade object being freed; the object that was read is not identified."""
-how = """Link register and ctr from the four crash reports; the function containing the link register from the generated code. No trace or hook has been run on it."""
+what = """Crash reports #801, #848 and #849 fault with guest lr `0x8248F914`, which sits in `sub_8248F8F0`: it reads a field at `+0x10` of an object that is null or corrupt, and the call target then (ctr `0x881F0E10`) lies in the range the loaded media facade module occupies. #700 (a run with the Forza Horizon XE mod) also names `0x8248F914`. The address matches the facade-lifetime reports in docs/FACADE_LIFETIME_FAULTS.md, but nothing ties the cause to a facade object being freed; the object that was read is not identified. #897 and #998 (0.6.1 and 0.7.1, the same registers and ctr) faulted there when a car was selected in a garage; #897's log and two of #998's three record XE 1.0 without its 1.01 hotfix, which corrects XE's car data (the third doesn't record the version). No report with a log from 0.8.0 on, which requires the hotfix, names this address."""
+how = """Link register and ctr from the crash reports, and the XE version in #897's and #998's session events; the function containing the link register from the generated code. No trace or hook has been run on it."""
 confidence = """guess"""
-note = """The location is probable (the same lr in three independent reports); the cause is a guess. Not a fix target until a run shows which object is read. The v4 address is not known."""
-issue = """#801 #848 #849 #700"""
+note = """The location is probable (the same lr in five independent reports); the cause is a guess, and XE 1.0's car data is the likeliest trigger. Not a fix target until a run shows which object is read. The v4 address is not known."""
+issue = """#801 #848 #849 #700 #897 #998"""
 source = """docs/FACADE_LIFETIME_FAULTS.md"""
 
 [[finding]]
@@ -377,9 +390,9 @@ group = """Lifetime and containers"""
 base = """sub_82E48AE0, 0x82E48B58, sub_82E48938"""
 v4 = """0x8247184C"""
 name = """queue consumer reaches a freed object"""
-what = """Crash reports #737, #843 and #844 fault with guest lr `0x82E48B58` in `sub_82E48AE0`, the code that takes items off the queue `sub_82E48938` appends to (see "queue vector append"). Each report's log has `object.retain.stale_source` or `object.assign.stale_release` events just before the fault, so an intrusive object the queue holds had been freed while still queued. This is the same family as #371 and #584 (the two assignment helpers above); the guards stop the assignment helpers but not this consumer, which reads the freed object directly. #711 is the v4 build's counterpart, with the stale-source event at `0x8247184C`."""
+what = """Crash reports #737, #843 and #844 fault with guest lr `0x82E48B58` in `sub_82E48AE0`, the code that takes items off the queue `sub_82E48938` appends to (see "queue vector append"). Each report's log has `object.retain.stale_source` or `object.assign.stale_release` events just before the fault, so an intrusive object the queue holds had been freed while still queued. This is the same family as #371 and #584 (the two assignment helpers above); the guards stop the assignment helpers but not this consumer, which reads the freed object directly. #711 is the v4 build's counterpart, with the stale-source event at `0x8247184C`. #1083 (0.8.2, after 105 minutes; v4 going by that address, since its report records no build) logged the same stale-source event at `0x8247184C` for object `0x2F264F50` and then made an indirect call to `0x00000001` from lr `0x82E18138` with that object in r3, so in v4 the freed object's vtable is read and called."""
 how = """Link register and the event log lines in the crash reports; the neighbouring function from the generated code. No hook on `0x82E48B58` yet."""
 confidence = """probable"""
 note = """Which owner frees the object while it is queued is not found. A guard at the consumer would only hide the freed object, so the producer or the owner's release is the place to look. The v4 address of the consumer is not known."""
-issue = """#737 #843 #844 #711"""
+issue = """#737 #843 #844 #711 #1083"""
 source = """src/pinyon_shift_runtime_hooks.cpp PinyonShiftGuardQueueAppend"""

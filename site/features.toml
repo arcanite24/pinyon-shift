@@ -16,19 +16,19 @@ platforms = ["Windows", "Linux and Steam Deck", "macOS", "Android"]
 feature = "Resolution"
 link = "playing.md#graphics-presets"
 xbox = "1280 × 720"
-pinyon = "1x to 4x internal resolution; bilinear, CAS or FSR 1 output scaling, temporal FSR 2 and 3 everywhere and NVIDIA DLSS on Windows RTX GPUs, set up without player downloads; ultrawide with a 16:9 HUD"
+pinyon = "1x to 4x internal resolution, or the game's own scene at 960 × 540 for low-end GPUs; bilinear, CAS or FSR 1 output scaling, temporal FSR 2 and 3 everywhere and NVIDIA DLSS on Windows RTX GPUs, set up without player downloads; ultrawide with a 16:9 HUD"
 
 [[original]]
 feature = "Frame rate"
 link = "playing.md#graphics-presets"
 xbox = "30 fps"
-pinyon = "60 or 120 fps at the correct game speed"
+pinyon = "60 or 120 fps at the correct game speed, and FSR 3 frame generation"
 
 [[original]]
 feature = "Graphics"
 link = "playing.md#graphics-presets"
 xbox = "Fixed"
-pinyon = "Presets, MSAA up to 4x with [measured Vulkan GPU savings](performance.md#the-race), FXAA on the world only, anisotropic filtering, a texture size cap for small graphics memory, a colour LUT, optional bloom, motion blur and depth of field; HUD scale and safe zone"
+pinyon = "Presets, MSAA up to 4x with [measured Vulkan GPU savings](performance.md#the-race), FXAA on the world only, anisotropic filtering, a texture size cap for small graphics memory, a colour LUT, optional bloom, motion blur and depth of field; HUD scale, safe zone and update rate"
 
 [[original]]
 feature = "HDR"
@@ -88,7 +88,7 @@ pinyon = "XInput and SDL controllers with button mapping, keyboard driving with 
 feature = "Saves"
 link = "playing.md#saves"
 xbox = "Console storage"
-pinyon = "Automatic save backups, PNG photos, saves imported from Xenia"
+pinyon = "Automatic save backups, save sync between devices through a sync app, PNG photos, saves imported from Xenia"
 
 [[original]]
 feature = "Achievements"
@@ -113,6 +113,12 @@ feature = "Online services"
 link = "dlc.md"
 xbox = "Xbox Live (closed)"
 pinyon = "None; the 1000 Club challenges run offline on the v4 build"
+
+[[original]]
+feature = "Loading"
+link = "playing.md#gameplay-switches"
+xbox = "Loading screens stay up at least 1 s into free roam and 3 s into and out of events"
+pinyon = "Loading screens end when loading does: about 0.5 s from the title to free roam and 1.3-1.7 s into or out of a race on a desktop"
 
 [[original]]
 feature = "Installing and updating"

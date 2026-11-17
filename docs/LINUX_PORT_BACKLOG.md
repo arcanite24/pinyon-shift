@@ -52,8 +52,9 @@ involved anywhere.
 - Publishing a built game in any form: binary, AppImage, Flatpak or Steam
   listing. The launcher, which is independently written, is distributed. The
   game never is.
-- Linux on ARM64 (Asahi, Snapdragon X). AP-0 may add presets; nothing here
-  schedules them.
+- Linux on ARM64 (Asahi, Snapdragon X, ARM handhelds). AP-0 may add
+  presets; nothing here schedules them. What it would take is in
+  [LINUX_ARM64_RESEARCH.md](LINUX_ARM64_RESEARCH.md).
 - 32-bit, musl, or glibc older than the Steam Runtime's 2.31.
 - Valve's Deck Verified programme. A non-Steam game cannot enter it, but its
   checklist (default controls, legible text at 1280x800, suspend, no
@@ -330,3 +331,13 @@ resumes, and quits back to Steam; nothing needed Desktop Mode after setup.
 | LX-8.4 | **Documentation.** Write `docs/LINUX.md` covering Linux PCs and the Deck: requirements, setup, Add to Steam, controls, presets and troubleshooting. Add a Linux section to BUILDING.md, update the README's requirements and roadmap, and add release notes. | Reviewed by the maintainer | S |
 | LX-8.5 | **Release packaging.** CI builds `PinyonShift-Launcher-linux-x86_64.tar.gz` at release time, and the boundary checks cover it. | It contains nothing generated or derived from the disc | S |
 | LX-8.6 | **Distribution matrix.** SteamOS stable and beta, Ubuntu 24.04, Fedora, Arch and Bazzite; X11 and Wayland sessions; NVIDIA; and running under the sniper runtime as a compatibility tool (D2). | A support table in `docs/LINUX.md` | S, ongoing |
+
+## Code layout: 2 MiB code pages and BOLT (2026-11-15)
+
+Linux builds link every object with `-z max-page-size=0x200000`, so each code segment's file offset agrees with its address modulo 2 MiB. At start (and after each plugin `dlopen`) the runtime calls `madvise(MADV_HUGEPAGE)` and then `MADV_COLLAPSE` on the 2 MiB-aligned interior of the game's and its own libraries' code (`code_huge_pages`, default on; kernels 6.1 and later). On the Deck all 25 + 1 + 3 pages collapse. Measured on the Deck race with `perf stat` (user mode): instruction TLB walks 38-61 a million instructions against 153-166 without, L2 TLB hits 376-406 against 1,006-1,497. Runs without huge pages must use a fresh copy of the binaries: page-cache huge folios persist across runs and khugepaged collapses aligned text later on its own.
+
+`PINYON_SHIFT_BOLT=ON` (off by default; needs `llvm-bolt` on the path or `PINYON_SHIFT_LLVM_BOLT`) links with `--emit-relocs` and rewrites the game (base only), `librexruntime.so` and `librexgpu-fh1.so` after linking from the YAML profiles in `config/performance/bolt`. Deck race, profiles recorded on the same source: instruction cache misses 1,358-1,511 a million instructions against 1,600-1,720 for the same build without BOLT, IPC 1.23 against 1.20-1.25 (within the spread). A first A/B against the symbol-ordered build looked larger (IPC 1.27-1.30 against 1.23) because the ordering itself had raised the misses to 2,038-2,100. The game is 43 % of the race's samples, the graphics backend 32 %, the runtime library 9 %.
+
+It stays off because the BOLT builds stopped at the title menu (the SINGLE PLAYER / MULTIPLAYER choice, the game still rendering) in 5 of 12 scripted race runs, 2 of 4 in an interleaved check where the same source without BOLT went 0 of 4; across all other builds that stop happened in about 4 of 34 runs. Whether BOLT changes timing at that menu or miscompiles something in the generated code is not known. Before turning it on, find out with a manual menu test and BOLT's `-verify-cfg` and `-lite=0` runs.
+
+To record new profiles: build with `PINYON_SHIFT_EMIT_RELOCS=ON` and `PINYON_SHIFT_BOLT=OFF`, copy the build to a fresh directory and run the race route on the Deck with `--code_huge_pages=false` (once the code is collapsed into 2 MiB pages, `perf2bolt` can't find the binary's base address in the split mappings and drops those samples: 65-93 % of them in two recordings) and `perf record -e cycles:u -F 2999 -p <pid> -- sleep 40` once the race moves, then on a machine with the same binaries `perf2bolt -nl -p perf.data -w pinyon_shift-base.yaml -o /dev/null pinyon_shift` (and the same for `librexruntime.so` into `rexruntime.yaml` and `librexgpu-fh1.so` into `rexgpu-fh1.yaml`). The Deck has no branch records, so the profile is sampled (`-nl`). Ubuntu 24.04's `bolt-20` package provides `llvm-bolt` and `perf2bolt`; the pinned LLVM toolchain does not.

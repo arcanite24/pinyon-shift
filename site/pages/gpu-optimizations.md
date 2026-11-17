@@ -157,6 +157,32 @@ On 2026-10-13 (RTX 4080, `fh1-race-sync`, last 600 frames, three runs) the frame
 - **Culling hidden draws** (#784): an occlusion query around every draw of one frame in eight (`fh1_visibility_census`, off) found that 54-60 % of the main scene's draws on the Odin drive pass no samples, after the game's own culling. A deliberately wrong probe that drops each draw that passed no samples at its last census (`fh1_visibility_oracle_skip`) cut the main pass from about 8.3 ms by 2.2 and 3.2 ms in two runs. Most of that is vertex and binning work for occluded draws, not shading: the draws with early depth carried 1.6-1.7 ms of it. The draws that also pass no samples with the depth test off (`fh1_visibility_census_no_depth`), roughly what a frustum test against bounds could remove without popping, saved 0.64 ± 0.77 and 1.44 ± 0.52 ms. Culling the occluded rest would need depth from earlier frames, which can drop an object for a frame when it comes into view, so neither was built.
 - **PGO** of the GPU code, an AVX2 build, Windows MMCSS scheduling and thread placement: no consistent gain.
 
+### On the Steam Deck
+
+With the single-pass scene on, the recorder is the largest thread on the Steam Deck, about 10 ms a frame in a race (#1071). A frame-pointer call graph of it (race, 25 s) found almost nothing in the driver:
+
+| Where | Share of the recorder |
+| --- | --- |
+| Issuing draws, in all | 78 % |
+| `IssueDrawImpl` itself | 13.9 % |
+| Binding updates (constant uploads, descriptor sets) | 13.7 % |
+| Copies and resolves, 2.6 % of it re-arming write watches | 11 % |
+| Texture requests | 7.6 % |
+| Writing register runs | 6.9 % |
+| Primitive processing | 5.8 % |
+| Target preparation | 5.6 % |
+| Shader lookups by hash | 4 % |
+| Memory copies in libc, from all of the above | 13.9 % |
+| Vulkan driver calls (binds, barriers, state) | 1.6 % |
+
+So binding only what changed and caching descriptors, which the desktop work already did, have little left to remove. The draw cost model (`gpu_draw_cost_model`) puts a gameplay draw at about 1,800 ns, spread over 14 steps from 90 to 360 ns. The largest are texture requests and target preparation at 360 ns each. With the tile repeats gone, the unchanged-input skips hit less often than on the desktop: samplers 22 %, textures 26 %, descriptor sets 19 %. A constant census found that every draw uploads new system constants (520 bytes) and all 32 fetch constants (768 bytes); none of either repeats.
+
+Three changes were measured with in-run A/Bs and rejected ([Lessons](lessons.md#what-didnt-pay-off-here)):
+
+- **A larger shader lookup memo** (4,096 entries instead of 64).
+- **Skipping already-watched pages when re-arming write watches.**
+- **Replaying repeated buffers.** A census with the replay-floor probe still found 45 % of drawn draws in repeating, skippable buffers. Skipping them outright saved only 0.9-1.5 ms of command-thread CPU, with a wrong image.
+
 ## Renderings and clears
 
 Tile-based mobile GPUs pay for each rendering: on the Adreno 830 one costs 24–28 µs.
@@ -166,6 +192,7 @@ Tile-based mobile GPUs pay for each rendering: on the Adreno 830 one costs 24–
 | EDRAM clears folded into the next rendering's load | 8 Elite | renderings about 280 to 210; frame −1.6 to −2.6 ms, GPU −0.5 ms |
 | The three predicated scene bands drawn once ("single-pass scene") | Odin | 4x 32.0 to 29.2 ms; 1x 28.3 to 25.4 ms; no seam in captures |
 | | Desktop 3x | within noise |
+| | Steam Deck LCD, race at the 60 limit, 1x with 4x MSAA (four in-run A/Bs, #1071) | CPU a frame: GPU recorder −1.5 to −2.0 ms, submission −1.1 to −1.25 ms, decoder +0.1 to +0.9 ms, render thread −0.4 to −0.9 ms; on by default on Linux |
 | Draws that write nothing skipped (about 120 a frame) | Desktop | within noise |
 
 Dropped: store-op tuning (only about 8 depth stores a frame qualified); trimming render areas (the Adreno driver already skips untouched tiles); forcing Turnip's on-chip GMEM path (50–56 ms against 29–32); skipping attachment barriers at 3x (noise).

@@ -80,11 +80,15 @@ Vulkan prepares shaders during setup, and stores any new ones it meets during pl
 
 ## The picture tears
 
-With **F6 > DISPLAY > VSYNC** on, the game presents without tearing on both Vulkan and Direct3D 12, and the change applies at once. With it off, Vulkan presents as soon as a frame is ready and may tear. On a G-SYNC or FreeSync display keep VSYNC on as well: with it off and **FRAME RATE LIMIT** at the display's refresh rate (120 at 120 Hz), frames that come a little early are above the variable-refresh range and tear. Overlays that hook the game's presentation, such as RivaTuner or OBS's game capture, can add tearing or hitches of their own: close them to compare.
+With **F6 > DISPLAY > VSYNC** on, the game presents without tearing on both Vulkan and Direct3D 12, and the change applies at once. With it off, Vulkan presents as soon as a frame is ready and may tear. On a G-SYNC or FreeSync display keep VSYNC on as well: with it off and **FRAME RATE** at the display's refresh rate (120 at 120 Hz), frames that come a little early are above the variable-refresh range and tear. Overlays that hook the game's presentation, such as RivaTuner or OBS's game capture, can add tearing or hitches of their own: close them to compare.
 
 ## A resolution scale error at startup
 
 The renderer supports 1x, 2x, 3x and 4x, the same horizontally and vertically. Pick a supported scale in the launcher, or delete `pinyon_shift.toml` to reset.
+
+## Settings ignored at startup
+
+The game reads `pinyon_shift.toml` as TOML, and a file that does not parse applies none of its settings: the game starts on the built-in defaults (no FRAME RATE limit, 1x scale, presents capped at 60), which on a 120 Hz display renders 120 frames and shows 60. The log now says so (`Config ... does not parse`, with the line). Development builds from 2026-11-16 wrote **FRAME GENERATION** as `present_frame_generation = off` without quotes, which caused this; the game now quotes that line at startup and keeps the old file as `pinyon_shift.toml.framegeneration.bak`.
 
 ## A hang after changing display or graphics settings
 

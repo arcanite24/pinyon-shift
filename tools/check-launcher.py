@@ -269,13 +269,18 @@ class Check {
             new System.Windows.Threading.DispatcherSynchronizationContext(window.Dispatcher));
         var launch = (Task)typeof(MainWindow).GetMethod("LaunchGameAsync", flags)!.Invoke(window, null)!;
         var frame = new System.Windows.Threading.DispatcherFrame();
-        var timeout = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(15) };
+        // A cold Windows PowerShell start on a CI runner can take tens of
+        // seconds; the check is about the result path, not its speed.
+        var started = System.Diagnostics.Stopwatch.StartNew();
+        var timeout = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(90) };
         timeout.Tick += (_, _) => { timeout.Stop(); frame.Continue = false; };
         launch.ContinueWith(_ => window.Dispatcher.BeginInvoke(new Action(() => frame.Continue = false)));
         timeout.Start();
         System.Windows.Threading.Dispatcher.PushFrame(frame);
         timeout.Stop();
-        Require(launch.IsCompleted, "Missing-content watcher did not finish");
+        Require(launch.IsCompleted,
+            $"Missing-content watcher did not finish in {started.Elapsed.TotalSeconds:F0} s; launcher log:\n" +
+            ((TextBox)window.FindName("LogTextBox")).Text);
         launch.GetAwaiter().GetResult();
         SynchronizationContext.SetSynchronizationContext(null);
         Require(((TextBlock)window.FindName("HeadlineText")).Text == "Restore your saved car's DLC",

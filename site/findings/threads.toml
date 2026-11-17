@@ -26,6 +26,17 @@ source = """docs/NATIVE_PORT_BACKLOG.md NP-3.8; docs/PERFORMANCE_BACKLOG.md Budg
 
 [[finding]]
 group = """Thread map"""
+base = """825A6208, 8255AE10, 82D4E2E0, 82C0C8C8, 82FB4AF8, 82BAF5C8"""
+v4 = """8261E178, 8241D948, 82E10560, 82CCC368, 83075D18, 82C6DD70"""
+name = """guest CPU by subsystem in a sustained race"""
+what = """While driving with seven AI cars at 120 fps (simulation 112 steps a second), the guest threads are busy about 1.38 cores in all, not counting `82E4B2D0`, which shows as busy but uses almost no cycles (a guest-side sleep). By wall-time samples: scene submission on the render thread (`825A6208` and below) about 36 %, the simulation thread about 30 % (`823E40D8` and `823E3218` 15 and 13 % of it, `82E71F90` 9 %), FMOD's mixer about 10 %, the game's audio logic (`CAudioThread`, `82BAF5C8`) 8 %, and physics (the physics-world step `82D4E2E0` on the simulation thread plus the job workers at `82C0C8C8`) about 11-14 %, about 1.5 ms of CPU a simulation step. Physics runs in large bursts outside the race: about 7 G cycles a second across the workers for two seconds while the event loads, and 37 % of the guest CPU in the festival before it. During the race intro (grid, countdown) physics is under 5 %. On the Odin (v4 build, the same route, holding its 60 fps limit: 16.67 ms mean, 0.3 % of frames over 17.5 ms), by cycles: scene submission 24.1 %, the simulation thread outside physics 23.9 %, FMOD's mixer 15.2 %, the audio logic 12.2 %, physics 6.9 %, the presentation worker 5.7 % and procedural geometry 5.2 %. Physics is half its desktop share there, and the two audio threads together are the largest single target after the render and simulation threads. On the Steam Deck LCD (base build, the same route from a Steam launch, at its 60 Hz limit: 16.9 ms mean), by cycles over 25 s of the race: scene submission 34.6 %, the simulation thread outside physics 22.8 %, FMOD's mixer 13.0 %, the audio logic 9.0 %, physics 7.7 %, procedural geometry 4.0 %, the presentation worker 4.0 % and the crowd 1.4 %. At the simulation thread's 2.56 GHz that is about 8.0, 5.3, 3.0, 2.1, 1.8, 0.9, 0.9 and 0.3 ms of CPU a frame; the guest threads use about 23 ms of CPU a frame in all, on a four-core CPU that is about 3.4 cores busy."""
+how = """Thread sampler (`tools/thread_sampler.cpp`) over every guest thread, 4 ms interval, on `fh1-race-sustained` (RelWithDebInfo, RTX 4080 desktop, 2026-11-12); windows chosen from the route's capture times; samples whose leaf is a kernel wait excluded. Odin: `simpleperf record --app --call-graph fp -f 1000` for 30 s from the race-moving capture, 0.8.2 v4 Release on the Odin 2 Portal (2026-11-12), symbols from the unstripped build; both split with `tools/subsystem-cpu.py`. Deck: a Linux build with frame pointers (`-fno-omit-frame-pointer`), Steam-launched so the game power profile applies, `perf record -F 999 --call-graph fp` on the game process for 25 s from the race-moving capture (2026-11-13), folded on the Deck from `perf script`; cycles converted to ms with the simulation thread's own CPU time from the perf CSV."""
+confidence = """confirmed"""
+note = """Desktop shares, where none of these threads sets the frame (the GPU commands decoder does). Particles and crowds were not separated: their updates are not named and run inside the render and simulation threads' unnamed work."""
+source = """GitHub issue #1070 item 5 follow-up, #1071 P0; .local/thread-samples/guest-sustained-1 and .local/leads/odin-cg/cg1071a (local); config/performance/subsystems.toml"""
+
+[[finding]]
+group = """Thread map"""
 base = """825A6320, sub_825A6208, sub_8259F3E8"""
 v4 = """8261E318, sub_826164D0"""
 name = """render thread"""
@@ -73,7 +84,7 @@ group = """Thread map"""
 base = """82BAF5C8, 82E217A0, 82589AE8, 830C68B8, 82E1C3E8, 829F6620, 82463D60, sub_8245DBE0"""
 v4 = """82C6DD70, 82EE37A0, 826000A0, 83187E38, 82EDE528, 82AB3590, 82493658, sub_8248D438"""
 name = """other guest threads"""
-what = """Seven more threads use measurable CPU in a race; the figures are CPU a frame on the Odin at the 60 fps limit. `82BAF5C8` is `CAudioThread` (2.39 ms): through `sub_82BAD518` it runs `sub_82BAC498` once per rendered frame, which does the game's audio logic (`CAudioEngine::Update`, the car audio models) and the FMOD Event System update `sub_82F50460`. `82E217A0` builds procedural geometry: vegetation, models, characters (1.47 ms). `82589AE8` (through `sub_82472908`) is a presentation worker that runs the same deferred-command drain as the render thread and is a second producer of D3D segments and draws (1.23 ms; see "D3D draw entry points" on the rendering page). `830C68B8` is the XAudio2 pass (0.59 ms): through `sub_8246E988` it runs `sub_823F27E8` once per 5.33 ms audio block, mixing FMOD's output voice into the six-channel master (see "audio output path" on the audio page). `82E1C3E8` has no known role (0.35 ms): it loops waiting through `WaitForSingleObject` and releasing mutexes, and about 91 % of its time is outside guest code. `829F6620` is D3D's predicated-tiling worker (0.23 ms; see "D3D GPU-to-CPU callbacks"). `82463D60` is XHV2 voice chat (0.16 ms): it ticks at 100 Hz, offline too, and polls four users a tick through `sub_8245DD30` (46,036 calls in a race), which submits voice packets and checks headsets and sign-in. The tick is `sub_8245DBE0` (v4 `sub_8248D438`), called once per period of the thread's 100 Hz periodic timer. Replacing it with nothing (NN-4.5) took the thread from 0.146 to 0.082 ms a frame and its instructions down 62 % on the Odin, in-run, with no effect on single-player play; the replacement also waits 50 ms so the thread wakes about 20 times a second."""
+what = """Seven more threads use measurable CPU in a race; the figures are CPU a frame on the Odin at the 60 fps limit. `82BAF5C8` is `CAudioThread` (2.39 ms): through `sub_82BAD518` it runs `sub_82BAC498` once per rendered frame, which does the game's audio logic (`CAudioEngine::Update`, the car audio models) and the FMOD Event System update `sub_82F50460`. `82E217A0` builds procedural geometry: vegetation, models, characters (1.47 ms). `82589AE8` (through `sub_82472908`) is a presentation worker that runs the same deferred-command drain as the render thread and is a second producer of D3D segments and draws (1.23 ms; see "D3D draw entry points" on the rendering page). `830C68B8` is the XAudio2 pass (0.59 ms): through `sub_8246E988` it runs `sub_823F27E8` once per 5.33 ms audio block, mixing FMOD's output voice into the six-channel master (see "audio output path" on the audio page). `82E1C3E8` is a request worker (0.35 ms): it waits through `WaitForSingleObject`, then pops 24-byte requests from a queue under mutexes and serves them; about 91 % of its time is outside guest code, in the waits and mutex releases. A dead-work census (NR-4, 2026-11-16) found no unused output on it or on the other two minor threads: on the Deck LCD `82E1C3E8` costs 0.11 ms a frame, `829F6620` 0.075 and `830C6918` 0.02 (Odin v4: 0.18, 0.10 and 0.08 ms), and their cost is the wait path, not work that could be skipped. `829F6620` is D3D's predicated-tiling worker (0.23 ms; see "D3D GPU-to-CPU callbacks"). `82463D60` is XHV2 voice chat (0.16 ms): it ticks at 100 Hz, offline too, and polls four users a tick through `sub_8245DD30` (46,036 calls in a race), which submits voice packets and checks headsets and sign-in. The tick is `sub_8245DBE0` (v4 `sub_8248D438`), called once per period of the thread's 100 Hz periodic timer. Replacing it with nothing (NN-4.5) took the thread from 0.146 to 0.082 ms a frame and its instructions down 62 % on the Odin, in-run, with no effect on single-player play; the replacement also waits 50 ms so the thread wakes about 20 times a second."""
 how = """Per-thread `simpleperf stat` task-clock medians over the race window of the Odin run `xa2` (2026-10-13, base image, race reached), divided by its 59.85 fps; thread starts from the Odin runtime log; entry chains and imports from the generated code; loop and call counts from the probe build (NL-2.3); roles from RTTI class methods on the threads' call-graph stacks (Odin, 30 fps)."""
 confidence = """probable"""
 note = """Confirmed for the XHV2 thread (its imports) and the tiling worker; the other roles are probable. The times are the base image's on the Odin; same-build Odin runs spread by up to 23 %."""
@@ -143,6 +154,18 @@ confidence = """probable"""
 source = """docs/TITLE_UPDATE_V4_BACKLOG.md TU-4, TU-5"""
 
 # -------------------------------------------------------------- Frame pacing
+
+
+[[finding]]
+group = """Main loop"""
+base = """sub_823ED888, sub_823E40D8, sub_823E3218, sub_82475310, sub_82B77B18, sub_825265B0, sub_82526248, sub_824D5818, sub_82480C28, sub_8264A258, sub_82472168"""
+v4 = """sub_8241D948, sub_82414068, sub_824131A8, sub_824A4940, sub_82C362B8, sub_82590CD0, sub_82590840, sub_82543E70, sub_824B0200, sub_826F3240, sub_824A18E0"""
+name = """what the simulation loop spends its time on"""
+what = """One pass of the simulation loop `sub_823ED888` is mostly three calls. `sub_823E40D8` (47 % of the thread on the Deck) is the simulation tick: 84 % of it is the world update `sub_823E3218`, which runs the physics-world step (`sub_82D4E2E0`, 40 % of the update), the AI drivers (`sub_82475310`, 17 %; through `sub_82B77B18` into `CMetaAIDriver`, `CPassingDriver` and `CAIDrivatar`), `sub_825265B0` (12 %, almost all in the tight loop `sub_82526248`, role unknown) and `sub_824D5818` (9 %, car state handed to the car presentation: `CCarDynamics` getters and `CCarPresentationDeferred`). `sub_82480C28` (30 %) reaches the user interface update, `CUserInterface4` slot 48 (`sub_82E71F90`), through `sub_8264A258`, and `sub_82472168` (11 %) is `CUserInterface4` slot 50, the interface's scene-manager pass. So the user interface is about 41 % of the simulation thread and physics about a fifth."""
+how = """Deck call graph of a sustained race (see "guest CPU by subsystem in a sustained race"), inclusive shares below each function; class names from the executable's RTTI vtables (slot = vtable index); v4 addresses from `tools/map-fh1-v4-addresses.py`."""
+confidence = """probable"""
+note = """Shares are of the simulation thread on the Deck LCD at 60 fps; the desktop and Odin call graphs give the same order."""
+source = """GitHub issue #1071 P3; .local/leads/deck-cg (local)"""
 
 [[finding]]
 group = """Frame pacing"""
@@ -390,6 +413,18 @@ source = """site/pages/recompiler.md Native regions"""
 
 [[finding]]
 group = """Hot functions"""
+base = """sub_82D2F348, sub_82D21DB0"""
+v4 = """sub_82DF1478, sub_82DE3D10, sub_82E10560, sub_82CCC368, sub_82DCD8D0, sub_82E04258, sub_82DFB4A0"""
+name = """no hot tyre model in a v4 race"""
+what = """On the Odin at the 60 fps limit the physics-world step `sub_82E10560` and the job workers `sub_82CCC368` together are 5.2 % of process cycles, about 1.4 ms of CPU a frame, spread flat: the hottest leaf (`sub_82DCD8D0`) is 12.8 % of it, the next `sub_82E04258` 9.8 % and `sub_82DFB4A0` 7.4 %, and the top 20 leaves cover 76 %. The tyre model (`sub_82DF1478`, base `sub_82D2F348`) is 0.01 % of the process and `sub_82DE3D10` (base `sub_82D21DB0`, the largest NN-5.1 specialisation) does not show. A native tyre model alone could save microseconds a frame, far under #1071's 0.5 ms gate; a gain from physics needs the whole car step (about 85 % of the world step is under `sub_82E08FF8` > `sub_82DFC608`) written natively."""
+how = """The Odin call graph cg1071a (0.8.2 v4 Release, `fh1-race-sustained` from the race-moving capture, `simpleperf --call-graph fp`, 2026-11-12), leaf and inclusive shares under the two physics roots; base addresses mapped with `tools/map-fh1-v4-addresses.py`."""
+confidence = """confirmed"""
+negative = true
+issue = """#1071"""
+source = """GitHub issue #1071 P1; .local/leads/odin-cg/cg1071a (local)"""
+
+[[finding]]
+group = """Hot functions"""
 base = """sub_825A6208, sub_82450160, sub_823ED888, sub_823E40D8"""
 name = """render and simulation call chains"""
 what = """In race call graphs the render thread's time runs through `sub_825A6208`, then the render thread frame `sub_8259F3E8`, then `sub_82450160`; the simulation thread's runs through `sub_823ED888`, then `sub_823E40D8`. The roles of `sub_82450160` and `sub_823E40D8` are not known."""
@@ -416,3 +451,24 @@ what = "The job wait helper at 82412688 polls object bytes +40 and +41 before ta
 how = "Generated control-flow and field-access analysis; default-off read/store observations in desktop r2-race1 and r2-boot21, including the last matching writer's thread and sequence. A final repeat without memory observers still diverges at the same job lock versus another polling timebase read. No memory value was substituted by the diagnostic."
 confidence = "confirmed"
 source = "docs/CLEAN_SLATE_STAGE0.md#cs-01-per-thread-replay-and-shared-memory-order"
+
+[[finding]]
+group = """Thread map"""
+base = """sub_82E43888, sub_82E438B8, asset pool +112, +1556"""
+name = """exclusive disc IO bracket"""
+what = """Nineteen functions that load in the foreground, among them the mission-flow XML loader `sub_82617EC0`, audio `sub_82BB2490`, `sub_82D17048` and `sub_82E50C68`, name `ExclusiveDiscIOLock` and bracket their reads with `sub_82E43888` and `sub_82E438B8`. These count up and down atomically at asset-pool +1556 and reset and set an event at pool +112 that the streaming workers `82E4B2D0` and `82E4B3A0` wait on, so background streaming pauses during a foreground read: a guard against DVD seeks."""
+how = """String cross-references and the bracket functions' bodies in the generated code."""
+confidence = """probable"""
+note = """Measured on multivac (base, `ce-load` route from the 2026-09-27 seed): 102 entries per run, held 129 ms during boot, 102 ms from the title to free roam and 22 ms through car select into a race; 299 ms in all. Skipping both calls so streaming keeps running did not speed anything up and broke loading: the car-select thumbnails never arrived (the route timed out waiting for them), so the count or the event guards more than disc seeks. Rejected (CE-10)."""
+negative = true
+source = """docs/CONSOLE_ERA_RESEARCH.md CE-10"""
+
+[[finding]]
+group = "Main loop"
+base = "sub_825A2CB8, sub_8259F3E8, sub_82649F20, sub_82A6D640, renderer +2072, +2088"
+v4 = "sub_8261A100, sub_826164D0, sub_826F2F08"
+name = "loading screen minimum time"
+what = "When the tip loading screen (PLEASE WAIT with a tip) is shown, the renderer method `sub_825A2CB8` (a vtable slot at `0x820032F0`) sets a deadline at renderer +2088 under the renderer's lock: the render stopwatch (+2280) plus a minimum time on screen, a float at +2072. The render frame `sub_8259F3E8` sets the deadline back to -1.0 once the stopwatch passes it, and the main thread's load step `sub_82649F20` yields (`sub_82A6D640`, a thread-yield wrapper) while it is positive. The minimum is 1 s on the way from the title screen to free roam and 3 s into and out of an event; fast travel does not use it. On a disc the load outlasted it; from a modern drive it is most of the load on multivac: 1.0 s of the 1.56 s title-to-free-roam load, 2.9 s of the 4.62 s car-select-to-race load and 2.9 s of the 4.22 s retire to free roam. Pinyon Shift clears the deadline right after the method sets it (`pinyon_shift_loading_screen_minimum`, off by default), so the screen still appears and leaves when loading is done; race captures after the load were pixel-identical."
+how = "A host thread polling the renderer's fields and logging each deadline and duration; the main thread's stack in a hitch-sampler run of the title-to-free-roam load; the generated code of the setter and the waiter; A/B on the `ce-load` route with captures through both loading screens."
+confidence = "confirmed"
+source = "docs/CONSOLE_ERA_RESEARCH.md, Results; src/guest_native/loading_screen.cpp"

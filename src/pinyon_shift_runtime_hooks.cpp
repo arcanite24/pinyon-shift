@@ -101,6 +101,9 @@ REXCVAR_DEFINE_BOOL(pad_ds_log_telemetry, false, "Input",
 REXCVAR_DEFINE_BOOL(fh1_render_test_rally_ai_driver, false, "Pinyon Shift",
                     "Use native AI for Rally results/persistence tests; ignored outside render tests")
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+REXCVAR_DEFINE_INT32(pinyon_shift_physics_trace, 0, "Pinyon Shift",
+                     "Diagnostic: record every car's speed, rpm, gear and controls as "
+                     "fh1.physics_trace every this many frames (0 off)");
 REXCVAR_DEFINE_BOOL(pinyon_shift_car_challenge_gate_probe, false, "Pinyon Shift",
                     "Diagnostic (v4): pass 1000 Club's LIVE and Forza-server checks to "
                     "trace what its challenges need offline")
@@ -6394,6 +6397,70 @@ static void QueueCarTelemetry() {
   });
 }
 
+// Physics behaviour harness (#1071 P0): every car in the world's car
+// vector, every pinyon_shift_physics_trace frames, as one
+// fh1.physics_trace event. tools/physics-behaviour.py turns it into 0-100
+// times, distances and order, and compares a native subsystem's run with
+// the translated one.
+static void QueuePhysicsTrace() {
+  const int32_t every = REXCVAR_GET(pinyon_shift_physics_trace);
+  if (every <= 0) return;
+  static uint64_t host_frames = 0;
+  ++host_frames;
+  if (host_frames % uint64_t(every) != 0) return;
+  const uint64_t frame = pinyon_shift::fh1_render_test::Enabled()
+                             ? pinyon_shift::fh1_render_test::CurrentFrame()
+                             : host_frames;
+  // Host time for routes without a fixed clock, whose frame numbers are
+  // output frames.
+  static const auto start = std::chrono::steady_clock::now();
+  const double t_ms =
+      std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+  pinyon_shift::mod::EnqueueHostGuestTask([frame, t_ms] {
+    namespace cd = car_dynamics;
+    auto pointer = [](uint32_t field, uint32_t size) -> uint32_t {
+      if (!PinyonShiftGuestRangeReadable(field, 4)) return 0;
+      const uint32_t value = LoadGuestU32(field);
+      return value && PinyonShiftGuestRangeReadable(value, size) ? value : 0;
+    };
+    const uint32_t holder = pointer(FH1_ADDR(0x832DF024u), 8);
+    const uint32_t manager = holder ? pointer(holder + 4, 56) : 0;
+    const uint32_t world = manager ? pointer(manager + 4, 136) : 0;
+    if (!world) return;
+    const uint32_t session = pointer(world + 124, 60);
+    const uint32_t mode = session ? LoadGuestU32(session + 56) : 0;
+    const uint32_t begin = LoadGuestU32(world + 128);
+    const uint32_t end = LoadGuestU32(world + 132);
+    if (end < begin || end - begin > 4 * 64 || !PinyonShiftGuestRangeReadable(begin, end - begin)) return;
+    // index:car:driver:speed m/s:rpm:gear:gas:brake:steer, cars split by
+    // "|". Driver 0 is the player, 1 a race AI, 4 the cars around free
+    // roam; the vector's order changes as cars come and go.
+    std::string cars;
+    uint32_t count = 0;
+    for (uint32_t entry = begin; entry < end; entry += 4) {
+      const uint32_t car = pointer(entry, cd::kDriverType + 4);
+      const uint32_t dyn = car ? pointer(car + cd::kInterface, cd::kControls + 20) : 0;
+      if (!dyn) continue;
+      const uint8_t gear = LoadGuestU8(dyn + cd::kGear);
+      const uint32_t controls = dyn + cd::kControls;
+      if (!cars.empty()) cars += '|';
+      cars += fmt::format("{}:{:08X}:{}:{:.3f}:{:.0f}:{}:{:.2f}:{:.2f}:{:.2f}", (entry - begin) / 4,
+                          car, int32_t(LoadGuestU32(car + cd::kDriverType)),
+                          LoadGuestF32(dyn + cd::kSpeed),
+                          LoadGuestF32(dyn + cd::kEngineSpeed) * cd::kRadPerSecToRpm,
+                          gear == 0 ? -1 : gear >= 9 ? 0 : int(gear),
+                          LoadGuestF32(controls + cd::kControlGas),
+                          LoadGuestF32(controls + cd::kControlBrake),
+                          LoadGuestF32(controls + cd::kControlSteer));
+      ++count;
+    }
+    pinyon_shift::diagnostics::RecordEvent("fh1.physics_trace", {
+        {"frame", fmt::format("{}", frame)}, {"t_ms", fmt::format("{:.1f}", t_ms)},
+        {"mode", fmt::format("{}", mode)},
+        {"count", fmt::format("{}", count)}, {"cars", cars}});
+  });
+}
+
 static void QueueRallyRaceTrace() {
   if constexpr (pinyon_shift::fh1::kTitleUpdateV4) {
     PumpCarChallengeCommits();
@@ -6859,6 +6926,7 @@ void PinyonShiftTraceFrameTelemetry(PPCRegister& r28, PPCRegister& r31) {
   }
   QueueRallyRaceTrace();
   QueueCarTelemetry();
+  QueuePhysicsTrace();
   pinyon_shift::head_tracking::Update();
   // frame.tick for mods: their guest tasks, then the hook.
   pinyon_shift::mod::RunGuestTasks();

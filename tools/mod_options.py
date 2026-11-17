@@ -21,9 +21,15 @@ from __future__ import annotations
 
 import json
 import re
-import tomllib
 from dataclasses import dataclass
 from pathlib import Path
+
+try:
+    import tomllib
+except ModuleNotFoundError:
+    # macOS's /usr/bin/python3 is 3.9: pinyon.py imports this module before
+    # it can switch to the pinned Python that setup provisions (#1051).
+    tomllib = None
 
 KEY = re.compile(r"[a-z][a-z0-9_]{0,31}")
 # A choice's value is written into SQL, so it is kept to plain tokens: numbers,
@@ -102,6 +108,8 @@ def declared(manifest: dict) -> list[Option]:
 
 
 def read_declared(mod: Path) -> list[Option]:
+    if tomllib is None:
+        raise OptionError("mod.toml needs Python 3.11 or newer: run setup first")
     try:
         manifest = tomllib.loads((mod / "mod.toml").read_text(encoding="utf-8"))
     except (OSError, tomllib.TOMLDecodeError) as error:
