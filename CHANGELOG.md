@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.9.0 - 2026-11-17
+
+- New: frame generation with FSR 3 and DLSS on Windows, Linux and the
+  Steam Deck, with the HUD kept sharp and HDR supported.
+- New: ambient occlusion, FRAME RATE up to 240 fps as one setting, save
+  sync through a folder-sync app and a 540p scene resolution (#1070).
+- New: resolution scale, MSAA and texture size apply without a restart;
+  loading screens end when loading does; the idle mouse pointer hides
+  (#1076); experimental Linux ARM64 builds from source, built in CI.
+- Faster: one-pass scene tiles, native scene culling, 2 MiB code pages and
+  earlier LODs on Linux and the Steam Deck; audio updates at 30 Hz.
+- Fixed: the Android build after downloading host objects (#1041, #1042,
+  #1045, #1072); v4 setup on upgraded Linux and macOS installs (#1046,
+  #1079, #1081); macOS on Python 3.9 (#1051) and exFAT drives (#1052,
+  #1053); interrupted ShiftGlue downloads; setup from PowerShell 7.
+
 ## 0.8.2 - 2026-11-07
 
 - Fixed: Windows setup from a disc image stopped on a missing
