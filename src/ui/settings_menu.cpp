@@ -609,9 +609,6 @@ std::unique_ptr<MenuScreen> SettingsPages::Display() {
       return std::string("HDR NEEDS HDR TURNED ON FOR THIS DISPLAY");
     }
     if (!SameValue(Unquote(Saved("present_frame_generation")), "off")) {
-      if (SameValue(Unquote(Saved("present_hdr")), "true")) {
-        return std::string("FRAME GENERATION IS NOT USED WITH HDR");
-      }
       // Below about 50 real frames a second the generated ones show their
       // errors and the input lag grows (AMD's and NVIDIA's guidance).
       const auto refresh = Number(Unquote(Saved("video_mode_refresh_rate")));
