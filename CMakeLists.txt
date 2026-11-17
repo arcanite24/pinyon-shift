@@ -47,6 +47,7 @@ set(PINYON_SHIFT_HOST_SOURCES
     src/guest_native/crt_math.cpp
     src/guest_native/lzx_decoder.cpp
     src/guest_native/title_waits.cpp
+    src/guest_native/loading_screen.cpp
     src/guest_native/voice_chat.cpp
     src/guest_native/retire_code.cpp
     src/guest_native/fmod_stereo.cpp
