@@ -253,7 +253,7 @@ Players build the game from their own disc on their own machine
 | LA-2 | Boot on the Odin: deploy over SSH, run under gamescope, controls, audio, save in a private state root | Opening drive and free roam reach the same save hashes as Windows (the AP-0 gate) |
 | LA-3 | Mobile-GPU predicate in the SDK; handheld presets on Linux; in-run A/B of each moved default | Each Android-gated default decided on Linux by measurement; frame times recorded against the Android build on the same route |
 | LA-4 | Player path: setup accepts aarch64, prebuilt arm64 kit in `release.yml`, `linux-arm64` launcher package, Steam shortcut from the launcher | A clean Armada install goes from disc to Game Mode with the launcher alone |
-| LA-5 | Docs and CI: `LINUX.md` section, platforms page and feature list, game CI compile job | Site builds, CI green |
+| LA-5 | Docs and CI: `LINUX.md` section, platforms page and feature list, game CI compile job | Site builds, CI green. CI part done 2026-11-17: the `linux-arm64` job in `ci.yml` builds the runtime, GPU plugin and host tests on `ubuntu-24.04-arm` (LLVM 20.1.8 Linux-ARM64, steamrt4 sysroot 4.0.20261110.268882, both by SHA-256) and the 17 host tests pass; `LINUX.md` section still to do |
 
 Measure LA-3 as on Android: same route, same 1x/4x settings, last ~800
 `perf.csv` rows, GPU clock read from the `msm` devfreq node (the KGSL
