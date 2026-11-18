@@ -65,6 +65,8 @@ Where a phone's fastest cores form their own cluster of two or more (the Snapdra
 
 At start the game asks the display for one refresh rate: the fastest mode that is a whole multiple of its frame limit (`pinyon_shift_fh1_render_fps_limit`, else `host_present_fps_limit`), such as 120 Hz for 30 fps, and gives the surface that frame rate. Without it a POCO F7 Pro (Snapdragon 8 Gen 3, HyperOS) switched its panel between 60 and 120 Hz 2 to 8 times in 2.5 minutes of a 30 fps drive, and the surface frame rate alone did not stop it. Held at 120 Hz in three alternating runs of the same drive (new, old, new package), frames shown for 45 ms or longer went from 1.31 % to 0.02 % and 0.00 %: a frame that misses its refresh now shows for 41.7 ms instead of 50. A frame limit of 0 leaves the display to the system.
 
+The game's vblanks, which pace its frames, follow the display's own vsyncs when the game's rate is a whole multiple of the display's (`android_vblank_display_lock`, on by default). From the phone's clock at exactly 60 Hz they drifted against the panel, whose real period differs: at 30 fps on the POCO F7 Pro the time a frame waited to be shown climbed from 17 to 33 ms over half a minute, then one frame was shown twice and it began again. Locked, that wait stays level (its 5-second medians vary by 2.4-2.9 ms instead of 4.4) in alternating drives with the same settings.
+
 ## HDR calibration
 
 Keep brightness and the display mode fixed, and turn adaptive brightness off

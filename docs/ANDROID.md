@@ -85,6 +85,22 @@ left it switching. Three alternating 2.5-minute runs of the same drive
 1.31 % and 0.00 %. A missed refresh now costs 8.3 ms instead of 16.7.
 A change of the limit in the game applies at the next start.
 
+Guest vblanks follow the display's own vsyncs where they can
+(`android_vblank_display_lock`, default on, applies live). FH1 renders a
+frame every second guest vblank, and those came from the host clock at
+exactly 60 Hz while the panel's real period differs (SurfaceFlinger
+predicts 16.659 ms on the POCO F7 Pro's 60 Hz mode). At 30 fps the time a
+frame waited in the queue climbed from 17 to 33 ms over 25-35 s, then a
+frame was shown twice and it started again. A Choreographer on its own
+looper thread now reports each vsync and SurfaceFlinger's period; when
+the guest period is a whole multiple of it (60 or 120 Hz for a 60 Hz
+guest) each guest vblank is delivered on a vsync, otherwise (90 Hz, no
+vsyncs yet, a scaled guest clock) on the host clock as before. Three
+alternating 2.5-minute drives at 60 Hz (new, old, new package): queue
+wait p10-p90 20.6-29.3 and 18.8-27.8 ms against 15.4-30.5, the spread
+of its 5 s medians 2.4 and 2.9 ms against 4.4; frames shown at 33 ms
+99.3, 99.1 and 99.5 %, already near the floor before the change.
+
 ## What stays private
 
 The package holds the game translated from your own disc, exactly as
