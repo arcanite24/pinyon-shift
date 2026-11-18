@@ -494,6 +494,30 @@ class UnpackTests(unittest.TestCase):
             self.assertGreater(len(str(install)) + len(self.DEEP), 260)
             self.assertTrue(os.path.isfile(inner), archive.name)
 
+    def test_tar_folder_entries_unpack_under_the_extended_path(self):
+        # The extended-length prefix stops Windows turning "/" into "\", and
+        # tarfile joins member names with "/": a folder entry failed with
+        # WinError 123 (the Android host objects, 0.9.1).
+        import io
+        import os
+        import shutil
+        import tarfile
+        base = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, pinyon_setup.long_path(base), True)
+        tarred = base / "objects.tar.xz"
+        with tarfile.open(tarred, "w:xz") as stream:
+            for name in ("top", "top/objects", "top/objects/sub"):
+                info = tarfile.TarInfo(name)
+                info.type = tarfile.DIRTYPE
+                info.mode = 0o755
+                stream.addfile(info)
+            info = tarfile.TarInfo("top/objects/sub/a.o")
+            info.size = 1
+            stream.addfile(info, io.BytesIO(b"x"))
+        install = base / "host-objects" / "base"
+        pinyon_setup.unpack(tarred, install)
+        self.assertTrue(os.path.isfile(pinyon_setup.long_path(install) / "objects" / "sub" / "a.o"))
+
     def test_appledouble_files_do_not_keep_the_top_folder(self):
         # #1052: on exFAT, macOS writes ._python beside the unpacked python/.
         import shutil
