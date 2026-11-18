@@ -101,6 +101,13 @@ wait p10-p90 20.6-29.3 and 18.8-27.8 ms against 15.4-30.5, the spread
 of its 5 s medians 2.4 and 2.9 ms against 4.4; frames shown at 33 ms
 99.3, 99.1 and 99.5 %, already near the floor before the change.
 
+Thread names survive SDL's JNI attach. SDL attaches a thread to the JVM on
+its first JNI call without a name, and ART renames it `Thread-N`; the
+presenter's first paint runs on the GPU command decoder, so `GPU Commands`
+became `Thread-9` and `android_thread_cores` (which matches names) could not
+find it. The JNI helpers restore the caller's name; on the POCO F7 Pro the
+decoder keeps `GPU_Commands_(F...` for the whole drive.
+
 ## What stays private
 
 The package holds the game translated from your own disc, exactly as
