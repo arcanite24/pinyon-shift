@@ -455,7 +455,9 @@ def shell_ready() -> Path | None:
 def install_shell() -> Path | None:
     """The release's shell (tools/apply-prebuilt-pins.py pins it), unpacked
     into .local/android/shell; None builds everything from source."""
+    import pinyon_setup
     if shell_ready():
+        _freshen_shell(pinyon_setup)
         return SHELL
     try:
         config = json.loads((ROOT / "config" / "release-toolchain.json").read_text(
@@ -463,7 +465,6 @@ def install_shell() -> Path | None:
         entry = config.get("android_shell", {}).get("android-arm64")
         if not entry or entry.get("revision") != config["rexglue"]["revision"]:
             return None
-        import pinyon_setup
         archive = pinyon_setup.download(entry, pinyon_setup.Progress(False), "the Android shell")
         pinyon_setup.unpack(archive, SHELL)
         archive.unlink()
@@ -471,7 +472,26 @@ def install_shell() -> Path | None:
         print(f"warning: the prebuilt Android shell could not be installed ({error}); "
               "building everything from source")
         return None
-    return shell_ready()
+    ready = shell_ready()
+    if ready:
+        _freshen_shell(pinyon_setup)
+    return ready
+
+
+def _freshen_shell(pinyon_setup) -> None:
+    """The shell archive's files carry its fixed 1980 date, as the PC kit's
+    do: after an update its headers looked older than the precompiled
+    headers and objects built from the last shell, so Ninja rebuilt none of
+    them and clang stopped with "has been modified since the precompiled
+    header was built" (0.8.2 to 0.9.1, rex/ppc/context.h). Once per shell
+    (its revision and version), as pinyon_setup.freshen_times does for the
+    kit (#1097, #1098)."""
+    try:
+        kit = json.loads((SHELL / "kit.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return
+    key = f"{kit.get('shiftglue_revision')}-{'-'.join(map(str, kit.get('version', [])))}"
+    pinyon_setup.freshen_times(SHELL, key)
 
 
 def host_generator() -> Path | None:

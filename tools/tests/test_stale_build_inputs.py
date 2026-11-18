@@ -37,6 +37,27 @@ class FreshenTimesTests(unittest.TestCase):
             self.assertGreater(header.stat().st_mtime, before)
 
 
+class AndroidShellFreshenTests(unittest.TestCase):
+    def test_an_installed_shell_gets_the_current_time(self):
+        # The Android shell archive keeps the same 1980 date: after 0.8.2 to
+        # 0.9.1 its rex/ppc/context.h looked older than the PCH built from
+        # the last shell, and the Android build stopped.
+        import pinyon_android
+        with tempfile.TemporaryDirectory() as temp:
+            shell = Path(temp)
+            (shell / "kit.json").write_text(
+                '{"shiftglue_revision": "r2", "version": ["0.9.1", 901]}', encoding="utf-8")
+            header = shell / "include" / "rex" / "ppc" / "context.h"
+            header.parent.mkdir(parents=True)
+            header.write_bytes(b"struct Context {};\n")
+            os.utime(header, (OLD, OLD))
+            before = time.time() - 5
+            with mock.patch.object(pinyon_android, "SHELL", shell), \
+                    mock.patch.object(pinyon_android, "shell_ready", return_value=shell):
+                self.assertEqual(pinyon_android.install_shell(), shell)
+            self.assertGreater(header.stat().st_mtime, before)
+
+
 class StalePchTests(unittest.TestCase):
     def build_tree(self, temp: str) -> tuple[Path, Path, Path]:
         tree = Path(temp) / "out"

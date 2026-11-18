@@ -71,6 +71,43 @@ has not been run. Explicit values look like
 `GPU_Commands=6-7;*=0-5` (`_` matches a space, `*` every other
 thread); `off` restores the threads' earlier masks.
 
+The activity holds one display mode while the game shows: the fastest
+whose refresh is a whole multiple of the frame limit read from the
+settings at start (`pinyon_shift_fh1_render_fps_limit`, else
+`host_present_fps_limit`; 120 Hz for 30 fps), through the window's
+`preferredDisplayModeId`, and sets that rate on the surface
+(`Surface.setFrameRate`, fixed source). On a POCO F7 Pro (Snapdragon 8
+Gen 3, HyperOS 3, Android 16) the panel switched between 60 and 120 Hz
+2 to 8 times in 2.5 minutes of a 30 fps drive; `setFrameRate` alone
+left it switching. Three alternating 2.5-minute runs of the same drive
+(new, old, new package; SurfaceFlinger `--latency`): the panel at 120 Hz
+100 %, 22 % and 100 % of the time, frames shown 45 ms or longer 0.02 %,
+1.31 % and 0.00 %. A missed refresh now costs 8.3 ms instead of 16.7.
+A change of the limit in the game applies at the next start.
+
+Guest vblanks follow the display's own vsyncs where they can
+(`android_vblank_display_lock`, default on, applies live). FH1 renders a
+frame every second guest vblank, and those came from the host clock at
+exactly 60 Hz while the panel's real period differs (SurfaceFlinger
+predicts 16.659 ms on the POCO F7 Pro's 60 Hz mode). At 30 fps the time a
+frame waited in the queue climbed from 17 to 33 ms over 25-35 s, then a
+frame was shown twice and it started again. A Choreographer on its own
+looper thread now reports each vsync and SurfaceFlinger's period; when
+the guest period is a whole multiple of it (60 or 120 Hz for a 60 Hz
+guest) each guest vblank is delivered on a vsync, otherwise (90 Hz, no
+vsyncs yet, a scaled guest clock) on the host clock as before. Three
+alternating 2.5-minute drives at 60 Hz (new, old, new package): queue
+wait p10-p90 20.6-29.3 and 18.8-27.8 ms against 15.4-30.5, the spread
+of its 5 s medians 2.4 and 2.9 ms against 4.4; frames shown at 33 ms
+99.3, 99.1 and 99.5 %, already near the floor before the change.
+
+Thread names survive SDL's JNI attach. SDL attaches a thread to the JVM on
+its first JNI call without a name, and ART renames it `Thread-N`; the
+presenter's first paint runs on the GPU command decoder, so `GPU Commands`
+became `Thread-9` and `android_thread_cores` (which matches names) could not
+find it. The JNI helpers restore the caller's name; on the POCO F7 Pro the
+decoder keeps `GPU_Commands_(F...` for the whole drive.
+
 ## What stays private
 
 The package holds the game translated from your own disc, exactly as

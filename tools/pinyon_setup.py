@@ -288,10 +288,21 @@ def download(item: dict, progress: Progress, label: str) -> Path:
 def _extract_all(archive: tarfile.TarFile, destination: Path) -> None:
     # The archives are pinned by SHA-256; the sniper sysroot holds absolute
     # symlinks, which make_links_relative() rewrites afterwards.
+    members = None
+    if os.name == "nt" and str(destination).startswith("\\\\?\\"):
+        # Windows does not turn "/" into "\" in an extended-length path
+        # (long_path), and tarfile joins member names with "/": the host
+        # objects failed with WinError 123 at ...\base.staging\host-objects-
+        # 0.9.1-android-arm64-base/objects. Hard links name a member too.
+        members = archive.getmembers()
+        for member in members:
+            member.name = member.name.replace("/", "\\")
+            if member.islnk():
+                member.linkname = member.linkname.replace("/", "\\")
     if hasattr(tarfile, "fully_trusted_filter"):
-        archive.extractall(str(destination), filter="fully_trusted")
+        archive.extractall(str(destination), members=members, filter="fully_trusted")
     else:
-        archive.extractall(str(destination))
+        archive.extractall(str(destination), members=members)
 
 
 def long_path(path: Path) -> Path:
