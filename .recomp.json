@@ -1,0 +1,23 @@
+{
+  "$schema": "https://recomp.fyi/schema/v1.json",
+  "game": "Forza Horizon",
+  "wikidata": "Q83843",
+  "system": "Xbox 360",
+  "type": "recomp",
+  "original": [
+    { "region": "USA", "serial": "MS-2505" },
+    { "region": "USA", "serial": "MS-2505", "revision": "Title update 4" }
+  ],
+  "project": "Pinyon Shift",
+  "status": "released",
+  "targets": ["Windows", "Linux", "Steam Deck", "macOS", "Android"],
+  "toolchain": "Shiftglue",
+  "approach": "Static recompilation with ShiftGlue, our ReXGlue fork; a renderer written for the game runs its GPU commands on Vulkan",
+  "maintainers": [{ "name": "arcanite24", "link": "https://github.com/arcanite24" }],
+  "links": [
+    { "label": "Documentation", "url": "https://arcanite24.github.io/pinyon-shift/" },
+    { "label": "Discord", "url": "https://discord.gg/SFQKFrTvww" },
+    { "label": "ShiftGlue", "url": "https://github.com/arcanite24/shiftglue-sdk" }
+  ],
+  "notes": "Not an emulator: the launcher translates the game's PowerPC code into C++ and builds it on your own PC from your own USA disc. Native on Windows, Linux, the Steam Deck and Apple silicon Macs (Intel Macs experimental), with an Android alpha. 1x to 4x internal resolution, HDR, and the optional title update v4 for Rally and 1000 Club."
+}
