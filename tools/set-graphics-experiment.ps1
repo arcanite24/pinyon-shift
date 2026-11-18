@@ -104,6 +104,9 @@ fh1_msaa_single_sample = true
 draw_resolution_scale_x = 1
 draw_resolution_scale_y = 1
 clear_memory_page_state = false
+spirv_specialize_texture_signs = true
+spirv_fast_pixel_math = true
+spirv_implicit_lod_2d = true
 '@
 }
 
@@ -234,13 +237,21 @@ $gamePresets = [ordered]@{
         pinyon_shift_fh1_shadows = 'true'; pinyon_shift_fh1_env_map_rate = '1'
         fh1_untile_predicated_tiling = 'false' }
 }
+# The cheap presets also turn on the shader translation settings measured on
+# a UHD 620 (settings_menu.cpp, GRAPHICS PRESET); the others set them back.
+$shaderMath = @('spirv_specialize_texture_signs', 'spirv_fast_pixel_math', 'spirv_implicit_lod_2d')
+foreach ($name in @($gamePresets.Keys)) {
+    $on = $name -in @('ultra_low_30', 'low_spec_60', 'balanced_40')
+    foreach ($setting in $shaderMath) { $gamePresets[$name][$setting] = if ($on) { 'true' } else { 'false' } }
+}
 
 # The in-game preset the file matches, as the settings screen shows it.
 function Get-GamePreset([string]$Text) {
     $defaults = @{ present_effect = '"bilinear"'; fh1_msaa_single_sample = 'false'
         host_present_fps_limit = '0'; anisotropic_override = '-1'; swap_post_effect = '"none"'
         pinyon_shift_fh1_render_fps_limit = '0'; draw_resolution_scale_x = '1'; draw_resolution_scale_y = '1'
-        pinyon_shift_fh1_shadows = 'true'; pinyon_shift_fh1_env_map_rate = '1'; fh1_untile_predicated_tiling = 'false' }
+        pinyon_shift_fh1_shadows = 'true'; pinyon_shift_fh1_env_map_rate = '1'; fh1_untile_predicated_tiling = 'false'
+        spirv_specialize_texture_signs = 'false'; spirv_fast_pixel_math = 'false'; spirv_implicit_lod_2d = 'false' }
     foreach ($name in $gamePresets.Keys) {
         $all = $true
         foreach ($setting in $gamePresets[$name].GetEnumerator()) {

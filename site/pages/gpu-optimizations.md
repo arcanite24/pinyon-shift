@@ -292,6 +292,17 @@ The small-float exposure readback complements 4 KiB GPU tracking; no
 measured gain justifies removing that tracking or changing fast math or
 pipeline waiting to address the remaining restart-dependent sky tint.
 
+## Intel integrated graphics
+
+Three shader switches pay off on an Intel UHD 620 (Blindvac, driver 31.0.101.2145). The table gives GPU frame medians from two front-end windows with the same content in each run of the race route, at LOW-SPEC 60's settings, two runs each. On the RTX 4080, fast pixel math and implicit LOD were within noise, and texture signs were not measured there:
+
+| UHD 620 | Window 1 | Window 2 |
+| --- | ---: | ---: |
+| All three off | 71.6 / 74.7 ms | 60.4 / 62.7 ms |
+| Texture signs as specialization constants, fast pixel math and implicit LOD for 2D fetches | 52.5 / 55.2 ms | 41.7 / 41.9 ms |
+
+That is 26-32 % off the GPU frame. Heavy race frames went from about 86 to 64 ms, though the driving differs between runs at that frame rate. The captures show no visible difference; their mean difference (5.9-6.2) is a little above that of two runs with the switches off (5.2-5.6), which the moving race scene sets high. ULTRA LOW 30, LOW-SPEC 60 and BALANCED 40 turn the three on, on Windows. A new Windows config starts with them on, and the first-run move to PERFORMANCE 120 on a capable machine turns them off. The switches were measured together, not one by one, and not on newer Intel or AMD integrated GPUs.
+
 ## MSAA, scale and memory
 
 | Change | Measured |

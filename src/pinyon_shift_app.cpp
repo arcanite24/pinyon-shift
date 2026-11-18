@@ -236,7 +236,15 @@ std::string DefaultConfigText() {
             "fh1_msaa_single_sample = true\n"
             "draw_resolution_scale_x = 1\n"
             "draw_resolution_scale_y = 1\n"
-            "clear_memory_page_state = false\n";
+            "clear_memory_page_state = false\n"
+#if defined(_WIN32)
+            // LOW-SPEC 60's shader translation (settings_menu.cpp, GRAPHICS
+            // PRESET); PERFORMANCE 120 machines are set back below.
+            "spirv_specialize_texture_signs = true\n"
+            "spirv_fast_pixel_math = true\n"
+            "spirv_implicit_lod_2d = true\n"
+#endif
+            ;
   return output.str();
 }
 
@@ -1639,6 +1647,19 @@ void PinyonShiftApp::ApplyFirstRunHardwareDefaults(const rex::ui::vulkan::Vulkan
   if (capable) {
     settings = {{"present_effect", "\"fsr\""}, {"pinyon_shift_fh1_render_fps_limit", "120"}};
   }
+  // Written to the config only: settings that need a restart, because the
+  // shader translator and pipeline cache have read them by now.
+  std::vector<std::pair<const char*, const char*>> next_launch;
+#if defined(_WIN32)
+  // The new config has LOW-SPEC 60's shader translation settings; PERFORMANCE
+  // 120 sets the SDK's desktop defaults (settings_menu.cpp, GRAPHICS PRESET),
+  // from the second launch.
+  if (capable) {
+    next_launch = {{"spirv_specialize_texture_signs", "false"},
+                   {"spirv_fast_pixel_math", "false"},
+                   {"spirv_implicit_lod_2d", "false"}};
+  }
+#endif
   // MALI_BACKLOG MT-1.6: an Arm Mali GPU starts at SCENE SHADING > COARSE.
   // Its frame is decided by fragment work in the scene; coarse shading saved
   // 2.0-2.5 ms of a 20-23 ms frame on a Mali-G720 (Galaxy Tab S10 Ultra).
@@ -1650,12 +1671,15 @@ void PinyonShiftApp::ApplyFirstRunHardwareDefaults(const rex::ui::vulkan::Vulkan
          "\"1024/32/4x/d1+0/32/4x/c3=2x2,0/16/1x/d1+720/16/1x/c0=2x2\""});
     settings.push_back({"fh1_coarse_shading_alpha_test", "true"});
   }
-  if (!settings.empty() && host_config_ && host_config_->Load()) {
+  if ((!settings.empty() || !next_launch.empty()) && host_config_ && host_config_->Load()) {
     for (const auto& [name, literal] : settings) {
       host_config_->Set(name, literal);
       std::string value = literal;
       std::erase(value, '"');
       rex::cvar::SetFlagByName(name, value);
+    }
+    for (const auto& [name, literal] : next_launch) {
+      host_config_->Set(name, literal);
     }
     if (!host_config_->Save()) {
       REXLOG_ERROR("Settings: could not write {}", rex::path_to_utf8(host_config_->path()));
