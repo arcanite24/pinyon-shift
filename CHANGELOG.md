@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.2 - 2026-11-18
+
+- Faster: ULTRA LOW 30, LOW-SPEC 60 and BALANCED 40 use cheaper shader
+  math on Windows; on an Intel UHD 620 the GPU frame took 26-32 % less.
+
 ## 0.9.1 - 2026-11-17
 
 - Fixed: setup stopped on the first build after updating to 0.9.0 with
