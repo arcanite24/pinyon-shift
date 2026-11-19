@@ -43,7 +43,7 @@ The guest-to-host contract is narrow: the translated code calls the runtime thro
 | Hooks into game code | 130 mid-asm hooks, a few whole-function replacements |
 | Guest threads in a race | about 42, mapped one to one to host threads |
 | Draws per race frame | about 4,500 to 6,200 |
-| Graphics API | Vulkan 1.3 on every platform |
+| Graphics API | Vulkan 1.3 on every platform; an experimental Direct3D 11 backend on Windows ([renderer](renderer.md#direct3d-11)) |
 | Frame rate | 30, 40, 60 or 120 fps, game speed unchanged |
 
 ## Where the details are

@@ -178,6 +178,18 @@ The swap resolve writes the front buffer into the mirror; the presenter applies 
 
 **Pacing.** See [late swaps](gpu-optimizations.md#frame-pacing).
 
+## Direct3D 11
+
+An experimental backend for GPUs that have Direct3D feature level 11_0 but no Vulkan 1.3, such as AMD TeraScale, Intel Sandy Bridge and Ivy Bridge, and NVIDIA Fermi. It started from a contributor's prototype; the code is a port of the Direct3D 12 backend's bindful path with its own native executor, so it renders the same executor-owned EDRAM surfaces and resolves. It isn't offered in the launcher yet. Start the game with `--gpu_backend=d3d11` to try it. The plan and status are in `docs/D3D11_BACKLOG.md`.
+
+- **Shaders.** Guest shaders are translated at run time to shader model 5.0 DXBC, which has no register spaces. The built-in shaders (texture loads, resolves, executor passes) are the Direct3D 12 shader model 5.1 bytecode, converted to 5.0 when the game starts: 5.1 references resources as [range ID][register] and declares ranges with a space, and the conversion keeps the register and drops the rest. That way the texture loads run the same verified code as on Direct3D 12, which today's upstream sources don't reproduce.
+- **Textures.** Feature level 11_0 can't copy a buffer into a texture on the GPU or write 16-bit packed formats through a UAV. Load shaders write to a scratch buffer, and a copy shader stores each mip through a `*_UINT` view. 5:6:5, 1:5:5:5 and 4:4:4:4 textures are kept as RGBA8. Block-compressed textures are written as blocks into an integer texture and copied into the BC texture.
+- **Swizzles.** There is no SRV component mapping, so shaders apply the texture swizzle. FH1 fetches its front buffer with red and blue swapped, so presentation runs a small pass that swaps them before the gamma ramp.
+- **Intel viewports.** Draws without clipping (FH1's screen-space clears and copies) use an 8192-pixel host viewport, and the vertex shader rescales into it. The UHD 620 driver drew them as if that viewport were squeezed into the render target, so FH1's full-screen depth clear into a 640x1024 surface covered only its top-left corner, and night and race frames came out blown out by bloom. On Intel GPUs the viewport is bounded by the bound targets' size instead (`d3d11_viewport_fit_targets`), which covers the same pixels the oversized viewport should have; forced on, the RTX 4080 keeps two frame replays bit-exact and changes 3 words of the third.
+- **Limits.** 1x resolution scale only (no tiled resources). Memexport and tessellation draws are dropped; FH1 issues neither on the measured routes. One immediate context, shared with the presenter under a lock. No GPU timestamps.
+- **Accuracy.** Measured on multivac (RTX 4080, device at feature level 11_0) against Vulkan at 1x on the same build: two of three frame replays are bit-exact. In the Autoshow frame, 54 of 79 resolves are bit-exact and the rest differ in the low bits of depth. Vulkan flips reverse Z in the viewport, which Direct3D doesn't allow, so Direct3D flips it in the vertex shader and rounds differently. The final image differs by 5.6/1023 on average and looks identical.
+- **Speed.** Free roam at 1x on multivac: a median frame of 11.1 ms, against 8.4 ms on Vulkan. On blindvac's race route with the low-spec preset (last 600 frames): 151 ms on the UHD 620 against 85 ms on Vulkan, and 80 ms on the GeForce 930MX against 66 ms, where both APIs show the laptop's Optimus stalls. Direct3D 11 is a fallback for GPUs without Vulkan 1.3, not a faster path.
+
 ## Testing
 
 Renderer changes are judged against scripted routes, not by playing:
