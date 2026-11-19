@@ -9,7 +9,9 @@ download or repair one.
 
 ## Setup asks for administrator permission
 
-Elevation is needed only when the Microsoft C++ Build Tools are absent. The
+Elevation is needed only when the Microsoft C++ Build Tools are absent and
+Microsoft's licence box is unticked (ticked, setup fetches the libraries it
+needs without administrator rights). The
 launcher itself, downloads, disc extraction, generation, build, saves, and logs
 remain in user-writable folders.
 
@@ -83,7 +85,8 @@ everything in the `data` folder next to it; see
 - **After moving the folder** the first rebuild configures the build folder
   again and recompiles, which takes about as long as the first build. Playing
   an existing build needs no rebuild. On a PC without Visual Studio Build
-  Tools, the next build installs them again.
+  Tools, the next build installs them again unless Microsoft's licence box
+  is ticked.
 
 ## Gameplay stutters
 

@@ -7,7 +7,7 @@ description: Engineering notes on how Pinyon Shift recompiles, runs and renders 
 
 # Internals
 
-These pages record how Pinyon Shift works and what was measured along the way, so that later Xbox 360 recompilation projects can reuse what held up and skip what didn't. They describe the code on the `dev` branch in October 2026.
+These pages record how Pinyon Shift works and what was measured along the way, so that later Xbox 360 recompilation projects can reuse what held up and skip what didn't. They describe the code on the `dev` branch in October 2026. The cross-project guide [Recompiling Xbox 360 Games](https://neri.deimos.studio/recomp/) collects the lessons from Pinyon Shift, Lavender Shift and Cobalt Shift.
 
 - [Recompiler](recompiler.md): from `default.xex` to C++, function discovery, code generation and the Xenon behaviours that had to match.
 - [Runtime and hooks](runtime.md): guest memory, the kernel, threads, waits, files, audio, mid-asm hooks, the frame-rate unlock and the title update build.

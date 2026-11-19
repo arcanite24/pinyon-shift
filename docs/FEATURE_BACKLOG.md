@@ -31,7 +31,10 @@ well received: native code, 60 and 120 fps at the right game speed, 1x-4x
 internal resolution, ultrawide with a field of view setting, live settings
 (F6), achievements, a trainer (F10), photo export, save backups, a mod API,
 18 languages, every car pack, and Rally and the 1000 Club on the opt-in v4
-build. The gaps are in four areas:
+build. The gaps are in four areas (as of 2026-10-07; since then custom
+music, FB-1.1 to FB-1.4, and DualSense adaptive triggers and tilt
+steering, FB-3.2 and FB-3.3, are done, and wheels with force feedback,
+FB-2.1 to FB-2.4, are in part; the rows have the detail):
 
 - **Audio:** MASTER VOLUME and MUTE only (`src/ui/settings_menu.cpp:502-512`).
   No radio controls, no per-channel volume, no custom music.

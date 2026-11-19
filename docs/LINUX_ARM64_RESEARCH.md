@@ -6,9 +6,12 @@ reference target is the AYN Odin 2 Portal (SM8550, Adreno 740) running
 Armada OS, which is the device the Android work was tuned on
 ([ANDROID_ODIN_BACKLOG.md](ANDROID_ODIN_BACKLOG.md)).
 
-Status: research only (2026-11-16). Nothing here is built or scheduled.
+Status (2026-11-17): experimental developer build. LA-0 and LA-1 are
+done (the cross build reaches the opening video and, as v4, the title
+screen on the Odin) and LA-5's CI job runs; LA-2 to LA-4 are open, and
+whether `linux-arm64` becomes a supported player target is undecided.
 [LINUX_PORT_BACKLOG.md](LINUX_PORT_BACKLOG.md) lists Linux on ARM64 as a
-non-goal; this page is what reopening it would take.
+non-goal of the x86-64 port; this page tracks it separately.
 
 ## Summary
 
