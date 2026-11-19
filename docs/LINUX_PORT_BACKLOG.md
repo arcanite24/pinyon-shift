@@ -6,8 +6,9 @@ Status: **open; created 2026-10-08** at `dev` checkpoint `690e149` (ShiftGlue
 written as a sibling of the [Android port backlog](ANDROID_PORT_BACKLOG.md):
 same slice and row conventions (`LX-n`, `LX-n.m`), sizes, gates and trains.
 It was written from a read-only audit of the tree and from probes of the
-reference Steam Deck over the LAN. Nothing has been configured, built or run
-on desktop Linux yet. `sdk/` stands for `thirdparty/shiftglue-sdk/`. Claims
+reference Steam Deck over the LAN. Nothing had been configured, built or run
+on desktop Linux then; the port has since shipped, and
+[LINUX.md](LINUX.md) is the current guide. `sdk/` stands for `thirdparty/shiftglue-sdk/`. Claims
 the repository and the probes cannot show are marked **guess**, and each has
 a row that checks it before anything depends on it.
 
@@ -53,7 +54,8 @@ involved anywhere.
   listing. The launcher, which is independently written, is distributed. The
   game never is.
 - Linux on ARM64 (Asahi, Snapdragon X, ARM handhelds). AP-0 may add
-  presets; nothing here schedules them. What it would take is in
+  presets; nothing here schedules them. Experimental `linux-arm64-*`
+  presets have since been built and are tracked in
   [LINUX_ARM64_RESEARCH.md](LINUX_ARM64_RESEARCH.md).
 - 32-bit, musl, or glibc older than the Steam Runtime's 2.31.
 - Valve's Deck Verified programme. A non-Steam game cannot enter it, but its

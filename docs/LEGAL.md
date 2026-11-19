@@ -42,8 +42,12 @@ are planned in [UPSCALING_BACKLOG.md](UPSCALING_BACKLOG.md). Their
 licences were read on 2026-10-16 (UP-0.1). The policy:
 
 - **No vendor binary, header or shader is committed, and no release ships
-  one.** Releases stay source and launcher only; the player's setup fetches
-  what the build needs.
+  a vendor DLL.** Releases carry the source, the launcher and prebuilt
+  ShiftGlue kits; the player's setup fetches what the build needs. The one
+  vendor code in a release is NVIDIA's static NGX loader, linked as object
+  code into the Windows kit's `rexruntime.dll`, which NVIDIA's DLSS
+  approval covers (below; the maintainer confirmed on 2026-10-31, TP-3 in
+  [TIME_TO_PLAY_BACKLOG.md](TIME_TO_PLAY_BACKLOG.md)).
 - **Open-source code is fetched at setup and built locally**, like the other
   setup downloads in `THIRD_PARTY_NOTICES.md`: FSR 1-3 and the FidelityFX
   SDK 1.1.x source (MIT), NVIDIA Image Scaling (MIT), Arm ASR (MIT) and

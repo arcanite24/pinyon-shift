@@ -181,7 +181,7 @@ Three changes were measured with in-run A/Bs and rejected ([Lessons](lessons.md#
 
 - **A larger shader lookup memo** (4,096 entries instead of 64).
 - **Skipping already-watched pages when re-arming write watches.**
-- **Replaying repeated buffers.** A census with the replay-floor probe still found 45 % of drawn draws in repeating, skippable buffers. Skipping them outright saved only 0.9-1.5 ms of command-thread CPU, with a wrong image.
+- **Replaying repeated buffers.** A census with the replay-floor probe (Steam Deck race with the single-pass scene, 2026-11-14) still found 45 % of drawn draws in repeating, skippable buffers. Skipping them outright saved only 0.9-1.5 ms of command-thread CPU, with a wrong image.
 
 ## Renderings and clears
 

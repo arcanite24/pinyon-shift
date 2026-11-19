@@ -1,6 +1,10 @@
 # Title update v4 backlog: native Rally and 1000 Club
 
-Status: **open**, created 2026-10-06 at `dev` `fac2230` (ShiftGlue `0038a40`),
+Status: **done except TU-9** (retiring the base-disc Rally adapter, deferred
+while base stays the default) and TU-6's coverage of the other
+championships; see [Needs a decision or a person](#needs-a-decision-or-a-person).
+The hook and override counts in TU-3 are from 2026-10-06; the overrides
+file has grown since. Created 2026-10-06 at `dev` `fac2230` (ShiftGlue `0038a40`),
 with the Rally work in [DLC_BACKLOG.md](DLC_BACKLOG.md) still uncommitted in
 the worktree. Goal: run the expansion's original native code instead of the
 base-disc Rally adapter. v4 is built from the supported USA disc and the

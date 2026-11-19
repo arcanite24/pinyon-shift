@@ -87,7 +87,7 @@ to qualify it.
 | AYN Thor (Max) | Snapdragon 8 Gen 2, Adreno 740 | Turnip Gen8 V37 | About 60 fps |
 | RedMagic Astra (nubia NP05J) | Snapdragon 8 Elite, Adreno 830 | Qualcomm | 60 fps while cool, falling toward 30 as it heats up |
 
-The Thor and the Astra were measured before SMOOTH 60 moved from no MSAA to 2x.
+The Thor and the Astra were measured before SMOOTH 60 moved from no MSAA to 2x. The Astra row is also from before AUTO picked Turnip on Adreno 8xx (2026-10-11), so it was measured on the system Qualcomm driver; Turnip takes about a fifth less GPU time on that tablet, and the row has not been measured again with it.
 
 ## Controls
 
