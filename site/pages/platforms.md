@@ -46,7 +46,7 @@ The core-count limits were tested on the same PC with the game restricted to few
 
 ## Linux and the Steam Deck
 
-**Build.** Clang 20.1.8 targets `x86_64-linux-gnu` against the Steam Runtime 3 ("sniper") SDK sysroot and links with `lld`. libstdc++ is linked statically, so the 195 MB binary needs only glibc 2.30 and no system C++ runtime. The launcher reads the disc image directly, without mounting it, and sizes the build's job count to memory. The first build takes about 35 minutes on the Deck.
+**Build.** Clang 20.1.8 targets `x86_64-linux-gnu` against the Steam Runtime 3 ("sniper") SDK sysroot and links with `lld`. libstdc++ is linked statically, so the 195 MB binary needs only glibc 2.31 (the sniper sysroot's) and no system C++ runtime. The launcher reads the disc image directly, without mounting it, and sizes the build's job count to memory. The first build takes about 35 minutes on the Deck.
 
 **What changed from Windows.**
 
