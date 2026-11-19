@@ -884,6 +884,27 @@ std::unique_ptr<MenuScreen> SettingsPages::Graphics() {
 #else
   static constexpr const char* kSinglePassScene = "false";
 #endif
+  // Pixel shader translation for weak GPUs: texture signedness as
+  // specialization constants, implicit LOD for computed-LOD 2D fetches, and
+  // the 0 * x = 0 rule only where a product is NaN. On blindvac's UHD 620
+  // (LOW-SPEC 60, fh1-race-sync, one A/B/B/A set) GPU time on the same menu
+  // screens fell 26-32 % (72-75 to 53-55 ms, 60-63 to 42 ms) and the race's
+  // heavy frames from 86 to 64 ms, with no visible change; on the RTX 4080
+  // fast math and implicit LOD were within noise (PERFORMANCE_BACKLOG PB-1.8).
+  // So the cheap presets turn them on (Windows, where they were measured)
+  // and the others set the SDK's defaults back.
+#if defined(__APPLE__)
+  static constexpr const char* kShaderMathDefault = "true";
+#else
+  static constexpr const char* kShaderMathDefault = "false";
+#endif
+#if defined(_WIN32)
+  static constexpr const char* kCheapShaderMath = "true";
+  static constexpr const char* kCheapImplicitLod = "true";
+#else
+  static constexpr const char* kCheapShaderMath = kShaderMathDefault;
+  static constexpr const char* kCheapImplicitLod = "false";
+#endif
   const auto preset = [](const char* scale, const char* effect, const char* msaa_off,
                          const char* fps,
                          std::vector<std::pair<std::string, std::string>> extra = {}) {
@@ -901,7 +922,10 @@ std::unique_ptr<MenuScreen> SettingsPages::Graphics() {
         {"pinyon_shift_fh1_env_map_rate", "1"},
         {"fh1_untile_predicated_tiling", kSinglePassScene},
         {"vulkan_texture_max_size", "0"},
-        {"pinyon_shift_lod_distance_scale", "1"}};
+        {"pinyon_shift_lod_distance_scale", "1"},
+        {"spirv_specialize_texture_signs", kShaderMathDefault},
+        {"spirv_fast_pixel_math", kShaderMathDefault},
+        {"spirv_implicit_lod_2d", "false"}};
     for (auto& [name, value] : extra) {
       const auto it = std::find_if(values.begin(), values.end(),
                                    [&](const auto& setting) { return setting.first == name; });
@@ -919,7 +943,10 @@ std::unique_ptr<MenuScreen> SettingsPages::Graphics() {
   const std::vector<std::pair<std::string, std::string>> cheapest = {
       {"anisotropic_override", "-1"},
       {"swap_post_effect", "\"none\""},
-      {"pinyon_shift_lod_distance_scale", "2"}};
+      {"pinyon_shift_lod_distance_scale", "2"},
+      {"spirv_specialize_texture_signs", kCheapShaderMath},
+      {"spirv_fast_pixel_math", kCheapShaderMath},
+      {"spirv_implicit_lod_2d", kCheapImplicitLod}};
   auto ultra_low = cheapest;
   ultra_low.insert(ultra_low.end(), {{"pinyon_shift_fh1_shadows", "false"},
                                      {"pinyon_shift_fh1_env_map_rate", "0.25"},

@@ -293,6 +293,17 @@ PRESET_DEFAULTS = {
     "pinyon_shift_fh1_env_map_rate": "1", "fh1_untile_predicated_tiling": "false",
 }
 
+# On Windows the cheap presets also turn on the shader translation settings
+# measured on a UHD 620 (settings_menu.cpp, GRAPHICS PRESET); the others set
+# them back to the SDK's desktop defaults.
+_SHADER_MATH = ("spirv_specialize_texture_signs", "spirv_fast_pixel_math",
+                "spirv_implicit_lod_2d")
+if common.WINDOWS:
+    for _preset, _settings in GAME_PRESETS.items():
+        _on = _preset in ("ultra_low_30", "low_spec_60", "balanced_40")
+        _settings.update({name: "true" if _on else "false" for name in _SHADER_MATH})
+    PRESET_DEFAULTS.update({name: "false" for name in _SHADER_MATH})
+
 ANISOTROPY_TO_OVERRIDE = {0: -1, 4: 3, 8: 4, 16: 5}
 OVERRIDE_TO_ANISOTROPY = {3: 4, 4: 8, 5: 16}
 
@@ -308,7 +319,11 @@ def to_int(value: str | None) -> int:
 def default_config() -> str:
     """The defaults in the platform's line ending, as set-graphics-experiment.ps1
     (a CRLF file on Windows) writes them."""
-    return DEFAULT_CONFIG.replace("\n", "\r\n") if common.WINDOWS else DEFAULT_CONFIG
+    if not common.WINDOWS:
+        return DEFAULT_CONFIG
+    # LOW-SPEC 60's shader translation on Windows, as the game's new config.
+    text = DEFAULT_CONFIG + "".join(f"\n{name} = true" for name in _SHADER_MATH)
+    return text.replace("\n", "\r\n")
 
 
 def game_preset_of(text: str) -> str:
