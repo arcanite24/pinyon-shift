@@ -14,7 +14,7 @@ Before choosing an optimization, check which side holds each device back. CPU wo
 | Desktop: Ryzen 7 5800X, RTX 4080, Windows | 120 fps (2x, 4x MSAA) | CPU: the draw recorder thread is busy 7.5-8.2 ms of the 8.3 ms frame | None at 120: with the limit at 240 the frame takes about 8.5 ms | [Performance](performance.md#the-race) |
 | Steam Deck LCD, SteamOS | 60 fps (1x) | GPU, inside a shared power budget (below) | GPU none: 99-100 % busy, 16.4 ms of GPU time a frame. CPU: the busiest threads take 8-10 ms of 16.7 | Deck race, 2026-11-14 (below) |
 | Laptop: i5-8250U, Intel UHD 620, Windows | 60 fps (LOW-SPEC 60, 1x) | GPU: about 78 ms of GPU time a frame, 12-13 fps; the CPU (recorder 14-15 ms a frame) would also limit it near 60 | Far below the target: the GPU needs about a fifth of its work | blindvac runs, 2026-11-14 (below) |
-| AYN Odin 2 Portal, Adreno 740 | 60 fps (SMOOTH 60, 1x) | GPU | About 1 ms: 15.5 ms of GPU time a frame | [docs/ANDROID.md](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/ANDROID.md) |
+| AYN Odin 2 Portal, Adreno 740 | 60 fps (1x, MSAA off, both frame limits at 60) | GPU | About 1 ms: 15.5 ms of GPU time a frame | [docs/ANDROID.md](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/ANDROID.md) |
 | Galaxy Tab S10 Ultra, Mali-G720 | 60 fps | GPU (fragment work) | Short: about 20 ms a frame with the Mali defaults, 21.3-22.3 ms of GPU time before them | [Android](android.md) |
 | Mac mini, M4 Pro | 120 fps at 1x, 60 at QUALITY 60 | GPU once the internal resolution or MSAA goes up | Holds 120 at 1x with MSAA off or 4x; 2x drops to about 82 fps (51 with 4x MSAA) | [macOS](macos.md) |
 
