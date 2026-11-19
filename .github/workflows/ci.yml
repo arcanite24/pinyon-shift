@@ -61,6 +61,13 @@ jobs:
       - name: Provision the pinned toolchain
         shell: powershell
         run: .\tools\provision-toolchain.ps1
+      - name: Keep the Build Tools installer logs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: build-tools-installer-logs
+          path: .local/logs/build-tools-installer/
+          if-no-files-found: ignore
       - name: Build and run the host tests
         shell: powershell
         run: .\tools\ci-host-tests.ps1

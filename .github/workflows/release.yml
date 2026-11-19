@@ -26,6 +26,13 @@ jobs:
         run: |
           ./tools/prepare-rexglue.ps1
           ./tools/provision-toolchain.ps1
+      - name: Keep the Build Tools installer logs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: build-tools-installer-logs-release
+          path: .local/logs/build-tools-installer/
+          if-no-files-found: ignore
       - name: Build the trimmed LLVM and the ShiftGlue kit
         shell: powershell
         env:
