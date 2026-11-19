@@ -991,7 +991,7 @@ void PinyonShiftApp::OnPreSetup(rex::RuntimeConfig& config) {
   }
 #if defined(_WIN32)
   // D11-2.1: a PC whose GPU has no Vulkan 1.3 driver but does have Direct3D
-  // feature level 11_0 (AMD TeraScale, Intel HD 2000-4000, NVIDIA Fermi)
+  // feature level 11_0 (AMD TeraScale, Intel Ivy Bridge to Broadwell, NVIDIA Fermi and Kepler)
   // starts on the experimental Direct3D 11 backend for this run instead of
   // failing. The settings file keeps "vulkan", so a later driver update goes
   // back to Vulkan by itself.

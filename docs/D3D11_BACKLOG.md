@@ -2,8 +2,9 @@
 
 Goal: run Pinyon Shift on GPUs that have Direct3D feature level 11_0 but
 neither Vulkan 1.3 nor a usable Direct3D 12 driver: AMD TeraScale (HD
-5000/6000), Intel Sandy Bridge and Ivy Bridge graphics on Windows, and
-NVIDIA Fermi (GTX 400/500). Branch `feat/d3d11` in both repositories.
+5000/6000), Intel Ivy Bridge to Broadwell graphics on Windows (no Vulkan
+driver there), and NVIDIA Fermi and Kepler (GTX 400 to 700; Kepler's last
+drivers stop at Vulkan 1.2). Sandy Bridge is feature level 10_1 only. Branch `feat/d3d11` in both repositories.
 
 ## Where it stands (2026-11-19)
 
