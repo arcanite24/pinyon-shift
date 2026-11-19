@@ -127,6 +127,32 @@ class PreflightTests(unittest.TestCase):
         self.assertIn("--add A.One --add B.Two", calls[1])
         self.assertIn("--passive", calls[1])
 
+    def test_msvc_toolset_follows_the_pinned_clang(self):
+        # MSVC 14.52 (Visual Studio 18.12) wants Clang 22; with the pinned 20,
+        # the 14.44 toolset beside it is the one to use, and none fits when
+        # every STL wants a newer Clang.
+        import tempfile
+        with tempfile.TemporaryDirectory() as temp:
+            vs = pathlib.Path(temp) / "VS (18)"
+            for version, clang in (("14.44.35207", "19.0.0"), ("14.52.37025", "22"), ("14.9", None)):
+                include = vs / "VC/Tools/MSVC" / version / "include"
+                include.mkdir(parents=True)
+                if clang:
+                    (include / "yvals_core.h").write_text(
+                        f'_EMIT_STL_ERROR(STL1000, "Unexpected compiler version, expected Clang {clang} or newer.");\n',
+                        encoding="ascii")
+            def pick(major):
+                script = (f". '{ROOT / 'tools/release-common.ps1'}'; "
+                          f"$t = Get-PinyonMsvcToolsetForClang -VisualStudioRoot '{vs}' -ClangMajor {major}; "
+                          "if ($t) { $t } else { 'none' }")
+                result = subprocess.run([POWERSHELL, "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass",
+                                         "-Command", script], capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                return result.stdout.strip()
+            self.assertEqual(pick(20), "14.44.35207")
+            self.assertEqual(pick(22), "14.52.37025")
+            self.assertEqual(pick(18), "none")
+
     def test_only_the_bootstrapper_gets_wait(self):
         # The installed Visual Studio Installer 4.12 (setup.exe) rejects
         # --wait with exit code 87 (#549); the downloaded bootstrapper needs it.

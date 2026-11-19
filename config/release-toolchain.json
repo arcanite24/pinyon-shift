@@ -18,6 +18,9 @@
     "repair_components": [
       "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
       "Microsoft.VisualStudio.Component.Windows11SDK.22621"
+    ],
+    "repair_components_vs18": [
+      "Microsoft.VisualStudio.Component.VC.14.44.17.14.x86.x64"
     ]
   },
   "msvc_sysroot": {

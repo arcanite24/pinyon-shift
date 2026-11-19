@@ -239,9 +239,19 @@ catch {
     # the fallback.
     $bootstrap = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\setup.exe'
     if (-not (Test-Path -LiteralPath $bootstrap -PathType Leaf)) { $bootstrap = Get-BuildToolsBootstrapper }
+    $components = @($config.visual_studio.repair_components)
+    # Visual Studio 18's own toolset (MSVC 14.52 and later) wants a newer Clang
+    # than the pinned one; its 14.44 toolset takes it (Get-PinyonMsvcToolsetForClang).
+    $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+    $vsVersion = if (Test-Path -LiteralPath $vswhere -PathType Leaf) {
+        & $vswhere -path $vsRoot -property installationVersion | Select-Object -First 1
+    }
+    if ($vsVersion -and [int](($vsVersion -split '\.')[0]) -ge 18) {
+        $components += @($config.visual_studio.repair_components_vs18)
+    }
     $restartPending = Invoke-BuildToolsInstaller -Activity 'Updating the Microsoft C++ Build Tools' -Arguments (
         "-Bootstrapper `"$bootstrap`" -Mode Repair -InstallPath `"$vsRoot`" -Add " +
-        ((@($config.visual_studio.repair_components) | ForEach-Object { "`"$_`"" }) -join ','))
+        (($components | ForEach-Object { "`"$_`"" }) -join ','))
     try { $environment = Enter-PinyonBuildEnvironment }
     catch {
         if ($restartPending) { throw (New-RestartRequiredFailure) }

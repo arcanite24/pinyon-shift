@@ -1221,6 +1221,34 @@ function Assert-PinyonDownloadHosts {
     }
 }
 
+# The newest MSVC toolset under a Visual Studio whose STL accepts the pinned
+# Clang, or $null when none does. Each STL names the oldest Clang it takes
+# in yvals_core.h ("expected Clang 22 or newer."); MSVC 14.52 (Visual Studio
+# 18.12) wants Clang 22 and rejects the pinned 20 with STL1000, while the
+# 14.44 toolset Visual Studio 18 can install beside it takes Clang 19.
+function Get-PinyonMsvcToolsetForClang {
+    param(
+        [Parameter(Mandatory)] [string]$VisualStudioRoot,
+        [Parameter(Mandatory)] [int]$ClangMajor
+    )
+    $tools = Join-Path $VisualStudioRoot 'VC/Tools/MSVC'
+    if (-not (Test-Path -LiteralPath $tools -PathType Container)) { return $null }
+    $toolsets = @(Get-ChildItem -LiteralPath $tools -Directory |
+        Where-Object { $_.Name -match '^\d+(\.\d+)+$' } |
+        Sort-Object { [version]$_.Name } -Descending)
+    foreach ($toolset in $toolsets) {
+        $header = Join-Path $toolset.FullName 'include/yvals_core.h'
+        if (-not (Test-Path -LiteralPath $header -PathType Leaf)) { continue }
+        $required = Select-String -LiteralPath $header -Pattern 'expected Clang (\d+)' |
+            Select-Object -First 1
+        # An STL that names no Clang minimum makes no claim either way.
+        if ($null -eq $required -or [int]$required.Matches[0].Groups[1].Value -le $ClangMajor) {
+            return $toolset.Name
+        }
+    }
+    $null
+}
+
 function Enter-PinyonBuildEnvironment {
     # Some systems have no ComSpec (#541); cmd.exe is always in the system
     # folder, and the tools the build starts inherit the repaired value.
@@ -1243,6 +1271,17 @@ function Enter-PinyonBuildEnvironment {
     else {
         $vsRoot = Get-PinyonVisualStudioRoot
         $devCmd = Join-Path $vsRoot 'Common7/Tools/VsDevCmd.bat'
+        # The default toolset unless its STL refuses the pinned Clang; then the
+        # newest one that takes it (Get-PinyonMsvcToolsetForClang).
+        $devCmdArguments = '-arch=x64 -host_arch=x64'
+        $clangMajor = [int]($config.llvm.version -split '\.')[0]
+        $toolset = Get-PinyonMsvcToolsetForClang -VisualStudioRoot $vsRoot -ClangMajor $clangMajor
+        $newest = Get-ChildItem -LiteralPath (Join-Path $vsRoot 'VC/Tools/MSVC') -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -match '^\d+(\.\d+)+$' } | Sort-Object { [version]$_.Name } -Descending |
+            Select-Object -First 1
+        if ($toolset -and $newest -and $toolset -ne $newest.Name) {
+            $devCmdArguments += " -vcvars_ver=$toolset"
+        }
         $inheritedPath = $env:PATH
         $inheritedTemp = $env:TEMP
         $inheritedTmp = $env:TMP
@@ -1260,7 +1299,7 @@ function Enter-PinyonBuildEnvironment {
             # would end the function before the exit code is known.
             $previousPreference = $ErrorActionPreference
             $ErrorActionPreference = 'Continue'
-            $output = @(& $env:ComSpec /d /s /c "`"$devCmd`" -arch=x64 -host_arch=x64 && echo $marker&& set" 2>&1 |
+            $output = @(& $env:ComSpec /d /s /c "`"$devCmd`" $devCmdArguments && echo $marker&& set" 2>&1 |
                 ForEach-Object { $_.ToString() })
             $devCmdExit = $LASTEXITCODE
             $ErrorActionPreference = $previousPreference
@@ -1281,7 +1320,7 @@ function Enter-PinyonBuildEnvironment {
                 "VsDevCmd: $devCmd")
             $failure.Data['step'] = 'Initialize the Microsoft x64 build environment'
             $failure.Data['exit_code'] = $devCmdExit
-            $failure.Data['command'] = "`"$devCmd`" -arch=x64 -host_arch=x64"
+            $failure.Data['command'] = "`"$devCmd`" $devCmdArguments"
             $failure.Data['error_excerpt'] = [string[]]$devCmdOutput
             throw $failure
         }
