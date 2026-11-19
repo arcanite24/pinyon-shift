@@ -241,10 +241,14 @@ double TagFieldOfView(double fov_y) {
   if (!LayersCurrent(l) || std::abs(fov_y - kCubeFov) < 0.01) return fov_y;
   double base = fov_y;
   const double headset = rex::ui::vulkan::openxr::HeadsetFovY();
-  if (REXCVAR_GET(xr_fov_match) && headset > 0.0 && l.main_input > 0.0 &&
-      std::abs(fov_y - l.main_input) < kMainTolerance) {
-    base = headset;
-  }
+  const bool is_main = l.main_input > 0.0 && std::abs(fov_y - l.main_input) < kMainTolerance;
+  // The game widens the main camera with speed, a little each step. Follow
+  // it: a latched input left the camera behind once it had drifted
+  // kMainTolerance away (every 1-2 s at 120 mph), and its next frames went
+  // to the headset at the game's own ~63 deg, a small image with black bars
+  // at the sides until Update learnt the camera again.
+  if (is_main) l.main_input = fov_y;
+  if (REXCVAR_GET(xr_fov_match) && headset > 0.0 && is_main) base = headset;
   const double tagged =
       rex::ui::vulkan::openxr::TagFov(base * REXCVAR_GET(xr_fov_scale), l.previous_applied_tag);
   l.calls[l.next_call++ % std::size(l.calls)] = {fov_y, float(tagged)};
