@@ -123,6 +123,10 @@ less than a route on the hardware being admitted. Public OS and GPU shares
 also lack the joint CPU, memory and feature data needed to count compatible
 phones. See the [Android minimum-requirements audit](https://github.com/arcanite24/pinyon-shift/blob/dev/docs/android/MINIMUM_REQUIREMENTS.md).
 
+## Test Android on the system's own driver too
+
+An app that loads Mesa Turnip on Snapdragon devices still has players on the vendor's Adreno driver, and Mali and PowerVR devices only have the vendor's. The vendor drivers are less forgiving of invalid Vulkan use. In 0.9.0 the presenter began a swapchain render pass whose attachment clears, but without a clear value, because a second pass built from the same description had already changed its load op before the flag was read. Turnip and the desktop drivers players use ran it without complaint; the Adreno and Mali drivers crashed on it at launch ([#1101](https://github.com/arcanite24/pinyon-shift/issues/1101), [#1107](https://github.com/arcanite24/pinyon-shift/issues/1107)), and the Android device we tested 0.9.0 on ran Turnip. Run a launch on the system driver (`android_gpu_driver = ""`) and read derived fields from a Vulkan create-info before reusing it for another object.
+
 ## Keep host file names in UTF-8
 
 On Windows, `std::filesystem::path::string()` converts through the ANSI code page and throws when a character has no mapping there. A player's song with a Cyrillic file name crashed the game as soon as the music status line read its title ([#552](https://github.com/arcanite24/pinyon-shift/issues/552)), and the same call sat on mod, LUT and save-backup names. Convert paths to UTF-8 with `u16string()` (`rex::path_to_utf8`), build them from UTF-8 with `rex::to_path`, and test with a file name the test machine's code page can't hold.
