@@ -68,31 +68,22 @@ function Invoke-BuildToolsInstaller {
         "-NoLogo -NoProfile -ExecutionPolicy Bypass -File `"$helper`" $Arguments")
     $startInfo.Verb = 'runas'
     $startInfo.UseShellExecute = $true
+    try {
+        $elevated = [Diagnostics.Process]::Start($startInfo)
+    }
+    catch {
+        $win32 = $_.Exception.InnerException -as [ComponentModel.Win32Exception]
+        if ($null -ne $win32 -and $win32.NativeErrorCode -eq 1223) {
+            throw ('Windows administrator permission was declined, so the Microsoft C++ Build Tools ' +
+                'were not installed. The build needs them: start the build again and choose Yes when ' +
+                'Windows asks for permission.')
+        }
+        throw
+    }
     $started = [Diagnostics.Stopwatch]::StartNew()
-    # Exit code 87 (invalid parameter) came and went between identical runs
-    # on GitHub's Windows runners (three times on 2026-11-18 and 19, each
-    # passing on a rerun) and in #549, so it gets one more attempt.
-    for ($attempt = 1; ; $attempt++) {
-        try {
-            $elevated = [Diagnostics.Process]::Start($startInfo)
-        }
-        catch {
-            $win32 = $_.Exception.InnerException -as [ComponentModel.Win32Exception]
-            if ($null -ne $win32 -and $win32.NativeErrorCode -eq 1223) {
-                throw ('Windows administrator permission was declined, so the Microsoft C++ Build Tools ' +
-                    'were not installed. The build needs them: start the build again and choose Yes when ' +
-                    'Windows asks for permission.')
-            }
-            throw
-        }
-        while (-not $elevated.WaitForExit(15000)) {
-            Write-PinyonEvent tools 21 "$Activity ($([int]$started.Elapsed.TotalMinutes) min so far; the installer window shows its progress)." `
-                -JsonEvents:$JsonEvents | Out-Host
-        }
-        if ($elevated.ExitCode -ne 87 -or $attempt -ge 2) { break }
-        Write-PinyonEvent tools 21 "$Activity stopped with exit code 87; trying once more in 30 seconds." `
+    while (-not $elevated.WaitForExit(15000)) {
+        Write-PinyonEvent tools 21 "$Activity ($([int]$started.Elapsed.TotalMinutes) min so far; the installer window shows its progress)." `
             -JsonEvents:$JsonEvents | Out-Host
-        Start-Sleep -Seconds 30
     }
     if ($elevated.ExitCode -notin @(0, 3010)) {
         # The helper passes the Visual Studio Installer's exit code on; these

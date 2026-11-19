@@ -16,7 +16,15 @@ if (-not (Test-Path -LiteralPath $Bootstrapper -PathType Leaf)) {
 }
 
 # --passive shows the installer's own progress window without asking anything.
-$common = @('--passive', '--wait', '--norestart', '--nocache')
+# --wait belongs to the downloaded bootstrapper (vs_buildtools.exe), which
+# otherwise returns before the installer finishes. The installed Visual
+# Studio Installer (setup.exe) runs the work itself, and from version 4.12
+# (Visual Studio 18) its update and modify commands reject --wait with exit
+# code 87 (#549; GitHub's windows-latest runners, 2026-11-19).
+$common = @('--passive', '--norestart', '--nocache')
+if ([IO.Path]::GetFileNameWithoutExtension($Bootstrapper) -ine 'setup') {
+    $common = @('--wait') + $common
+}
 # @() keeps $runs a list of argument lists: a single run assigned straight
 # from the if was unrolled into its switches, and the installer was started
 # once per switch, in a loop the launcher could not leave (#458, #533).
