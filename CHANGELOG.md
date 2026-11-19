@@ -4,6 +4,8 @@
 
 - Fixed: the Android game closed a second after Play on devices using
   the system's Adreno or Mali driver (#1101, #1107).
+- Fixed: Windows setup stopped with exit code 87 when updating an
+  existing Visual Studio 18 install.
 
 ## 0.9.2 - 2026-11-18
 
