@@ -1086,3 +1086,12 @@ what = """At night in free roam the game issues no viz queries (no `PM4_VIZ_QUER
 how = """Counters of viz query packets, probe draws, conditional draws and `REG_TO_MEM` registers over 600-frame windows, parked and driving at 23:00; guest CPU access traps on every resolved range (`fh1_trace_resolve_cpu_accesses`)."""
 confidence = """confirmed"""
 source = """docs/native-renderer/HEADLIGHT_FLICKER.md Lights through the car and terrain"""
+
+[[finding]]
+group = """Render targets and EDRAM"""
+name = """night and race depth clear reused as color"""
+what = """In night and race frames the game clears a 640x1024 4x `D24S8` area at EDRAM tile 720 to depth 1.0 and stencil `FF` with a full-screen, depth-only rectangle list drawn without clipping, then binds the same EDRAM range as an `8_8_8_8` color target. The emulated EDRAM carries the bits over, so the color area starts as `FFFFFFFF`, and the bloom input reads it. When the clear covers only part of the area (Intel's Direct3D 11 driver with an 8192-pixel viewport), the rest reads 0 and bloom saturates the frame."""
+how = """Per-draw readback of the depth surface on the UHD 620 and the RTX 4080 under Direct3D 11, then the resolve that first differed; standalone driver tests."""
+confidence = """confirmed"""
+note = """Only the night replay and the race route were bisected."""
+source = """docs/D3D11_BACKLOG.md Where it stands (Intel viewport fix); ShiftGlue d3d11_viewport_fit_targets"""
