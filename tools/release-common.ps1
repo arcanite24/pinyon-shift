@@ -925,6 +925,9 @@ int main() { return GetTickCount() == 0 && GetDesktopWindow() == nullptr; }';
             $exitCode = $LASTEXITCODE
             $ErrorActionPreference = $previousPreference
             if ($exitCode -ne 0) {
+                # The compiler's own words: CI logs and a pasted console show
+                # only the message, and setup-error.json isn't always at hand.
+                $output | Select-Object -First 20 | ForEach-Object { Write-Host "    $_" }
                 $failure = [Exception]::new("The selected $($probe.Name) failed its build capability check. $($probe.Hint)")
                 $failure.Data['step'] = "Check $($probe.Name)"
                 $failure.Data['exit_code'] = $exitCode
