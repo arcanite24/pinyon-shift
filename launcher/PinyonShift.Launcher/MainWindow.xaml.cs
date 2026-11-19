@@ -1680,6 +1680,9 @@ public partial class MainWindow : Window
         catch (Exception) { return true; }
         if (HardwareCheck.Recommend(_hardware).Warning is not { } warning)
             return true;
+        // The game starts on Direct3D 11 there; the hardware line says so.
+        if (_hardware.UsesDirect3D11)
+            return true;
         var answer = MessageBox.Show(this,
             $"{warning}\n\nThe build takes 20 to 60 minutes and the game will not start without a Vulkan 1.3 " +
             "driver.\n\nYes: build anyway. No: open the driver download page. Cancel: do nothing.",

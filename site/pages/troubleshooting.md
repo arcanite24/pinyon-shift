@@ -46,7 +46,7 @@ On 0.9.0 to 0.9.2 the Android game can close about a second after Play, before t
 
 ## The game doesn't start
 
-Update the GPU driver and check that the GPU supports Vulkan 1.3. To reset the runtime settings, delete `.local/preview/config/pinyon_shift.toml`. If security software quarantines the executable, follow [the detection reporting steps](#defender-reports-a-trojan-or-quarantines-a-file).
+Update the GPU driver and check that the GPU supports Vulkan 1.3. On Windows, when no GPU has a Vulkan 1.3 driver but one has Direct3D feature level 11_0, the game starts on the experimental [Direct3D 11 backend](renderer.md#direct3d-11) instead; if that fails, the message says so and `logs/runtime.log` in the state folder names the step. To reset the runtime settings, delete `.local/preview/config/pinyon_shift.toml`. If security software quarantines the executable, follow [the detection reporting steps](#defender-reports-a-trojan-or-quarantines-a-file).
 
 ## A white window after the first screen
 

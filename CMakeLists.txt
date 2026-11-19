@@ -93,6 +93,7 @@ set(PINYON_SHIFT_HOST_SOURCES
     src/ui/touch_pad.cpp
     src/config/host_config.cpp
     src/platform/display_hdr.cpp
+    src/platform/graphics_probe.cpp
     src/platform/host_platform.cpp
     src/platform/sha256.cpp
     ${PINYON_SHIFT_SDK_SOURCE_DIR}/thirdparty/crypto/sha256.cpp

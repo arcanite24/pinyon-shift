@@ -115,7 +115,9 @@ supported scale in the launcher, or remove the file to reset runtime settings.
 ## The game does not start
 
 Update the GPU driver and confirm that the GPU supports Vulkan 1.3. Vulkan is
-the sole supported graphics API; Direct3D 12 is legacy and unsupported. Saved
+the supported graphics API. On Windows, a GPU without Vulkan 1.3 that has
+Direct3D feature level 11_0 starts on the experimental Direct3D 11 backend
+(`docs/D3D11_BACKLOG.md`); Direct3D 12 is legacy and unsupported. Saved
 Direct3D 12 selections migrate to Vulkan on the next launch. Remove
 `.local/preview/config/pinyon_shift.toml` to reset runtime settings. Security
 software may also quarantine a newly compiled unsigned executable; follow

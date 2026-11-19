@@ -46,7 +46,17 @@ NVIDIA Fermi (GTX 400/500). Branch `feat/d3d11` in both repositories.
 - **Presentation.** FH1 fetches its front buffer with red and blue swapped.
   Direct3D 11 has no SRV component mapping, so a small compute pass
   (`d3d11_swap_swizzle_cs`) applies the swizzle before the gamma shaders.
-- **Not done:** the game and launcher wiring (D11-2.1), the windowed mirror
+- **Fallback (D11-2.1).** On Windows the game probes the Vulkan devices and
+  Direct3D 11 before the GPU plugin loads (`src/platform/graphics_probe.cpp`).
+  With no Vulkan 1.3 device and a feature level 11_0 device it sets
+  `gpu_backend` to `d3d11` for that run only (event
+  `config.gpu_backend_fallback`); the settings file keeps `vulkan`. Scripted
+  render tests never fall back. The launcher probes the same way, shows
+  "Direct3D 11 (experimental)" and skips the driver warning before the build.
+  A failed Direct3D 11 start has its own message. Tested on blindvac with
+  the Vulkan drivers hidden (`VK_DRIVER_FILES`), and unhidden it stays on
+  Vulkan. There's no settings choice: `--gpu_backend=d3d11` forces it.
+- **Not done:** the windowed mirror
   (D11-2.3, not needed so far), the persistent shader cache (D11-2.4), GPU
   timestamps in the executor, and the debug layer, which isn't installed on
   multivac (the "Graphics Tools" optional feature). Memexport and
@@ -59,7 +69,7 @@ NVIDIA Fermi (GTX 400/500). Branch `feat/d3d11` in both repositories.
 | D11-0.2 | Done; translated shaders are created by the device (debug layer not run) |
 | D11-0.3 | Done. The texture loads are the verified D3D12 SM 5.1 bytecode, converted to SM 5.0 at startup (`dxbc_shader_model_5_0.cpp`), since current upstream doesn't reproduce our `texture_load_*` headers. All 182 `d3d12_5_1` headers convert, and the converted shaders are accepted by the device at feature level 11_0 |
 | D11-1.1 to D11-1.5 | Done (see above) |
-| D11-2.1 | Open: needs a decision on offering it to players |
+| D11-2.1 | Done: automatic fallback on Windows (above) |
 | D11-2.2 | Done: occlusion queries, gamma ramp and front buffer dumps |
 | D11-2.3 | Not needed so far: a 512 MB buffer was created on every tested GPU |
 | D11-2.4 | Open |
