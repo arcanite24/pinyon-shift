@@ -58,12 +58,15 @@ and verify its published SHA-256.
 
 The launcher verifies the image before reading it. Unsupported or modified
 images are rejected. Your image and extracted game files stay on your machine.
-The launcher downloads build tools and the pinned ShiftGlue source, extracts
-the disc locally, generates the translation locally and compiles the executable
-locally. Administrator permission is requested only if compatible Visual Studio
-Build Tools must be installed or completed. VS 2022 Build Tools 17.1 or newer
-are required; VS 2019 alone does not satisfy the C++ standard library
-requirement. The game carries its own copy of the Visual C++ runtime.
+The launcher downloads build tools and the prebuilt ShiftGlue kit for its
+revision (the ShiftGlue source only when no kit matches), extracts the disc
+locally, generates the translation locally and compiles the executable
+locally. With Microsoft's licence box ticked, setup fetches only the C++
+libraries and Windows SDK (`xwin`, no administrator rights). Unticked, it
+uses Visual Studio Build Tools, and administrator permission is requested
+only if they must be installed or completed. VS 2022 Build Tools 17.1 or
+newer are required then; VS 2019 alone does not satisfy the C++ standard
+library requirement. The game carries its own copy of the Visual C++ runtime.
 
 ## Install location
 
@@ -125,7 +128,7 @@ Extract a portable install into a folder you can write to, such as
 Files with an explanation. Keep the path short, too: the build creates files
 about 185 characters below `data`, so the launcher will not start a build when
 the `data` folder's path is longer than 70 characters. Outside the launcher's
-control are Visual Studio Build Tools (a system install, added again on another
-PC at its next build), the graphics driver's own shader cache, and the files
+control are Visual Studio Build Tools when setup uses them (a system install,
+added again on another PC at its next build), the graphics driver's own shader cache, and the files
 .NET unpacks from the launcher into `%TEMP%\.net` when it starts (set
 `DOTNET_BUNDLE_EXTRACT_BASE_DIR` to a folder of your choice to move them too).

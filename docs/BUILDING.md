@@ -4,7 +4,14 @@ The supported build environment is 64-bit Windows 10 or 11 with PowerShell 5.1
 or newer, a GPU with Vulkan 1.3, an
 internet connection, and about 30 GB of free disk space.
 
-Setup requires Visual Studio 2022 C++ Build Tools 17.1 or newer. Before
+Setup requires Visual Studio 2022 C++ Build Tools 17.1 or newer, unless a
+prebuilt ShiftGlue kit is published for the pinned revision and Microsoft's
+licence is accepted (the launcher's box, or
+`PINYON_SHIFT_ACCEPT_MICROSOFT_LICENSE=1`): setup then fetches the C++
+libraries and Windows SDK with `xwin` instead. A published kit also
+replaces the ShiftGlue clone, licence or not (TP-3 and TP-4 in
+[TIME_TO_PLAY_BACKLOG.md](TIME_TO_PLAY_BACKLOG.md);
+`PINYON_SHIFT_MSVC_SYSROOT=0` forces the Build Tools). Before
 building, the pinned compiler checks the selected C++ library for C++23
 `std::byteswap` and the selected Windows SDK headers for `D3D12_OPTIONS8`.
 The latter is needed to compile the retained SDK backend. An incompatible
@@ -21,9 +28,12 @@ Run:
 The script performs six reproducible stages:
 
 1. verifies the exact ISO size and SHA-256 against `config/supported-dumps.json`;
-2. installs Visual Studio Build Tools when missing and downloads pinned portable
+2. installs Visual Studio Build Tools when missing (or fetches the Microsoft
+   libraries, as above) and downloads pinned portable
    tools whose hashes are recorded in `config/release-toolchain.json`;
-3. initializes the pinned ShiftGlue submodule, or clones the same revision for a packaged launcher;
+3. unpacks the prebuilt ShiftGlue kit for the pinned revision, or, without
+   one, initializes the pinned submodule or clones the same revision for a
+   packaged launcher;
 4. extracts the disc and generates translated source under `.local/`;
 5. configures and compiles `out/build/win-amd64-release/pinyon_shift.exe`
    for supported Vulkan play; and

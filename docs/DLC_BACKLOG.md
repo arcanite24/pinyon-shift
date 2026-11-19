@@ -6,6 +6,13 @@ then LCE paint variants. Implementation starts with the shared import and
 base-disc prerequisites, even when a small car pack is the first test case.
 The public checklist lives in the [roadmap](ROADMAP.md#dlc-packages).
 
+Status note (2026-11-19): the open DLC-2 and DLC-3 checklists, "every
+package remains unqualified" and "without relying on v4" below predate
+the v4 results. Rally and the 1000 Club are met on the opt-in v4 build
+(TU-6's acceptance run and TU-7, 2026-10-07, in the
+[title update v4 backlog](TITLE_UPDATE_V4_BACKLOG.md#needs-a-decision-or-a-person)),
+and the car packs qualified on v4 with all 21 packages (DLC-4).
+
 ## Immediate priority: the original Rally experience
 
 User direction, 2026-10-05: restoring the original playable Rally experience
