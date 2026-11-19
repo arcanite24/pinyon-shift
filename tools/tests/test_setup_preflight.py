@@ -127,6 +127,28 @@ class PreflightTests(unittest.TestCase):
         self.assertIn("--add A.One --add B.Two", calls[1])
         self.assertIn("--passive", calls[1])
 
+    def test_only_the_bootstrapper_gets_wait(self):
+        # The installed Visual Studio Installer 4.12 (setup.exe) rejects
+        # --wait with exit code 87 (#549); the downloaded bootstrapper needs it.
+        import tempfile
+        for name, wait in (("setup.cmd", False), ("vs_buildtools.cmd", True)):
+            with tempfile.TemporaryDirectory() as temp:
+                temp = pathlib.Path(temp)
+                log = temp / "calls.txt"
+                fake = temp / name
+                fake.write_text(f'@echo %*>>"{log}"\r\n@exit /b 0\r\n', encoding="ascii")
+                result = subprocess.run(
+                    [POWERSHELL, "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+                     str(ROOT / "tools/install-build-tools.ps1"), "-Bootstrapper", str(fake),
+                     "-Mode", "Repair", "-InstallPath", str(temp / "VS"), "-Add", "A.One"],
+                    capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                calls = log.read_text(encoding="ascii").splitlines()
+            self.assertEqual(len(calls), 2)
+            for call in calls:
+                self.assertEqual("--wait" in call.split(), wait, (name, call))
+                self.assertIn("--passive", call)
+
     def test_install_starts_the_installer_once_with_every_switch(self):
         # #458, #533: the single Install run was unrolled into its switches
         # and the installer was started once per switch.
