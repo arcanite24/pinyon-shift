@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.4 - 2026-11-19
+
+- Fixed: Windows setup failed its C++23 check with Visual Studio 18.12
+  (MSVC 14.52); it now builds with an installed toolset that accepts the
+  pinned Clang.
+- The release includes the Windows prebuilt kit, LLVM and host objects
+  again (0.9.3 shipped without them).
+
 ## 0.9.3 - 2026-11-19
 
 - Fixed: the Android game closed a second after Play on devices using
