@@ -46,6 +46,11 @@ together with it, whenever work:
   retried without a new reason);
 - finds a method or lesson that other Xbox 360 recompilation projects
   could reuse (`lessons.md`);
+- finds a lesson that applies beyond this one game: also update the
+  matching chapter of the cross-project guide "Recompiling Xbox 360
+  Games" (https://neri.deimos.studio/recomp/; source in the
+  `arcanite24/deimos-instruments` repository,
+  `sites/neri/src/content/recomp/`);
 - adds or changes something players see: a setting, a feature, an
   install, build or troubleshooting step (the player pages and
   `site/features.toml`).
