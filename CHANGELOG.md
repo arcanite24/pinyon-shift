@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.5 - 2026-11-19
+
+- New (experimental): Windows PCs whose GPU has Direct3D feature level
+  11_0 but no Vulkan 1.3 driver start on a Direct3D 11 renderer instead of
+  failing; 1x resolution only.
+
 ## 0.9.4 - 2026-11-19
 
 - Fixed: Windows setup failed its C++23 check with Visual Studio 18.12

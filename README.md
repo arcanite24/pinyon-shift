@@ -40,7 +40,7 @@ It does **not** contain the game, its assets, generated translations or a
 prebuilt executable: you build the game from a disc you own.
 
 > **Playable preview.** Expect some rendering bugs and slowdowns. The
-> [0.9.4 release notes](docs/releases/0.9.4.md) list what the latest release
+> [0.9.5 release notes](docs/releases/0.9.5.md) list what the latest release
 > contains and its known limitations.
 
 ## Highlights
@@ -118,7 +118,8 @@ If something goes wrong, see [Troubleshooting](docs/TROUBLESHOOTING.md).
 - Windows 10 or 11, x64; x86-64 Linux, including SteamOS on the Steam
   Deck; or macOS 13.3 or newer on Apple silicon (Intel Macs experimental).
 - A GPU with Vulkan 1.3. NVIDIA is tested; AMD and Intel are not yet
-  qualified.
+  qualified. On Windows, a GPU with only Direct3D feature level 11_0 runs
+  an experimental Direct3D 11 backend at 1x.
 - A CPU with 4 cores for Low-spec 60. The Steam Deck holds 60 fps at 1x; other
   integrated graphics are not measured yet.
 

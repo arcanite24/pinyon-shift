@@ -34,6 +34,20 @@ class HardwareCheckContractTests(unittest.TestCase):
             self.assertIn(f"'{preset}'", tool)
             self.assertIn(preset.upper().replace("_", " ").replace("LOW SPEC", "LOW-SPEC"), menu)
 
+    def test_direct3d11_fallback_matches_between_launcher_and_game(self):
+        """D11-2.1: no Vulkan 1.3 but feature level 11_0 starts Direct3D 11."""
+        launcher = LAUNCHER.read_text(encoding="utf-8")
+        game = GAME.read_text(encoding="utf-8")
+        probe = (ROOT / "src/platform/graphics_probe.cpp").read_text(encoding="utf-8")
+        self.assertIn("UsesDirect3D11", launcher)
+        self.assertIn("0xB000", launcher)
+        self.assertIn("0xB000", probe)
+        self.assertIn('"config.gpu_backend_fallback"', game)
+        self.assertIn('SetFlagByName("gpu_backend", "d3d11")', game)
+        # Scripted render tests keep the backend they ask for.
+        fallback = game[game.index("D11-2.1"):game.index('"config.gpu_backend_fallback"')]
+        self.assertIn("fh1_render_test::Enabled()", fallback)
+
 
 if __name__ == "__main__":
     unittest.main()

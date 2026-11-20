@@ -35,7 +35,7 @@ The game's GPU commands run through a renderer written for *Forza Horizon*, not 
 - The game's original Xenos shaders are translated to SPIR-V. Shaders seen during setup are stored in a pack, and new ones are translated during play and kept for the next launch.
 - Rendering runs at 1x to 4x the console's 1280 × 720, with FSR 1, CAS or bilinear output scaling.
 
-Vulkan 1.3 is the only supported API. The Direct3D 12 backend is legacy code and isn't offered to players.
+Vulkan 1.3 is the only supported API. The Direct3D 12 backend is legacy code and isn't offered to players. An experimental [Direct3D 11 backend](renderer.md#direct3d-11), starts by itself on Windows GPUs without Vulkan 1.3 that have Direct3D feature level 11_0.
 
 ## Frame rate
 

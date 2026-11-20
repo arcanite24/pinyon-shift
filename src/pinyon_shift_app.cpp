@@ -56,6 +56,7 @@
 #include "native_renderer/shader_capture.h"
 #include "pinyon_shift_diagnostics.h"
 #include "platform/display_hdr.h"
+#include "platform/graphics_probe.h"
 #include "platform/host_platform.h"
 #include "pinyon_shift_runtime_hooks.h"
 #include "config/default_keys.h"
@@ -988,6 +989,29 @@ void PinyonShiftApp::OnPreSetup(rex::RuntimeConfig& config) {
     pinyon_shift::diagnostics::RecordEvent("config.gpu_backend_defaulted",
                                            {{"from", "any"}, {"to", "vulkan"}});
   }
+#if defined(_WIN32)
+  // D11-2.1: a PC whose GPU has no Vulkan 1.3 driver but does have Direct3D
+  // feature level 11_0 (AMD TeraScale, Intel Ivy Bridge to Broadwell, NVIDIA Fermi and Kepler)
+  // starts on the experimental Direct3D 11 backend for this run instead of
+  // failing. The settings file keeps "vulkan", so a later driver update goes
+  // back to Vulkan by itself.
+  if (config.gpu_plugin == "fh1" && rex::cvar::GetFlagByName("gpu_backend") == "vulkan" &&
+      !pinyon_shift::fh1_render_test::Enabled()) {
+    const uint32_t vulkan = pinyon_shift::platform::BestVulkanDeviceApiVersion();
+    const bool vulkan13 = (vulkan >> 22) > 1 || ((vulkan >> 22) == 1 && ((vulkan >> 12) & 0x3FF) >= 3);
+    if (!vulkan13 && pinyon_shift::platform::HasDirect3D11FeatureLevel11()) {
+      rex::cvar::SetFlagByName("gpu_backend", "d3d11");
+      REXLOG_INFO("No Vulkan 1.3 device (best {}.{}); using the Direct3D 11 backend", vulkan >> 22,
+                  (vulkan >> 12) & 0x3FF);
+      pinyon_shift::diagnostics::RecordEvent(
+          "config.gpu_backend_fallback",
+          {{"from", "vulkan"},
+           {"to", "d3d11"},
+           {"vulkan_version",
+            std::to_string(vulkan >> 22) + "." + std::to_string((vulkan >> 12) & 0x3FF)}});
+    }
+  }
+#endif
   pinyon_shift::fh1_render_test::Configure(config);
   pinyon_shift::rally::ConfigureAudioProbe(config);
   // WINDOWS HDR: before the swapchain is made, so the presenter is offered
@@ -1058,7 +1082,14 @@ bool PinyonShiftApp::SetupPresentation() {
   }
   pinyon_shift::diagnostics::RecordEvent("graphics.unavailable",
                                          {{"gpu_backend", rex::cvar::GetFlagByName("gpu_backend")}});
-  if (!pinyon_shift::fh1_render_test::Enabled()) {
+  if (!pinyon_shift::fh1_render_test::Enabled() &&
+      rex::cvar::GetFlagByName("gpu_backend") == "d3d11") {
+    pinyon_shift::platform::ShowFatalError(
+        "Graphics unavailable",
+        "Pinyon Shift could not start the experimental Direct3D 11 backend, which it "
+        "uses when the GPU has no Vulkan 1.3 driver. Install the newest graphics "
+        "driver, then retry; the runtime log (logs/runtime.log) names the step that failed.");
+  } else if (!pinyon_shift::fh1_render_test::Enabled()) {
     pinyon_shift::platform::ShowFatalError(
         "Graphics unavailable",
         "Pinyon Shift could not start the graphics device. It needs a GPU whose "

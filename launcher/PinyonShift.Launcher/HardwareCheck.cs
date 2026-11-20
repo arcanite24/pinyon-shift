@@ -12,7 +12,14 @@ public sealed record GpuInfo(string Name, bool Discrete, ulong DeviceLocalBytes,
     public bool SupportsVulkan13 => (ApiVersion >> 22) > 1 || ((ApiVersion >> 22) == 1 && ((ApiVersion >> 12) & 0x3FF) >= 3);
 }
 
-public sealed record HardwareInfo(GpuInfo? Gpu, int LogicalProcessors, int PhysicalCores, int RefreshHz);
+// Direct3D11: no Vulkan 1.3 device, but a Direct3D 11 device at feature level
+// 11_0, so the game starts on its experimental Direct3D 11 backend
+// (D3D11_BACKLOG.md D11-2.1, src/pinyon_shift_app.cpp OnPreSetup).
+public sealed record HardwareInfo(GpuInfo? Gpu, int LogicalProcessors, int PhysicalCores, int RefreshHz,
+    bool Direct3D11 = false)
+{
+    public bool UsesDirect3D11 => Direct3D11 && Gpu is not { SupportsVulkan13: true };
+}
 
 public sealed record Recommendation(string Preset, string Label, string Reason, string? Warning);
 
@@ -23,7 +30,13 @@ public static class HardwareCheck
         GpuInfo? gpu = null;
         try { gpu = ProbeVulkan(); }
         catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException or SEHException) { }
-        return new HardwareInfo(gpu, Environment.ProcessorCount, PhysicalCoreCount(), refreshHz);
+        var direct3D11 = false;
+        if (gpu is not { SupportsVulkan13: true })
+        {
+            try { direct3D11 = ProbeDirect3D11(); }
+            catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException or SEHException) { }
+        }
+        return new HardwareInfo(gpu, Environment.ProcessorCount, PhysicalCoreCount(), refreshHz, direct3D11);
     }
 
     // The rule the game applies to a new config (src/pinyon_shift_app.cpp,
@@ -37,7 +50,10 @@ public static class HardwareCheck
 
     public static Recommendation Recommend(HardwareInfo info)
     {
-        string? warning = info.Gpu switch
+        string? warning = info.UsesDirect3D11
+            ? "No Vulkan 1.3 driver was found, so the game will use its experimental Direct3D 11 backend: " +
+              "1x resolution only and slower than Vulkan. If the GPU vendor offers a driver with Vulkan 1.3, install it."
+            : info.Gpu switch
         {
             null => "No Vulkan GPU was found. Install the graphics driver from AMD, Intel or NVIDIA.",
             { SupportsVulkan13: false } gpu =>
@@ -80,6 +96,7 @@ public static class HardwareCheck
         {
             text.Append("No Vulkan GPU found");
         }
+        if (info.UsesDirect3D11) text.Append(" · Direct3D 11 (experimental)");
         text.Append(info.PhysicalCores > 0
             ? $" · {info.PhysicalCores} cores, {info.LogicalProcessors} threads"
             : $" · {info.LogicalProcessors} threads");
@@ -99,6 +116,19 @@ public static class HardwareCheck
         0x8086 => "https://www.intel.com/content/www/us/en/download-center/home.html",
         _ => "https://github.com/arcanite24/pinyon-shift/blob/main/docs/TROUBLESHOOTING.md"
     };
+
+    // ---- Direct3D 11 ---------------------------------------------------------
+
+    [DllImport("d3d11.dll")]
+    private static extern int D3D11CreateDevice(IntPtr adapter, int driverType, IntPtr software, uint flags,
+        int[] featureLevels, uint featureLevelCount, uint sdkVersion, IntPtr device, IntPtr featureLevel,
+        IntPtr context);
+
+    // With no output pointers D3D11CreateDevice only reports whether a hardware
+    // device at feature level 11_0 could be made (S_FALSE).
+    private static bool ProbeDirect3D11() =>
+        D3D11CreateDevice(IntPtr.Zero, 1, IntPtr.Zero, 0, new[] { 0xB000 }, 1, 7,
+            IntPtr.Zero, IntPtr.Zero, IntPtr.Zero) >= 0;
 
     // ---- Vulkan ------------------------------------------------------------
 
