@@ -1,4 +1,8 @@
 #include "ui/touch_pad.h"
+#if defined(__ANDROID__)
+#include <jni.h>
+#include <SDL3/SDL_system.h>
+#endif
 
 #include <algorithm>
 #include <cmath>
@@ -59,8 +63,30 @@ class TouchPadDriver final : public rex::input::InputDriver {
     }
     return X_ERROR_SUCCESS;
   }
-  X_RESULT SetDeviceVibration(DeviceId id, rex::input::X_INPUT_VIBRATION*) override {
-    return id == kTouchDevice ? X_ERROR_SUCCESS : X_ERROR_DEVICE_NOT_CONNECTED;
+  X_RESULT SetDeviceVibration(DeviceId id, rex::input::X_INPUT_VIBRATION* vibration) override {
+    if (id != kTouchDevice) {
+      return X_ERROR_DEVICE_NOT_CONNECTED;
+    }
+#if defined(__ANDROID__)
+    if (vibration) {
+      auto* env = static_cast<JNIEnv*>(SDL_GetAndroidJNIEnv());
+      auto activity = static_cast<jobject>(SDL_GetAndroidActivity());
+      if (env && activity) {
+        jclass cls = env->GetObjectClass(activity);
+        if (cls) {
+          jmethodID mid = env->GetMethodID(cls, "onRumble", "(II)V");
+          if (mid) {
+            env->CallVoidMethod(activity, mid, jint(vibration->left_motor_speed),
+                                jint(vibration->right_motor_speed));
+          }
+          if (env->ExceptionCheck()) env->ExceptionClear();
+          env->DeleteLocalRef(cls);
+        }
+        env->DeleteLocalRef(activity);
+      }
+    }
+#endif
+    return X_ERROR_SUCCESS;
   }
   X_RESULT GetDeviceKeystroke(DeviceId id, uint32_t, rex::input::X_INPUT_KEYSTROKE*) override {
     return id == kTouchDevice ? X_ERROR_EMPTY : X_ERROR_DEVICE_NOT_CONNECTED;
