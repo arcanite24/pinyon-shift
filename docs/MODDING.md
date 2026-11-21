@@ -284,17 +284,20 @@ the events' `UnlockPointsReq` uses the same points, so scaling what a finish
 earns keeps the two in step. Stock is the mod off, or both at 1x, which
 leaves every table as the disc has it. DLC cars and parts come from their
 packages' merge databases while the game runs and keep their prices. It
-plays the modded profile. It targets the base executable (`game_version`)
-because it has not been tried on v4: the mod host rejects it there, and the
-v4 step of the [database patches](#database-patches) leaves its scripts out
-of v4's database.
+plays the modded profile. It has no `game_version`: every table it touches
+is in both the disc's database and v4's own copy, so the
+[database patches](#database-patches) apply it to each and the mod host
+loads it on both builds. v4's Rally tables (`RallyScoring`,
+`RallyWristbandLevels`) are left alone.
 `tools/tests/test_festival_pacing.py` runs the scripts on a small copy of
 the tables they touch at the defaults and at 1x.
 
 On `fh1-pacing-upgrade` from a seed parked at Dak's Garage, AUTO UPGRADE
 from C 400 asked 46,956 Cr for B 496 on stock and 24,075 Cr for B 500 at the
 defaults; with the cheaper prices the auto upgrade chose slightly different
-parts. An earlier build with one combined option, at a third of the stock
+parts. On the v4 build from the same save (with the verified title update
+added to the seed), it asked 47,047 Cr for B 498 on stock and 24,758 Cr for
+B 500 at the defaults. An earlier build with one combined option, at a third of the stock
 prices, asked 16,045 Cr for the same parts, two-thirds of the half-price
 total, so the chosen value reaches the game. A save that already has XP
 keeps its level: a profile edited to 100,000 XP at level 11 (the stock

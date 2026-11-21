@@ -52,7 +52,7 @@ pinyon = "Live chase height, distance, FOV and stiffness; optional immersive cam
 feature = "Career pace"
 link = "playing.md#festival-pacing"
 xbox = "Fixed"
-pinyon = "Optional festival pacing on the base game: set what cars and upgrades cost and what races pay, from a quarter to five times stock"
+pinyon = "Optional festival pacing: set what cars and upgrades cost and what races pay, from a quarter to five times stock"
 
 [[original]]
 feature = "Music"
