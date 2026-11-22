@@ -13,9 +13,9 @@ copied to <state>/backups/before-import-<time>/user, the shared DLC content
 (user/0000000000000000) is left alone, and the source is never changed.
 Each source tree goes to the same tree here: user to user, and user-modded
 (the profile the game plays while cheats or mods are on) to user-modded, so
-cheated progress never reaches the player's own save (src/cheats.cpp). When
-the imported profile is not the one selected, user_xuid in pinyon_shift.toml
-selects it (with a backup of the file).
+cheated progress never reaches the player's own save (src/cheats.cpp). The
+source's selected normal profile takes priority if it was imported. Updating
+user_xuid keeps a backup of the destination's settings file.
 
 --xenia is tools/import-xenia-save.ps1 (now a wrapper over this): FH1 signs
 its saves with the profile's XUID, so a save from Xenia's
@@ -32,6 +32,7 @@ import argparse
 import shutil
 import sys
 import tempfile
+import tomllib
 import uuid
 import zipfile
 from datetime import datetime, timezone
@@ -76,6 +77,15 @@ def select_xuid(state: Path, xuid: str) -> str | None:
 def selected_xuid(state: Path) -> str:
     return (config.get_value(config.read_config(config_path(state)), "user_xuid",
                              common.DEFAULT_XUID) or common.DEFAULT_XUID).upper()
+
+
+def recorded_xuid(state: Path) -> str | None:
+    """Read only the source's root profile selection, if it has one."""
+    try:
+        value = tomllib.loads(config.read_config(config_path(state))).get("user_xuid")
+    except (OSError, UnicodeError, tomllib.TOMLDecodeError):
+        return None
+    return value.upper() if isinstance(value, str) and usable_xuid(value) else None
 
 
 def has_save(title: Path) -> bool:
@@ -244,6 +254,8 @@ def import_install(state: Path, source: Path) -> dict:
         trees = find_source_trees(root)
         if any(tree.resolve() in own_trees for tree in trees.values()):
             raise SaveError("choose another install's save, not this one")
+        normal_tree = trees.get("user")
+        source_xuid = recorded_xuid(normal_tree.parent) if normal_tree and normal_tree != root else None
         profiles = {name: profiles_in(tree) for name, tree in trees.items()}
         replaced = {name: {profile.name.upper() for profile in found}
                     for name, found in profiles.items()}
@@ -258,10 +270,12 @@ def import_install(state: Path, source: Path) -> dict:
     result = {"imported_profiles": own, "imported_modded_profiles": imported.get("user-modded", []),
               "source_trees": sorted(imported), "backup": str(backup) if backup else None,
               "config_backup": None, "xuid": selected_xuid(state)}
-    if own and result["xuid"] not in own:
-        # The game loads the selected profile; select the imported one (the
-        # default profile when it is among them).
+    chosen = result["xuid"]
+    if source_xuid in own:
+        chosen = source_xuid
+    elif own and chosen not in own:
         chosen = common.DEFAULT_XUID if common.DEFAULT_XUID in own else own[0]
+    if chosen != result["xuid"]:
         result["config_backup"] = select_xuid(state, chosen)
         result["xuid"] = chosen
     return result
