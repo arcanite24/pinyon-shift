@@ -418,6 +418,26 @@ class ImportSaveTests(unittest.TestCase):
         self.assertIsNone(result["backup"])
         self.assertEqual(result["imported_profiles"], [XUID])
 
+    def test_a_state_zip_keeps_the_source_profile_selected(self):
+        current = common.DEFAULT_XUID
+        config = self.state / "config/pinyon_shift.toml"
+        config.parent.mkdir(parents=True)
+        original = f'user_xuid = "{current}"\nvsync = false\n'
+        config.write_text(original, encoding="utf-8")
+        archive = self.root / "save.zip"
+        with zipfile.ZipFile(archive, "w") as output:
+            for owner in (current, XUID):
+                output.writestr(f"preview/user/{owner}/{TITLE}/00000001/ForzaProfile/ForzaProfile",
+                                "save")
+            output.writestr("preview/config/pinyon_shift.toml",
+                            f'user_xuid = "{XUID.lower()}"\nvsync = true\n')
+        code, result = run_json(["import-save", str(archive), "--state-root", str(self.state), "--json"])
+        self.assertEqual(code, 0, result)
+        self.assertEqual(result["xuid"], XUID)
+        self.assertEqual(pinyon_saves.selected_xuid(self.state), XUID)
+        self.assertIn("vsync = false", config.read_text(encoding="utf-8"))
+        self.assertEqual(Path(result["config_backup"]).read_text(encoding="utf-8"), original)
+
     def test_this_install_is_not_its_own_source(self):
         make_profile(self.state / "user", XUID)
         for source in (self.state, self.state / "user"):
