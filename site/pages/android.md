@@ -95,6 +95,8 @@ A built-in, Bluetooth or USB controller works as on the PC. On a touch screen, o
 
 ## Troubleshooting
 
+Settings copied from older FH4Droid releases can contain leading-dot decimals such as `.5`. Startup repairs these in the affected graphics and camera settings and saves the original as `pinyon_shift.toml.android-decimals.bak`.
+
 On older Linux kernels, including the Pixel 3 XL's reported 4.9.337 kernel,
 the runtime now checks that a fixed allocation actually maps the requested
 address. This prevents a relocated mapping from leaving a reused guest stack's

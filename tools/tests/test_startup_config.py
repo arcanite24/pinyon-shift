@@ -87,6 +87,41 @@ class StartupConfigTests(unittest.TestCase):
         self.assertEqual(path.read_bytes(), data)
         self.assertEqual(list(path.parent.iterdir()), [path])
 
+    def test_repairs_android_fractions_before_loading_saved_graphics(self):
+        data = ('\ufeff' + '\r\n'.join((
+            f'pinyon_shift_config_schema = {self.schema}',
+            'gpu_backend = "vulkan"',
+            'fh1_render_scale_percent = 90',
+            'present_effect = "fsr"',
+            'present_fsr_sharpness_reduction = .5  # FSR preset',
+            'pinyon_shift_fh1_shadows = true',
+            'pinyon_shift_fov_scale = +.9',
+            'pinyon_shift_camera_shake = .5',
+            'custom = """Settings example:',
+            'present_fsr_sharpness_reduction = .5',
+            '"""',
+            '',
+        ))).encode()
+        with self.assertRaises(tomllib.TOMLDecodeError):
+            tomllib.loads(data.decode('utf-8-sig'))
+        path, result = self.run_gate(data)
+        self.assertEqual((result.returncode, result.stdout), (0, '1 0 1'))
+        self.assertEqual(Path(str(path) + '.android-decimals.bak').read_bytes(), data)
+        repaired = path.read_bytes()
+        settings = tomllib.loads(repaired.decode('utf-8-sig'))
+        self.assertEqual(settings['fh1_render_scale_percent'], 90)
+        self.assertEqual(settings['present_effect'], 'fsr')
+        self.assertEqual(settings['present_fsr_sharpness_reduction'], 0.5)
+        self.assertEqual(settings['pinyon_shift_fov_scale'], 0.9)
+        self.assertEqual(settings['pinyon_shift_camera_shake'], 0.5)
+        self.assertTrue(settings['pinyon_shift_fh1_shadows'])
+        self.assertIn(b'present_fsr_sharpness_reduction = 0.5  # FSR preset\r\n', repaired)
+        self.assertIn('present_fsr_sharpness_reduction = .5', settings['custom'])
+        again = subprocess.run([str(self.exe), str(path)], capture_output=True, text=True)
+        self.assertEqual((again.returncode, again.stdout), (0, '1 0 0'))
+        self.assertEqual(path.read_bytes(), repaired)
+        self.assertEqual(Path(str(path) + '.android-decimals.bak').read_bytes(), data)
+
     def test_invalid_schema_stays_untouched(self):
         for body in ('pinyon_shift_config_schema = 0\n',
                      'pinyon_shift_config_schema = "invalid"\n'):
